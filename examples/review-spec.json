@@ -14,6 +14,10 @@
         { "title": "Or Mermaid (needs internet)", "mermaid": "flowchart TD\n  A[start] --> B{decision}\n  B -- yes --> C[do thing]\n  B -- no --> D[skip]" }
       ],
       "diffFile": "pr-1.patch",
+      "groups": [
+        { "id": "mech", "kind": "mechanical", "title": "Rename oldApi → newApi", "note": "Pure find/replace — review one, tick the group.", "files": ["src/a.js", "src/b.js"] },
+        { "id": "core", "kind": "feature", "title": "New validation logic", "files": ["src/auth.js"] }
+      ],
       "review": {
         "verdict": "comment",
         "global": "Overall assessment. Add this only in **review mode** (user asked for Claude's review); omit it for a plain diff.",

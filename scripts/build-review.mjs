@@ -395,15 +395,17 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   const warnHtml = warning ? `<div class="warn">⚠ ${esc(warning)}</div>` : "";
   const totals = files.reduce((t, f) => ({ add: t.add + f.add, del: t.del + f.del }), { add: 0, del: 0 });
 
-  const filesHtml = files
-    .map((f, i) => {
-      const fid = `${prId}__${i}`;
-      dataBag[fid] = fileData(f);
-      const d = dataBag[fid];
-      const pathLabel = d.renamed ? `${esc(d.oldPath)} → ${esc(d.path)}` : esc(d.path);
-      const tag = d.isNew ? '<span class="ftag ftag-new">new</span>' : d.isDeleted ? '<span class="ftag ftag-del">deleted</span>' : d.renamed ? '<span class="ftag">renamed</span>' : "";
-      return `
-      <div class="file" id="file-${fid}" data-file="${esc(d.path)}">
+  // one block per file (diff filled client-side); optionally arranged into groups
+  const fileBlocks = files.map((f, i) => {
+    const fid = `${prId}__${i}`;
+    dataBag[fid] = fileData(f);
+    return { fid, d: dataBag[fid] };
+  });
+  const renderFileBlock = ({ fid, d }, collapsed) => {
+    const pathLabel = d.renamed ? `${esc(d.oldPath)} → ${esc(d.path)}` : esc(d.path);
+    const tag = d.isNew ? '<span class="ftag ftag-new">new</span>' : d.isDeleted ? '<span class="ftag ftag-del">deleted</span>' : d.renamed ? '<span class="ftag">renamed</span>' : "";
+    return `
+      <div class="file${collapsed ? " collapsed" : ""}" id="file-${fid}" data-file="${esc(d.path)}">
         <div class="file-header" data-toggle="file-${fid}">
           <span class="chevron">▾</span>
           <span class="file-path">${pathLabel}</span>${tag}
@@ -416,8 +418,43 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         </div>
         <div class="file-body"><div class="file-note-slot"></div><div class="diff-mount" data-fid="${fid}"></div></div>
       </div>`;
-    })
-    .join("\n") || (warning ? "" : '<p class="pr-meta">No diff provided.</p>');
+  };
+  const renderGroup = (g, gblocks) => {
+    const kind = g.kind || "other";
+    const collapsedFiles = g.collapsed != null ? !!g.collapsed : kind === "mechanical";
+    const gadd = gblocks.reduce((s, b) => s + b.d.add, 0);
+    const gdel = gblocks.reduce((s, b) => s + b.d.del, 0);
+    return `
+      <div class="group gk-${esc(kind)}" data-group="${esc(g.id || kind)}">
+        <div class="group-head" data-gtoggle>
+          <span class="chevron">▾</span>
+          <span class="group-kind gk-${esc(kind)}">${esc(kind)}</span>
+          <span class="group-title">${esc(g.title || g.id || "Changes")}</span>
+          <span class="group-count">${gblocks.length} file${gblocks.length === 1 ? "" : "s"}</span>
+          <span class="stats"><span class="stat-add">+${gadd}</span> <span class="stat-del">-${gdel}</span></span>
+          <label class="group-viewed" title="Mark every file in this group reviewed"><input type="checkbox" class="gv-cb"> Reviewed</label>
+        </div>
+        ${g.note ? `<div class="group-note">${md(g.note)}</div>` : ""}
+        <div class="group-files">${gblocks.map((b) => renderFileBlock(b, collapsedFiles)).join("\n")}</div>
+      </div>`;
+  };
+
+  let filesHtml;
+  if (Array.isArray(pr.groups) && pr.groups.length) {
+    const byPath = new Map(fileBlocks.map((b) => [b.d.path, b]));
+    const assigned = new Set();
+    const parts = [];
+    for (const g of pr.groups) {
+      const gblocks = (g.files || []).map((p) => byPath.get(p)).filter(Boolean);
+      gblocks.forEach((b) => assigned.add(b.d.path));
+      if (gblocks.length) parts.push(renderGroup(g, gblocks));
+    }
+    const rest = fileBlocks.filter((b) => !assigned.has(b.d.path));
+    if (rest.length) parts.push(renderGroup({ id: "__other", title: "Other changes", kind: "other" }, rest));
+    filesHtml = parts.join("\n");
+  } else {
+    filesHtml = fileBlocks.map((b) => renderFileBlock(b, false)).join("\n") || (warning ? "" : '<p class="pr-meta">No diff provided.</p>');
+  }
 
   const blocksHtml = renderBlocks(pr);
   const link = pr.url ? ` · <a class="pr-link" href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.url)}</a>` : "";
@@ -442,14 +479,18 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   const review = normalizeReview(pr);
   if (review) reviewBag[prId] = review;
   const verdictBadge = review && review.verdict ? `<span class="verdict verdict-${esc(review.verdict)}">${esc(review.verdict.replace(/-/g, " "))}</span>` : "";
+  const vclass = review && review.verdict ? "v-" + esc(review.verdict) : "v-comment";
   const aiGlobal =
     review && (review.global || review.verdict)
-      ? `<div class="ai-review"><div class="ai-review-head"><span class="ai-tag">✦ ${esc(reviewer)} review</span>${verdictBadge}</div>${review.global ? `<div class="summary-body">${md(review.global)}</div>` : ""}</div>`
+      ? `<div class="ai-review ${vclass}"><div class="ai-review-head"><span class="ai-tag">✦ ${esc(reviewer)} review</span>${verdictBadge}</div>${review.global ? `<div class="summary-body">${md(review.global)}</div>` : ""}</div>`
       : "";
   const findingsList =
     review && review.comments.length
       ? `<div class="cl-wrap"><div class="cl-head">${esc(reviewer)} findings <span class="cl-count">${review.comments.length}</span></div><div class="finding-list" data-finding-list="${esc(prId)}"></div></div>`
       : "";
+  const overallPlaceholder = review
+    ? `Your verdict after reading the summary, the ${reviewer} review, and the diff…`
+    : "Your overall verdict after reading the summary and the diff…";
 
   return `
   <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}"${single ? "" : " hidden"}>
@@ -459,8 +500,6 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       <div class="review-col">
         <div class="review-top">
           ${aiGlobal}
-          <label class="review-label">Your review comment</label>
-          <textarea class="general-input" data-general="${esc(prId)}" placeholder="Overall verdict / summary of your review…"></textarea>
           ${findingsList}
           <div class="cl-wrap">
             <div class="cl-head">Your line comments <span class="cl-count" data-cl-count="${esc(prId)}">0</span></div>
@@ -473,6 +512,10 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           <div class="files">${filesHtml}</div>
         </div>
       </div>
+    </div>
+    <div class="overall-bar">
+      <div class="ob-head"><span class="review-label">📝 Your overall review</span><button type="button" class="ob-toggle" title="Collapse / expand">▾</button></div>
+      <textarea class="general-input" data-general="${esc(prId)}" placeholder="${esc(overallPlaceholder)}"></textarea>
     </div>
   </section>`;
 }
