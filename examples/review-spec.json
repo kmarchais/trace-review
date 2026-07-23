@@ -1,0 +1,47 @@
+{
+  "title": "Review: <short description>",
+  "reviewId": "keep-me-stable-to-retain-comments",
+  "reviewer": "AI",
+  "generated": "2026-07-22",
+  "prs": [
+    {
+      "id": "pr-1",
+      "title": "Simple path — summary + diagrams",
+      "url": "https://github.com/org/repo/pull/123",
+      "summary": "One or two tight paragraphs. Markdown supported: **bold**, `code`, - bullets, ## sub-headings.\n\nSay *what changed and why*, not a line-by-line retelling of the diff.",
+      "diagrams": [
+        { "title": "Prefer SVG (crisp, offline)", "svgFile": "diagram.svg" },
+        { "title": "Or Mermaid (needs internet)", "mermaid": "flowchart TD\n  A[start] --> B{decision}\n  B -- yes --> C[do thing]\n  B -- no --> D[skip]" }
+      ],
+      "diffFile": "pr-1.patch",
+      "review": {
+        "verdict": "comment",
+        "global": "Overall assessment. Add this only in **review mode** (user asked for Claude's review); omit it for a plain diff.",
+        "comments": [
+          { "file": "src/auth.js", "line": 42, "severity": "concern", "body": "Handle the null case before dereferencing." },
+          { "file": "src/auth.js", "line": "o58", "severity": "question", "body": "Why remove this guard? (comment on a removed line via `o<oldline>`)" }
+        ]
+      }
+    },
+    {
+      "id": "pr-2",
+      "title": "Free-form path — blocks",
+      "blocks": [
+        { "type": "prose", "width": "two-thirds", "md": "## What & why\nExplain the change. Markdown supported." },
+        { "type": "stats", "width": "third", "items": [
+          { "label": "Files", "value": "3" },
+          { "label": "Added", "value": "+11", "accent": "green" },
+          { "label": "Removed", "value": "-4", "accent": "red" }
+        ]},
+        { "type": "diagram", "width": "half", "title": "Left", "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 60'><rect x='10' y='15' width='80' height='30' rx='6' fill='#DAEFF8' stroke='#357290'/><text x='50' y='35' text-anchor='middle' fill='#357290'>node</text></svg>" },
+        { "type": "diagram", "width": "half", "title": "Right", "mermaid": "flowchart LR\n  A --> B" },
+        { "type": "callout", "width": "full", "variant": "warn", "title": "Heads up", "md": "A note the reviewer should not miss." },
+        { "type": "table", "width": "full", "headers": ["Area", "Change", "Risk"], "rows": [
+          ["auth.js", "validation", "low"],
+          ["utils.js", "new helper", "low"]
+        ]}
+      ],
+      "diff": "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n"
+    }
+  ]
+}
