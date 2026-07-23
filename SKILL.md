@@ -180,6 +180,11 @@ files** (a rename, an added `#include`, a signature tweak). Add a `groups` array
   it in the *substantive* group (its full diff shows there) — don't also list it
   in the mechanical group. The mechanical group is only for files whose entire
   change is the pattern.
+- **Pure renames are grouped automatically.** Files that were only moved/renamed
+  (no textual change) are collected into a collapsed **"Renamed (no content
+  change)"** group with no work from you — so a big rename doesn't bury the real
+  changes. A rename that *also* edits the file is a normal reviewable file (and
+  you can put it in a group). You rarely need to list renames in `groups`.
 
 ### 3. Build and open
 
@@ -252,8 +257,9 @@ See [examples/screenshot.png](examples/screenshot.png). A two-column workspace:
     sticky** — it stays pinned under the "Changes" bar while you scroll a long
     file, then hands off to the next file. The reviewer clicks the **+** gutter
     to comment on a line, the **💬** on a file header to comment on the whole
-    file, ticks **Viewed** to mark a file done (it collapses, GitHub-style, and
-    is remembered), and hits **⛶** to read the diff fullscreen. AI findings
+    file, ticks **Viewed** to mark a file done (it collapses, GitHub-style, is
+    remembered, and the view scrolls to bring the next file up so reading order
+    is preserved), and hits **⛶** to read the diff fullscreen. AI findings
     appear inline, severity-coloured, with Accept / Dismiss / Reply.
 - **Pinned to the bottom** — a **📝 Your overall review** bar stays visible at
   the bottom of the viewport no matter where you scroll (collapsible), for the
@@ -264,8 +270,14 @@ The two columns are **resizable** — drag the divider between them (default
 Styled with the Elsyca palette (Titillium Web / Roboto, JetBrains Mono for code).
 
 Viewer controls:
+- **File tree** — a **🗂 Files** button on the "Changes" bar opens a slide-in
+  tree of the changed files (directory chains compacted, per-file `+/-`, viewed
+  files struck through). Click a file to jump to it — it expands its group if
+  needed and scrolls it under the sticky header. Built for big diffs.
 - **Progress dock** (right edge) — two rings, `files viewed` and (in review
-  mode) `findings reviewed`, filling and turning green as the reviewer works.
+  mode) `findings reviewed`, scoped to the **active PR** so they match its
+  header. The centre shows a compact **%** (a ✓ when complete) with the exact
+  count below, so it stays legible even at hundreds of files.
 - **Unified / Split** toggle — lives on the **"Changes"** bar; switches inline
   vs side-by-side (persists; comments follow the line in both).
 - **Click any diagram** to view it fullscreen (click again / Esc to close).
