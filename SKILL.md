@@ -151,6 +151,36 @@ deserve a small handful of findings; a clean change deserves **none** — return
 an empty `comments` array (the global card still summarises). Signal over volume:
 a reviewer should be able to act on every finding you leave.
 
+### Change groups (optional)
+
+For a PR that touches many files, group them by theme so the reviewer isn't
+slogging file-by-file — especially when **the same change repeats across many
+files** (a rename, an added `#include`, a signature tweak). Add a `groups` array:
+
+```json
+"groups": [
+  { "id": "inc", "kind": "mechanical", "title": "Add #include \"logging.h\"",
+    "note": "Identical include at the top of each unit — review one, tick the group.",
+    "files": ["src/a.cpp", "src/b.cpp", "src/c.cpp"] },
+  { "id": "core", "kind": "feature", "title": "Wire up the logger",
+    "files": ["src/logger.cpp"] }
+]
+```
+
+- Each group renders as a labelled band (colour-coded `kind` badge + note +
+  summed `+/-`) with its files beneath, and **one "Reviewed" checkbox that marks
+  every file in the group viewed at once** — the fix for a repeated mechanical
+  change.
+- `kind`: `mechanical` · `refactor` · `feature` · `fix` · `test` · `docs` ·
+  `other`. `mechanical` groups **collapse their files by default** (expand one to
+  see the pattern); override per group with `collapsed: true|false`.
+- Files you don't list fall into an **"Other changes"** group at the end, so you
+  can group just the noisy repetitive files and leave the rest.
+- **Mixed file?** If a file has the repeated change *and* a distinct change, put
+  it in the *substantive* group (its full diff shows there) — don't also list it
+  in the mechanical group. The mechanical group is only for files whose entire
+  change is the pattern.
+
 ### 3. Build and open
 
 ```bash
@@ -196,6 +226,7 @@ accepted findings and their own comments; leave dismissed ones alone.
 | `prs[].blocks[]` | per PR | Free-form summary blocks (see *Summary blocks*). Replaces `summary`/`diagrams`. |
 | `prs[].diffFile` | per PR | Path to a unified-diff file (relative to spec). |
 | `prs[].diff` | per PR | Inline unified-diff string (alternative to `diffFile`). |
+| `prs[].groups` | per PR | Optional: organise files into themed groups — `[{ id, title, kind?, note?, collapsed?, files[] }]` (see *Change groups*). |
 | `prs[].review` | per PR | Review mode only: `{ verdict?, global?, comments[] }` (see *Automatic (AI) review*). Omit for diff-only. |
 
 One PR → no tabs, section shown directly. Two+ → a tab bar with per-PR comment
@@ -209,17 +240,24 @@ See [examples/screenshot.png](examples/screenshot.png). A two-column workspace:
   or `blocks`): a sticky panel with the title, `+/-` stats, PR link, and your
   free-form summary blocks. Omitted for a bare diff.
 - **Right — the review:**
-  - **Top** — in review mode, a read-only **"&lt;reviewer&gt; review"** card
-    (verdict + global assessment) and a **findings** list; then the reviewer's
-    own **global comment** box and a live list of their line comments (click any
-    to jump to that line).
+  - **Top** — in review mode, a bold **"&lt;reviewer&gt; review"** card whose
+    header is **coloured by verdict** (green approve / red request-changes /
+    blue comment) so it's spotted instantly, then a **findings** list where each
+    item is **accent-coloured by severity**, then a live list of the reviewer's
+    line comments (click any to jump to that line).
   - **Bottom** — the self-contained **"Changes"** block: collapsible per-file
-    diffs with **language-aware syntax highlighting** (by file extension),
-    dual old/new line numbers and green/red backgrounds. The reviewer clicks
-    the **+** gutter to comment on a line, the **💬** on a file header to
-    comment on the whole file, ticks **Viewed** to mark a file done (it
-    collapses, GitHub-style, and is remembered), and hits **⛶** to read the
-    diff fullscreen. The AI findings appear inline with Accept / Dismiss / Reply.
+    diffs with **language-aware syntax highlighting** (by file extension,
+    highlighted per-hunk so multi-line strings/comments colour correctly),
+    dual old/new line numbers and green/red backgrounds. Each **file header is
+    sticky** — it stays pinned under the "Changes" bar while you scroll a long
+    file, then hands off to the next file. The reviewer clicks the **+** gutter
+    to comment on a line, the **💬** on a file header to comment on the whole
+    file, ticks **Viewed** to mark a file done (it collapses, GitHub-style, and
+    is remembered), and hits **⛶** to read the diff fullscreen. AI findings
+    appear inline, severity-coloured, with Accept / Dismiss / Reply.
+- **Pinned to the bottom** — a **📝 Your overall review** bar stays visible at
+  the bottom of the viewport no matter where you scroll (collapsible), for the
+  reviewer's own verdict after reading everything.
 
 The two columns are **resizable** — drag the divider between them (default
 **50/50**, double-click resets). On narrow screens the left panel stacks on top.
