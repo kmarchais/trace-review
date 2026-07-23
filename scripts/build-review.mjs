@@ -425,7 +425,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     const gadd = gblocks.reduce((s, b) => s + b.d.add, 0);
     const gdel = gblocks.reduce((s, b) => s + b.d.del, 0);
     return `
-      <div class="group gk-${esc(kind)}" data-group="${esc(g.id || kind)}">
+      <div class="group gk-${esc(kind)}${g.startCollapsed ? " collapsed" : ""}" data-group="${esc(g.id || kind)}">
         <div class="group-head" data-gtoggle>
           <span class="chevron">▾</span>
           <span class="group-kind gk-${esc(kind)}">${esc(kind)}</span>
@@ -439,6 +439,11 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       </div>`;
   };
 
+  // pure renames (moved, no textual change) are noise to review one-by-one —
+  // auto-collect them into a collapsed group once there are a few of them.
+  const isPureRename = (b) => b.d.renamed && b.d.add === 0 && b.d.del === 0;
+  const RENAME_GROUP = { id: "__renames", title: "Renamed (no content change)", kind: "mechanical", startCollapsed: true };
+
   let filesHtml;
   if (Array.isArray(pr.groups) && pr.groups.length) {
     const byPath = new Map(fileBlocks.map((b) => [b.d.path, b]));
@@ -450,10 +455,20 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       if (gblocks.length) parts.push(renderGroup(g, gblocks));
     }
     const rest = fileBlocks.filter((b) => !assigned.has(b.d.path));
-    if (rest.length) parts.push(renderGroup({ id: "__other", title: "Other changes", kind: "other" }, rest));
+    const restRenames = rest.filter(isPureRename);
+    const groupRenames = restRenames.length >= 3;
+    const restOther = groupRenames ? rest.filter((b) => !isPureRename(b)) : rest;
+    if (restOther.length) parts.push(renderGroup({ id: "__other", title: "Other changes", kind: "other" }, restOther));
+    if (groupRenames) parts.push(renderGroup(RENAME_GROUP, restRenames));
     filesHtml = parts.join("\n");
   } else {
-    filesHtml = fileBlocks.map((b) => renderFileBlock(b, false)).join("\n") || (warning ? "" : '<p class="pr-meta">No diff provided.</p>');
+    const renames = fileBlocks.filter(isPureRename);
+    if (renames.length >= 3) {
+      const others = fileBlocks.filter((b) => !isPureRename(b));
+      filesHtml = others.map((b) => renderFileBlock(b, false)).join("\n") + "\n" + renderGroup(RENAME_GROUP, renames);
+    } else {
+      filesHtml = fileBlocks.map((b) => renderFileBlock(b, false)).join("\n") || (warning ? "" : '<p class="pr-meta">No diff provided.</p>');
+    }
   }
 
   const blocksHtml = renderBlocks(pr);
@@ -507,7 +522,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           </div>
         </div>
         <div class="diff-block">
-          <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
+          <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span><button type="button" class="dbh-tree" title="File tree (list of changed files)">🗂 Files</button><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
           ${warnHtml}
           <div class="files">${filesHtml}</div>
         </div>

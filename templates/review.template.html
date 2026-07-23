@@ -359,9 +359,41 @@
   .pd-track { fill:none; stroke:var(--border); stroke-width:5; }
   .pd-fill { fill:none; stroke:var(--primary); stroke-width:5; stroke-linecap:round; transition:stroke-dashoffset .3s ease; }
   .pd-item.done .pd-fill { stroke:var(--green); }
-  .pd-count { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:var(--font-heading); font-size:.72rem; font-weight:700; color:var(--text); }
+  .pd-count { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:var(--font-heading); font-size:.82rem; font-weight:700; color:var(--text); }
+  .pd-item.done .pd-count { color:var(--green); }
   .pd-label { font-size:.6rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-family:var(--font-heading); text-align:center; }
+  .pd-frac { font-family:var(--mono); font-size:.6rem; color:var(--muted); text-align:center; line-height:1; }
   @media (max-width:960px){ .progress-dock { display:none !important; } body.has-dock main { padding-right:22px; } }
+
+  /* file-tree drawer — a slide-in list/tree of changed files for navigation */
+  .dbh-tree { background:none; border:1px solid var(--border); border-radius:5px; cursor:pointer; font-family:var(--font-heading); font-size:.78rem; line-height:1; padding:5px 9px; color:var(--muted); white-space:nowrap; }
+  .dbh-tree:hover, .dbh-tree.on { border-color:var(--primary); color:var(--primary); }
+  .file-tree { position:fixed; top:var(--h-app,57px); left:0; bottom:0; width:340px; max-width:84vw; z-index:70;
+    background:var(--card); border-right:1px solid var(--border); box-shadow:3px 0 18px rgba(0,0,0,.24); display:flex; flex-direction:column; }
+  .file-tree[hidden] { display:none; }
+  .ft-head { display:flex; align-items:center; gap:8px; padding:10px 12px 10px 14px; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .ft-title { font-family:var(--font-heading); font-weight:700; color:var(--secondary); }
+  .ft-count { font-size:.74rem; color:var(--muted); }
+  .ft-viewed { font-size:.72rem; color:var(--green); margin-left:auto; font-family:var(--font-heading); }
+  .ft-tools { display:flex; gap:4px; width:100%; }
+  .ft-tools button, .ft-close { background:none; border:1px solid var(--border); border-radius:5px; cursor:pointer; color:var(--muted); font-size:.72rem; font-family:var(--font-heading); padding:3px 8px; }
+  .ft-tools button:hover, .ft-close:hover { border-color:var(--primary); color:var(--primary); }
+  .ft-close { position:absolute; top:8px; right:10px; }
+  .ft-body { overflow:auto; padding:8px 8px 22px; flex:1; }
+  .file-tree ul { list-style:none; margin:0; padding:0 0 0 13px; }
+  .file-tree .ft-root { padding-left:2px; }
+  .ft-row { display:flex; align-items:center; gap:6px; padding:3px 6px; border-radius:5px; cursor:pointer; font-size:.82rem; white-space:nowrap; }
+  .ft-row:hover { background:rgba(127,127,127,.11); }
+  .ft-name { overflow:hidden; text-overflow:ellipsis; }
+  .ft-dirrow .ft-name { font-family:var(--font-heading); color:var(--secondary); font-weight:600; }
+  .ft-tw { color:var(--muted); font-size:.7rem; width:.9em; flex:0 0 auto; display:inline-block; transition:transform .12s; }
+  .ft-dir.collapsed > .ft-row .ft-tw { transform:rotate(-90deg); }
+  .ft-dir.collapsed > .ft-children { display:none; }
+  .ft-file .ft-name { font-family:var(--mono); flex:1; }
+  .ft-file .ft-stats { font-family:var(--mono); font-size:.72rem; margin-left:auto; flex:0 0 auto; }
+  .ft-file.viewed .ft-name { color:var(--muted); text-decoration:line-through; opacity:.8; }
+  .ft-file.viewed .ft-name::after { content:" ✓"; color:var(--green); text-decoration:none; font-family:var(--font-heading); }
+  @media (max-width:960px){ .file-tree { top:0; z-index:80; } }
 
   /* image / diagram lightbox */
   .diagram-body svg, .diagram-body img { cursor:zoom-in; }
@@ -407,6 +439,16 @@
 </div>
 
 <aside id="progressDock" class="progress-dock" hidden></aside>
+<aside id="fileTree" class="file-tree" hidden>
+  <div class="ft-head">
+    <span class="ft-title">Files</span>
+    <span class="ft-count"></span>
+    <span class="ft-viewed"></span>
+    <button type="button" class="ft-close" title="Close (Esc)">✕</button>
+    <div class="ft-tools"><button type="button" data-ft="expand">Expand all</button><button type="button" data-ft="collapse">Collapse all</button></div>
+  </div>
+  <div class="ft-body"></div>
+</aside>
 <div id="lightbox" class="lightbox" hidden><div class="lb-inner"></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -659,19 +701,30 @@
   function ring(done, total, label){
     const pct = total ? done/total : 0;
     const r=18, c=2*Math.PI*r, off=c*(1-pct), complete=total>0 && done===total;
+    // centre shows a compact % (or ✓ when done) so it never overflows on big
+    // reviews; the exact count lives in the fraction line below the ring.
+    const center = complete ? "✓" : Math.round(pct*100)+"%";
     return `<div class="pd-item${complete?" done":""}"><div class="pd-ringwrap">`
       + `<svg class="pd-ring" viewBox="0 0 46 46"><circle class="pd-track" cx="23" cy="23" r="${r}"/>`
       + `<circle class="pd-fill" cx="23" cy="23" r="${r}" style="stroke-dasharray:${c.toFixed(1)};stroke-dashoffset:${off.toFixed(1)}"/></svg>`
-      + `<div class="pd-count">${done}/${total}</div></div><div class="pd-label">${label}</div></div>`;
+      + `<div class="pd-count">${center}</div></div><div class="pd-label">${label}</div><div class="pd-frac">${done}/${total}</div></div>`;
+  }
+  // the currently visible PR (tabbed reviews hide the others)
+  function activeSection(){
+    return [...document.querySelectorAll("section.pr")].find(s=>!s.hidden) || document.querySelector("section.pr");
   }
   function updateProgress(){
     const dock = document.getElementById("progressDock");
-    const filesTotal = document.querySelectorAll(".file").length;
-    const filesViewed = document.querySelectorAll(".file.viewed").length;
+    // scope to the active PR so the counts match that PR's header
+    const scope = activeSection() || document;
+    const filesTotal = scope.querySelectorAll(".file").length;
+    const filesViewed = scope.querySelectorAll(".file.viewed").length;
     let html = filesTotal ? ring(filesViewed, filesTotal, "Files") : "";
     if(HAS_REVIEW){
+      const pr = scope.dataset ? scope.dataset.pr : null;
+      const prs = pr ? [pr] : Object.keys(REVIEW);
       let ftotal=0, fdone=0;
-      for(const pr in REVIEW){ for(const c of REVIEW[pr].comments){ ftotal++; if(state.aiState[pr+" "+c.aid]) fdone++; } }
+      for(const p of prs){ const rv=REVIEW[p]; if(!rv) continue; for(const c of rv.comments){ ftotal++; if(state.aiState[p+" "+c.aid]) fdone++; } }
       if(ftotal) html += ring(fdone, ftotal, "Reviewed");
     }
     dock.innerHTML = html;
@@ -755,6 +808,23 @@
     const cb = fileEl.querySelector(".viewed-cb"); if(cb) cb.checked = viewed;
     if(persist){ if(viewed) state.viewed[id]=true; else delete state.viewed[id]; save(); updateCounts(); }
     const grp = fileEl.closest(".group"); if(grp) syncGroupCb(grp);
+    refreshTree();
+  }
+  // scroll a file's (now-collapsed) header just under the sticky bars, so the
+  // next file is immediately in view — marking "Viewed" keeps reading order.
+  function scrollFileToTop(fileEl){
+    const cs = getComputedStyle(document.documentElement);
+    const px = (n)=> parseInt(cs.getPropertyValue(n)) || 0;
+    const mx = fileEl.closest(".diff-block.maximized");
+    if(mx){
+      const off = px("--h-diffhead");
+      const top = fileEl.getBoundingClientRect().top - mx.getBoundingClientRect().top + mx.scrollTop - off - 6;
+      mx.scrollTo({ top, behavior:"smooth" });
+    } else {
+      const off = px("--h-app") + px("--h-tabs") + px("--h-diffhead");
+      const top = fileEl.getBoundingClientRect().top + window.scrollY - off - 6;
+      window.scrollTo({ top: Math.max(0, top), behavior:"smooth" });
+    }
   }
   // reflect member files' viewed state on the group's "Reviewed" checkbox
   function syncGroupCb(group){
@@ -769,7 +839,7 @@
     const btn = fileEl.querySelector(".file-note-btn");
     if(btn) btn.addEventListener("click", (e)=>{ e.stopPropagation(); fileNoteBox(fileEl, "", true); });
     const cb = fileEl.querySelector(".viewed-cb");
-    if(cb) cb.addEventListener("change", ()=> setViewed(fileEl, cb.checked, true));
+    if(cb) cb.addEventListener("change", ()=>{ setViewed(fileEl, cb.checked, true); if(cb.checked) scrollFileToTop(fileEl); });
     if(state.files[id] && (state.files[id].text||"").trim()){ fileNoteBox(fileEl, state.files[id].text, false); if(btn) btn.classList.add("has-note"); }
     if(state.viewed[id]) setViewed(fileEl, true, false);
   });
@@ -789,6 +859,67 @@
     syncGroupCb(group);
   });
 
+  // ---- file tree drawer (navigate a big diff by path) ----
+  function collectTreeFiles(sec){
+    return [...sec.querySelectorAll(".file")].map(el=>{
+      const p = el.dataset.file || "";
+      const num = (sel)=>{ const t=el.querySelector(".file-header "+sel); return t?parseInt(t.textContent.replace(/[^0-9]/g,""))||0:0; };
+      return { path:p, name:p.split("/").pop(), add:num(".stat-add"), del:num(".stat-del"), viewed:el.classList.contains("viewed") };
+    });
+  }
+  function treeModel(files){
+    const root = { dirs:{}, files:[] };
+    for(const f of files){
+      const parts = f.path.split("/"); let n = root;
+      for(let i=0;i<parts.length-1;i++){ const d=parts[i]; n.dirs[d]=n.dirs[d]||{dirs:{},files:[]}; n=n.dirs[d]; }
+      n.files.push(f);
+    }
+    return root;
+  }
+  function renderTreeDir(node){
+    let html="";
+    Object.keys(node.dirs).sort((a,b)=>a.localeCompare(b)).forEach(name0=>{
+      let name=name0, child=node.dirs[name0];
+      // compact single-child directory chains (src/main/java → one row)
+      while(child.files.length===0 && Object.keys(child.dirs).length===1){
+        const only=Object.keys(child.dirs)[0]; name=name+"/"+only; child=child.dirs[only];
+      }
+      html += `<li class="ft-dir"><div class="ft-row ft-dirrow"><span class="ft-tw">▾</span><span class="ft-name">${escAttr(name)}</span></div><ul class="ft-children">${renderTreeDir(child)}</ul></li>`;
+    });
+    node.files.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(f=>{
+      html += `<li class="ft-file${f.viewed?" viewed":""}" data-file="${escAttr(f.path)}"><div class="ft-row"><span class="ft-name" title="${escAttr(f.path)}">${escAttr(f.name)}</span><span class="ft-stats"><span class="stat-add">+${f.add}</span> <span class="stat-del">-${f.del}</span></span></div></li>`;
+    });
+    return html;
+  }
+  function refreshTree(){
+    const w = document.getElementById("fileTree"); if(!w || w.hidden) return;
+    const sec = activeSection(); if(!sec) return;
+    const files = collectTreeFiles(sec);
+    const viewed = files.filter(f=>f.viewed).length;
+    w.querySelector(".ft-count").textContent = files.length + " file" + (files.length===1?"":"s");
+    w.querySelector(".ft-viewed").textContent = viewed + "/" + files.length + " viewed";
+    w.querySelector(".ft-body").innerHTML = `<ul class="ft-root">${renderTreeDir(treeModel(files))}</ul>`;
+  }
+  function toggleTree(){
+    const w = document.getElementById("fileTree"); const open = w.hidden;
+    w.hidden = !open;
+    document.querySelectorAll(".dbh-tree").forEach(b=>b.classList.toggle("on", open));
+    if(open) refreshTree();
+  }
+  document.querySelectorAll(".dbh-tree").forEach(b=> b.addEventListener("click", toggleTree));
+  document.querySelector("#fileTree .ft-close").addEventListener("click", toggleTree);
+  document.querySelector("#fileTree .ft-body").addEventListener("click", (e)=>{
+    const dir = e.target.closest(".ft-dirrow"); if(dir){ dir.parentElement.classList.toggle("collapsed"); return; }
+    const fr = e.target.closest(".ft-file"); if(!fr) return;
+    const sec = activeSection(); if(!sec) return;
+    const el = [...sec.querySelectorAll(".file")].find(f=>f.dataset.file===fr.dataset.file);
+    if(el){ const g=el.closest(".group"); if(g) g.classList.remove("collapsed"); el.classList.remove("collapsed"); scrollFileToTop(el); }
+  });
+  document.querySelectorAll("#fileTree [data-ft]").forEach(b=> b.addEventListener("click", ()=>{
+    const collapse = b.dataset.ft==="collapse";
+    document.querySelectorAll("#fileTree .ft-dir").forEach(d=>d.classList.toggle("collapsed", collapse));
+  }));
+
   // ---- tabs ----
   document.querySelectorAll(".tab").forEach(tab=>{
     tab.addEventListener("click", ()=>{
@@ -796,6 +927,8 @@
       document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active", t===tab));
       document.querySelectorAll("section.pr").forEach(s=>{ s.hidden = s.dataset.pr !== id; });
       window.scrollTo(0,0);
+      updateProgress();
+      refreshTree();
     });
   });
 
@@ -904,7 +1037,9 @@
 
   document.addEventListener("keydown", (e)=>{
     if(e.key!=="Escape") return;
-    if(!lb.hidden){ lb.hidden=true; lbInner.innerHTML=""; }
+    if(!lb.hidden){ lb.hidden=true; lbInner.innerHTML=""; return; }
+    const tree = document.getElementById("fileTree");
+    if(tree && !tree.hidden){ toggleTree(); return; }
     document.querySelectorAll(".diff-block.maximized").forEach(d=>exitMax(d));
   });
 
