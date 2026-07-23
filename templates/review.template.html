@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700&family=Roboto:wght@400;500&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --primary:#46B8D9; --secondary:#357290; --orange:#E78F1F; --red:#D8544F; --green:#25A845;
+    --font-heading:'Titillium Web',Calibri,sans-serif; --font-body:'Roboto',Calibri,sans-serif;
+    --mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+    /* light (default) */
+    --bg:#ffffff; --panel:#f7f9fa; --card:#ffffff; --text:#4B4A4A; --muted:#808080;
+    --border:#e2e8ec; --header:#357290; --header-text:#ffffff;
+    --add-bg:#e6ffed; --add-word:#a6f0b6; --del-bg:#ffeef0; --del-word:#f7b9c0;
+    --ctx:#4B4A4A; --ln:#f2f5f7; --ln-text:#9aa7ad; --hunk-bg:#eef5f9; --hunk-text:#357290;
+    --annot:#e7edf1; --ai-bg:#eaf6fb; --user-bg:#fdf3e7;
+    --hl-comment:#7d868f; --hl-kw:#a626a4; --hl-str:#3f8f3f; --hl-num:#b26b00; --hl-fn:#3a6df0; --hl-type:#b8860b; --hl-attr:#3a6df0;
+  }
+  /* dark, applied when the OS prefers dark AND the user has not overridden */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) {
+      --bg:#0e1418; --panel:#141c22; --card:#161f26; --text:#c8d2d8; --muted:#7d8b93;
+      --border:#243038; --header:#0b2b38; --header-text:#daeff8;
+      --add-bg:#132a1d; --add-word:#1f6f38; --del-bg:#30191e; --del-word:#8a2a33;
+      --ctx:#c8d2d8; --ln:#111a20; --ln-text:#5a6b73; --hunk-bg:#12242e; --hunk-text:#46B8D9;
+      --annot:#0b1116; --ai-bg:#102630; --user-bg:#2b2013;
+      --hl-comment:#7a86a3; --hl-kw:#c792ea; --hl-str:#c3e88d; --hl-num:#f78c6c; --hl-fn:#82aaff; --hl-type:#ffcb6b; --hl-attr:#82aaff;
+    }
+  }
+  /* explicit manual override (session only) */
+  :root[data-theme="dark"] {
+    --bg:#0e1418; --panel:#141c22; --card:#161f26; --text:#c8d2d8; --muted:#7d8b93;
+    --border:#243038; --header:#0b2b38; --header-text:#daeff8;
+    --add-bg:#0f2a17; --add-word:#1f6f38; --del-bg:#3a1418; --del-word:#8a2a33;
+    --ctx:#c8d2d8; --ln:#111a20; --ln-text:#5a6b73; --hunk-bg:#12242e; --hunk-text:#46B8D9;
+  }
+
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:var(--font-body); color:var(--text); background:var(--bg); }
+  h1,h2,h3,h4,h5,h6 { font-family:var(--font-heading); }
+  a { color:var(--secondary); }
+
+  .app-header {
+    position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    padding:12px 24px; background:var(--header); color:var(--header-text);
+    box-shadow:0 1px 4px rgba(0,0,0,.15);
+  }
+  .app-header h1 { margin:0; font-size:1.15rem; color:var(--header-text); }
+  .app-header .subtitle { font-size:.8rem; opacity:.8; }
+  .title-block { flex:1; min-width:180px; }
+  .header-actions { display:flex; align-items:center; gap:10px; }
+  .badge { font-size:.78rem; background:rgba(255,255,255,.18); padding:3px 9px; border-radius:12px; white-space:nowrap; }
+  .badge.done { background:var(--green); color:#fff; }
+  .btn { font-family:var(--font-heading); border:none; border-radius:5px; padding:8px 14px; cursor:pointer; font-size:.85rem; }
+  .btn-primary { background:var(--orange); color:#fff; }
+  .btn-primary:hover { filter:brightness(.95); }
+  .icon-btn { background:rgba(255,255,255,.15); color:var(--header-text); border:none; border-radius:5px; width:34px; height:34px; cursor:pointer; font-size:1rem; }
+  .seg { display:inline-flex; border:1px solid rgba(255,255,255,.35); border-radius:6px; overflow:hidden; }
+  .seg button { background:transparent; color:var(--header-text); border:none; padding:7px 12px; cursor:pointer; font-family:var(--font-heading); font-size:.8rem; }
+  .seg button.active { background:rgba(255,255,255,.9); color:var(--secondary); }
+
+  .tabs { display:flex; gap:2px; padding:0 20px; background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:58px; z-index:20; overflow-x:auto; }
+  .tabs:empty { display:none; }
+  .tab { border:none; background:none; padding:11px 16px; cursor:pointer; font-family:var(--font-heading); color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap; font-size:.9rem; }
+  .tab.active { color:var(--secondary); border-bottom-color:var(--orange); }
+  .tab-count { background:var(--orange); color:#fff; border-radius:10px; padding:0 6px; margin-left:6px; font-size:.72rem; }
+
+  main { max-width:none; margin:0; padding:18px 22px; }
+
+  /* ── page columns: PR context (left) | resizer | review column (right) ── */
+  :root { --left-w:50%; }
+  .pr-cols { display:flex; gap:0; align-items:flex-start; }
+  .pr-context {
+    flex:0 0 var(--left-w); width:auto; min-width:0; position:sticky; top:72px;
+    max-height:calc(100vh - 92px); overflow:auto;
+    background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px 18px;
+  }
+  .col-resizer { flex:0 0 16px; align-self:stretch; cursor:col-resize; position:relative; }
+  .col-resizer::before { content:""; position:absolute; left:7px; top:0; bottom:0; width:2px; background:var(--border); border-radius:2px; transition:background .1s,width .1s; }
+  .col-resizer:hover::before, .col-resizer.active::before { background:var(--primary); width:4px; left:6px; }
+  .review-col { flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:16px; }
+  @media (max-width:960px){
+    .pr-cols { flex-direction:column; }
+    .pr-context { position:static; flex-basis:auto; width:100%; max-height:none; }
+    .col-resizer { display:none; }
+  }
+
+  .summary-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 10px; }
+  .summary-head h2 { margin:0; color:var(--secondary); font-size:1.12rem; }
+  .pr-meta { font-size:.82rem; color:var(--muted); }
+  .pr-link { font-size:.82rem; word-break:break-all; }
+
+  /* free-form block grid (used inside the context panel) */
+  .summary-blocks { display:grid; grid-template-columns:repeat(12,1fr); gap:14px 16px; margin-top:12px; align-items:start; }
+  .summary-blocks:empty { display:none; }
+  .block.b-full { grid-column:span 12; }
+  .block.b-two-thirds { grid-column:span 8; }
+  .block.b-half { grid-column:span 6; }
+  .block.b-third { grid-column:span 4; }
+  /* the context panel is narrow → blocks stack full-width for readability */
+  .pr-context .summary-blocks > .block { grid-column:span 12; }
+  @media (max-width:820px){ .summary-blocks > .block { grid-column:span 12 !important; } }
+  .summary-body { font-size:.9rem; line-height:1.55; }
+  .summary-body > :first-child { margin-top:0; }
+  .summary-body > :last-child { margin-bottom:0; }
+
+  /* right column: global review comment on top */
+  .review-top { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+  .review-label { display:block; font-family:var(--font-heading); font-size:.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin-bottom:6px; }
+  .review-top .general-input { min-height:60px; }
+
+  /* ── Claude's automatic review ── */
+  .ai-review { border:1px solid var(--primary); background:linear-gradient(0deg,var(--panel),var(--panel)); border-radius:8px; padding:12px 14px; margin-bottom:14px; }
+  .ai-review-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .ai-tag { font-family:var(--font-heading); font-weight:700; color:var(--secondary); font-size:.85rem; }
+  .verdict { font-family:var(--font-heading); font-size:.7rem; text-transform:uppercase; letter-spacing:.03em; padding:2px 8px; border-radius:10px; color:#fff; }
+  .verdict-approve { background:var(--green); }
+  .verdict-comment { background:var(--secondary-light,#5894AC); }
+  .verdict-request-changes { background:var(--red); }
+  .finding-list { display:flex; flex-direction:column; gap:6px; max-height:280px; overflow:auto; }
+  .finding-item { text-align:left; background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--primary); border-radius:4px; padding:6px 8px; cursor:pointer; font:inherit; color:var(--text); }
+  .finding-item:hover { border-color:var(--primary); }
+  .finding-item.done { opacity:.55; }
+  .finding-top { display:flex; align-items:center; gap:6px; margin-bottom:2px; }
+  .finding-loc { font-family:var(--mono); font-size:.72rem; color:var(--secondary); }
+  .finding-text { display:block; font-size:.82rem; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .fi-status { margin-left:auto; font-size:.68rem; font-family:var(--font-heading); text-transform:uppercase; }
+  .fi-status.accepted { color:var(--green); } .fi-status.dismissed { color:var(--muted); }
+
+  /* severity badges (shared by findings + inline ai rows) */
+  .sev { font-family:var(--font-heading); font-size:.66rem; text-transform:uppercase; letter-spacing:.02em; padding:1px 6px; border-radius:9px; color:#fff; white-space:nowrap; }
+  .sev-nit { background:var(--muted); }
+  .sev-suggestion { background:var(--primary); }
+  .sev-concern { background:var(--red); }
+  .sev-question { background:var(--orange); }
+  .sev-praise { background:var(--green); }
+  .sev-comment { background:var(--secondary-light,#5894AC); }
+
+  /* inline AI comment row (in the diff) — a bordered, tinted card, never code */
+  .ai-box { margin:8px 14px 12px 46px; border:1px solid var(--primary); background:var(--ai-bg); border-radius:6px; padding:10px 12px; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .ai-comment.dismissed .ai-box { opacity:.5; }
+  .ai-box-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .ai-box-head .who { font-family:var(--font-heading); font-weight:600; font-size:.72rem; color:#fff; background:var(--primary); padding:1px 8px; border-radius:10px; }
+  .ai-box-body { font-size:.88rem; line-height:1.5; word-break:break-word; }
+  .ai-box-body code { font-family:var(--mono); background:var(--bg); padding:1px 4px; border-radius:3px; font-size:.85em; }
+  .ai-box-actions { margin-top:7px; display:flex; gap:6px; align-items:center; }
+  .ai-box-actions button { font-family:var(--font-heading); font-size:.74rem; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:5px; padding:3px 9px; cursor:pointer; }
+  .ai-box-actions button.on-accept { border-color:var(--green); color:var(--green); }
+  .ai-box-actions button.on-dismiss { border-color:var(--muted); color:var(--muted); }
+  .ai-box-actions .ai-state { margin-left:auto; font-size:.72rem; color:var(--muted); font-family:var(--font-heading); }
+
+  .callout { border-left:4px solid var(--primary); background:var(--panel); border-radius:0 6px 6px 0; padding:10px 14px; }
+  .callout-title { font-family:var(--font-heading); font-weight:600; margin-bottom:4px; color:var(--secondary); }
+  .callout-warn { border-left-color:var(--red); } .callout-warn .callout-title { color:var(--red); }
+  .callout-success { border-left-color:var(--green); } .callout-success .callout-title { color:var(--green); }
+
+  .stat-row { display:flex; flex-wrap:wrap; gap:12px; }
+  .stat-tile { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 16px; min-width:88px; }
+  .stat-val { font-family:var(--font-heading); font-size:1.5rem; font-weight:700; color:var(--secondary); line-height:1.1; }
+  .stat-lbl { font-size:.74rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
+  .accent-orange { color:var(--orange)!important; } .accent-red { color:var(--red)!important; } .accent-green { color:var(--green)!important; }
+
+  table.sum-table { border-collapse:collapse; width:100%; font-size:.85rem; }
+  table.sum-table th { background:#5894AC; color:#fff; text-align:left; padding:6px 10px; font-family:var(--font-heading); }
+  table.sum-table td { padding:6px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+
+  /* ── diff block (bottom of right column) ── */
+  .diff-block { background:var(--card); border:1px solid var(--border); border-radius:8px; }
+  .diff-block-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--border); border-radius:8px 8px 0 0; position:sticky; top:58px; z-index:15; }
+  .dbh-title { font-family:var(--font-heading); font-weight:600; color:var(--secondary); }
+  .dbh-right { display:flex; align-items:center; gap:12px; }
+  .dbh-meta { font-family:var(--mono); font-size:.8rem; color:var(--muted); }
+  .diff-mode-seg { border-color:var(--border); }
+  .diff-mode-seg button { color:var(--muted); padding:5px 12px; font-size:.78rem; }
+  .diff-mode-seg button.active { background:var(--primary); color:#fff; }
+  .dbh-fs { background:none; border:1px solid var(--border); border-radius:5px; cursor:pointer; font-size:.95rem; line-height:1; padding:4px 9px; color:var(--muted); }
+  .dbh-fs:hover { border-color:var(--primary); color:var(--primary); }
+  .files { min-width:0; padding:12px 14px; }
+  /* fullscreen / maximized diff */
+  .diff-block:fullscreen, .diff-block.maximized { position:fixed; inset:0; z-index:55; margin:0; border-radius:0; overflow:auto; background:var(--bg); }
+  .diff-block:fullscreen .diff-block-head, .diff-block.maximized .diff-block-head { top:0; border-radius:0; }
+  .diff-block:fullscreen .files, .diff-block.maximized .files { padding:14px 24px; }
+
+  /* line-comment list (in the review card, top-right) */
+  .cl-wrap { margin-top:14px; border-top:1px solid var(--border); padding-top:12px; }
+  .comment-list { max-height:280px; overflow:auto; }
+  .cl-head { font-family:var(--font-heading); font-size:.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin-bottom:8px; }
+  .cl-count { background:var(--orange); color:#fff; border-radius:10px; padding:0 7px; font-size:.72rem; margin-left:4px; }
+  .comment-list { display:flex; flex-direction:column; gap:6px; }
+  .cl-item { text-align:left; background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--orange); border-radius:4px; padding:6px 8px; cursor:pointer; font:inherit; color:var(--text); }
+  .cl-item:hover { border-color:var(--primary); }
+  .cl-loc { display:block; font-family:var(--mono); font-size:.72rem; color:var(--secondary); margin-bottom:2px; }
+  .cl-text { display:block; font-size:.82rem; white-space:pre-wrap; word-break:break-word; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+  .cl-empty { font-size:.8rem; color:var(--muted); }
+  .summary-body h3,.summary-body h4,.summary-body h5 { color:var(--secondary); margin:14px 0 6px; }
+  .summary-body code { font-family:var(--mono); background:var(--panel); padding:1px 5px; border-radius:4px; font-size:.85em; }
+  .summary-body pre.md-code { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:10px; overflow:auto; }
+  .summary-body pre.md-code code { background:none; padding:0; }
+
+  figure.diagram { margin:0; height:100%; border:1px solid var(--border); border-radius:6px; padding:12px; background:var(--panel); overflow:auto; }
+  figure.diagram figcaption { font-family:var(--font-heading); color:var(--secondary); font-size:.85rem; margin-bottom:8px; }
+  .diagram-body { text-align:center; }
+  .diagram-body svg { max-width:100%; height:auto; }
+  .mermaid { text-align:center; }
+
+  .general { margin-top:16px; }
+  .general label { display:block; font-family:var(--font-heading); font-size:.8rem; color:var(--muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:.03em; }
+  textarea { width:100%; font-family:var(--font-body); font-size:.9rem; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:9px 11px; resize:vertical; min-height:46px; }
+  textarea:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 2px rgba(70,184,217,.25); }
+
+  .file { border:1px solid var(--border); border-radius:8px; margin-bottom:14px; overflow:hidden; background:var(--card); }
+  .file-header { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--panel); cursor:pointer; user-select:none; border-bottom:1px solid var(--border); }
+  .file.collapsed .file-header { border-bottom:none; }
+  .file.collapsed .file-body { display:none; }
+  .chevron { color:var(--muted); font-size:.8rem; transition:transform .15s; }
+  .file.collapsed .chevron { transform:rotate(-90deg); }
+  .file-path { font-family:var(--mono); font-size:.85rem; font-weight:500; flex:1; word-break:break-all; }
+  .ftag { font-family:var(--font-heading); font-size:.68rem; padding:1px 7px; border-radius:10px; background:var(--muted); color:#fff; text-transform:uppercase; }
+  .ftag-new { background:var(--green); } .ftag-del { background:var(--red); }
+  .file-badge { font-size:.72rem; background:var(--orange); color:#fff; border-radius:10px; padding:1px 7px; }
+  .stats { font-family:var(--mono); font-size:.8rem; }
+  .stat-add { color:var(--green); font-weight:600; } .stat-del { color:var(--red); font-weight:600; }
+
+  /* per-file controls: comment + Viewed */
+  .file-actions { display:flex; align-items:center; gap:10px; margin-left:4px; }
+  .file-note-btn { background:none; border:1px solid var(--border); border-radius:5px; cursor:pointer; font-size:.82rem; line-height:1; padding:3px 7px; }
+  .file-note-btn:hover { border-color:var(--primary); }
+  .file-note-btn.has-note { border-color:var(--orange); }
+  .viewed-label { display:flex; align-items:center; gap:5px; font-family:var(--font-heading); font-size:.76rem; color:var(--muted); cursor:pointer; user-select:none; white-space:nowrap; }
+  .viewed-cb { cursor:pointer; accent-color:var(--green); width:15px; height:15px; }
+  .file.viewed > .file-header { opacity:.7; }
+  .file.viewed .viewed-label { color:var(--green); opacity:1; }
+  .file-note-slot:empty { display:none; }
+  .file-note { margin:10px 12px; border:1px solid var(--border); border-left:3px solid var(--orange); background:var(--user-bg); border-radius:6px; padding:10px 12px; box-shadow:0 1px 3px rgba(0,0,0,.10); }
+  .file-note .cb-meta { font-family:var(--font-heading); font-size:.72rem; color:var(--muted); margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+  .file-note textarea { font-family:var(--font-body); min-height:40px; }
+  .file-note .comment-actions { margin-top:6px; }
+  .file-note .comment-actions button { font-size:.76rem; background:none; border:none; color:var(--red); cursor:pointer; }
+
+  /* syntax highlighting (highlight.js tokens, theme-aware) */
+  .hljs-comment,.hljs-quote { color:var(--hl-comment); font-style:italic; }
+  .hljs-keyword,.hljs-selector-tag,.hljs-section,.hljs-doctag,.hljs-name,.hljs-tag,.hljs-meta-keyword { color:var(--hl-kw); }
+  .hljs-string,.hljs-regexp,.hljs-addition,.hljs-meta .hljs-string,.hljs-symbol,.hljs-bullet { color:var(--hl-str); }
+  .hljs-number,.hljs-literal,.hljs-link { color:var(--hl-num); }
+  .hljs-title,.hljs-title.function_,.hljs-title.class_ { color:var(--hl-fn); }
+  .hljs-type,.hljs-built_in,.hljs-class .hljs-title,.hljs-params,.hljs-selector-class { color:var(--hl-type); }
+  .hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-variable,.hljs-property,.hljs-selector-attr,.hljs-meta { color:var(--hl-attr); }
+  .hljs-emphasis { font-style:italic; } .hljs-strong { font-weight:700; }
+
+  .diff-mount { overflow-x:auto; }
+  /* carbon-inspired: comfortable metrics + ligatures for low-mental-load reading */
+  table.diff { width:100%; border-collapse:collapse; font-family:var(--mono); font-size:13.5px; table-layout:fixed;
+    font-feature-settings:"liga" 1,"calt" 1; font-variant-ligatures:contextual; -webkit-font-smoothing:antialiased; }
+  table.diff col.c-ln { width:52px; }
+  table.diff col.c-gut { width:24px; }
+  table.diff td { padding:1px 10px; vertical-align:top; line-height:1.62; }
+  .ln { text-align:right; padding:1px 10px 1px 6px; color:var(--ln-text); background:var(--ln); user-select:none; white-space:nowrap; border-right:1px solid var(--border); font-size:12px; }
+  .gutter { text-align:center; padding:1px 0; color:transparent; cursor:pointer; user-select:none; background:var(--ln); border-right:1px solid var(--border); }
+  .gutter.empty { cursor:default; }
+  .line:hover .gutter:not(.empty) { color:var(--orange); font-weight:700; }
+  .line:hover > .code { background:rgba(127,127,127,.06); }
+  .code { white-space:pre-wrap; word-break:break-word; color:var(--ctx); }
+  .marker { display:inline-block; width:1ch; margin-right:.4ch; color:var(--muted); }
+  .line-add .marker { color:var(--green); } .line-del .marker { color:var(--red); }
+  .line-add { background:var(--add-bg); } .line-add .wd { background:var(--add-word); border-radius:2px; }
+  .line-del { background:var(--del-bg); } .line-del .wd { background:var(--del-word); border-radius:2px; }
+  .code.empty { background:repeating-linear-gradient(45deg,transparent,transparent 6px,var(--panel) 6px,var(--panel) 12px); }
+  .line-hunk td { background:var(--hunk-bg); color:var(--hunk-text); font-weight:600; }
+  .line-info .code { color:var(--muted); }
+  /* annotation rows sit on a faint band and float as bordered cards, so they
+     never read as code */
+  .comment-row td { background:var(--annot); padding:2px 0; }
+  .comment-box { margin:8px 14px 12px 46px; border:1px solid var(--border); border-left:3px solid var(--orange); background:var(--user-bg); border-radius:6px; padding:10px 12px; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  .comment-box .cb-meta { font-family:var(--font-heading); font-size:.72rem; color:var(--muted); margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+  .who-you { background:var(--orange); color:#fff; padding:1px 8px; border-radius:10px; font-size:.7rem; font-weight:600; }
+  .comment-box textarea { font-family:var(--font-body); min-height:40px; }
+  .comment-actions { margin-top:6px; }
+  .comment-actions button { font-size:.76rem; background:none; border:none; color:var(--red); cursor:pointer; }
+
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:50; padding:20px; }
+  .modal[hidden] { display:none; }
+  .modal-card { background:var(--card); border-radius:10px; width:min(760px,100%); max-height:85vh; display:flex; flex-direction:column; overflow:hidden; }
+  .modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; background:var(--header); color:var(--header-text); }
+  .modal-head h3 { margin:0; color:var(--header-text); }
+  .modal-body { padding:16px 18px; overflow:auto; }
+  .modal-body textarea { min-height:300px; font-family:var(--mono); font-size:.82rem; }
+  .modal-foot { padding:12px 18px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; }
+  .warn { background:rgba(216,84,79,.12); border:1px solid var(--red); color:var(--red); border-radius:6px; padding:8px 12px; margin-bottom:14px; font-size:.85rem; }
+  .hint { color:var(--muted); font-size:.82rem; margin:0 0 10px; }
+  .copied { color:var(--green); font-size:.8rem; align-self:center; margin-right:auto; }
+
+  /* right-side progress dock */
+  .progress-dock { position:fixed; right:14px; top:50%; transform:translateY(-50%); z-index:25;
+    display:flex; flex-direction:column; gap:14px; padding:14px 12px;
+    background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:0 4px 18px rgba(0,0,0,.20); }
+  .progress-dock[hidden] { display:none; }
+  body.has-dock main { padding-right:96px; }
+  .pd-item { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .pd-ringwrap { position:relative; width:46px; height:46px; }
+  .pd-ring { width:46px; height:46px; transform:rotate(-90deg); }
+  .pd-track { fill:none; stroke:var(--border); stroke-width:5; }
+  .pd-fill { fill:none; stroke:var(--primary); stroke-width:5; stroke-linecap:round; transition:stroke-dashoffset .3s ease; }
+  .pd-item.done .pd-fill { stroke:var(--green); }
+  .pd-count { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:var(--font-heading); font-size:.72rem; font-weight:700; color:var(--text); }
+  .pd-label { font-size:.6rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-family:var(--font-heading); text-align:center; }
+  @media (max-width:960px){ .progress-dock { display:none !important; } body.has-dock main { padding-right:22px; } }
+
+  /* image / diagram lightbox */
+  .diagram-body svg, .diagram-body img { cursor:zoom-in; }
+  .lightbox { position:fixed; inset:0; background:rgba(0,0,0,.82); display:flex; align-items:center; justify-content:center; z-index:60; padding:24px; cursor:zoom-out; }
+  .lightbox[hidden] { display:none; }
+  .lb-inner { width:92vw; height:88vh; display:flex; align-items:center; justify-content:center; background:var(--card); border-radius:8px; padding:16px; box-shadow:0 8px 40px rgba(0,0,0,.5); }
+  .lb-inner svg { width:100% !important; height:100% !important; max-width:none !important; }
+  .lb-inner img { width:100% !important; height:100% !important; object-fit:contain; }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="title-block">
+    <h1>{{TITLE}}</h1>
+    <div class="subtitle">{{SUBTITLE}}</div>
+  </div>
+  <div class="header-actions">
+    <span class="badge" id="commentCount">0 comments</span>
+    <button class="icon-btn" id="themeBtn" title="Theme: system">◐</button>
+    <button class="btn btn-primary" id="exportBtn">Export comments</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">{{TABS}}</nav>
+
+<main id="main">
+{{SECTIONS}}
+</main>
+
+<div class="modal" id="exportModal" hidden>
+  <div class="modal-card">
+    <div class="modal-head"><h3>Review comments</h3><button class="icon-btn" id="closeModal">✕</button></div>
+    <div class="modal-body">
+      <p class="hint">Copy this into the Claude Code conversation, or download it and ask Claude to read the file.</p>
+      <textarea id="exportText" readonly></textarea>
+    </div>
+    <div class="modal-foot">
+      <span class="copied" id="copiedMsg" hidden>Copied ✓</span>
+      <button class="btn btn-primary" id="copyBtn">Copy to clipboard</button>
+      <button class="btn" id="downloadBtn" style="background:var(--secondary);color:#fff">Download .md</button>
+    </div>
+  </div>
+</div>
+
+<aside id="progressDock" class="progress-dock" hidden></aside>
+<div id="lightbox" class="lightbox" hidden><div class="lb-inner"></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cmake.min.js"></script>
+<script id="review-data" type="application/json">{{DATA}}</script>
+<script id="ai-review-data" type="application/json">{{AIREVIEW}}</script>
+<script>
+(function(){
+  const REVIEW_ID = "{{REVIEW_ID}}";
+  const REVIEWER = "{{REVIEWER}}" || "AI";
+  const STORE_KEY = "htmlreview:" + REVIEW_ID;
+  const MODE_KEY = "htmlreview:diffmode";
+  const TITLE = document.querySelector(".app-header h1").textContent;
+  const SUBTITLE = document.querySelector(".app-header .subtitle").textContent;
+  const DATA = JSON.parse(document.getElementById("review-data").textContent || "{}");
+  const REVIEW = JSON.parse(document.getElementById("ai-review-data").textContent || "{}");
+  const HAS_REVIEW = Object.keys(REVIEW).length > 0;
+
+  // ---- state ----
+  let state = { general:{}, lines:{}, aiState:{}, files:{}, viewed:{} };
+  try { const raw = localStorage.getItem(STORE_KEY); if (raw) state = JSON.parse(raw); } catch(e){}
+  state.general = state.general || {}; state.lines = state.lines || {}; state.aiState = state.aiState || {};
+  state.files = state.files || {}; state.viewed = state.viewed || {};
+
+  // ---- syntax highlighting (highlight.js, loaded above; degrades offline) ----
+  function hl(code, lang){
+    if(window.hljs && lang){ try { return window.hljs.highlight(code, {language:lang, ignoreIllegals:true}).value; } catch(e){} }
+    return escAttr(code);
+  }
+  const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch(e){} };
+  const uid = (pr,file,key) => pr + " " + file + " " + key;
+  const escAttr = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const cssEsc = (s) => { try { return CSS.escape(s); } catch(e){ return String(s).replace(/"/g,'\\"'); } };
+
+  // ---- diff table builders (client-side, per mode) ----
+  function gutter(file,key,lineno,c){
+    return `<td class="gutter" data-file="${escAttr(file)}" data-key="${escAttr(key)}" data-lineno="${lineno}" data-code="${escAttr(c)}" title="Comment">+</td>`;
+  }
+  function unifiedTable(fd){
+    let b="";
+    if(!fd.hunks.length){
+      b = `<tr class="line line-info"><td class="ln"></td><td class="ln"></td><td class="gutter empty"></td><td class="code"><em>${escAttr(fd.note||"")}</em></td></tr>`;
+    } else for(const h of fd.hunks){
+      b += `<tr class="line line-hunk"><td class="ln"></td><td class="ln"></td><td class="gutter empty"></td><td class="code">@@ ${escAttr(h.header)}</td></tr>`;
+      for(const r of h.rows){
+        const cls = r.t==="a"?"line-add":r.t==="d"?"line-del":"line-ctx";
+        const marker = r.t==="a"?"+":r.t==="d"?"-":" ";
+        const key = r.t==="d" ? "o"+r.o : String(r.n);
+        const lineno = r.t==="d" ? r.o : r.n;
+        b += `<tr class="line ${cls}">`
+          + `<td class="ln ln-old">${r.t!=="a"&&r.o!=null?r.o:""}</td>`
+          + `<td class="ln ln-new">${r.t!=="d"&&r.n!=null?r.n:""}</td>`
+          + gutter(fd.path,key,lineno,r.c)
+          + `<td class="code"><span class="marker">${marker}</span>${hl(r.c, fd.lang)}</td>`
+          + `</tr>`;
+      }
+    }
+    return `<table class="diff unified"><colgroup><col class="c-ln"><col class="c-ln"><col class="c-gut"><col></colgroup><tbody>${b}</tbody></table>`;
+  }
+  function splitPairs(h){
+    const out=[]; let dels=[],adds=[];
+    const flush=()=>{ const m=Math.max(dels.length,adds.length); for(let i=0;i<m;i++) out.push({l:dels[i]||null,r:adds[i]||null}); dels=[];adds=[]; };
+    for(const r of h.rows){ if(r.t==="d")dels.push(r); else if(r.t==="a")adds.push(r); else { flush(); out.push({l:r,r:r,ctx:true}); } }
+    flush(); return out;
+  }
+  function splitTable(fd){
+    let b="";
+    if(!fd.hunks.length){
+      b = `<tr class="line line-info"><td class="ln"></td><td class="code" colspan="5"><em>${escAttr(fd.note||"")}</em></td></tr>`;
+    } else for(const h of fd.hunks){
+      b += `<tr class="line line-hunk"><td class="ln"></td><td class="code" colspan="5">@@ ${escAttr(h.header)}</td></tr>`;
+      for(const p of splitPairs(h)){
+        b += `<tr class="line">`;
+        // left (old side)
+        if(p.ctx){
+          b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td><td class="gutter empty"></td><td class="code line-ctx">${hl(p.l.c, fd.lang)}</td>`;
+        } else if(p.l){
+          b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td>` + gutter(fd.path,"o"+p.l.o,p.l.o,p.l.c) + `<td class="code line-del">${hl(p.l.c, fd.lang)}</td>`;
+        } else {
+          b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
+        }
+        // right (new side)
+        if(p.ctx){
+          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c) + `<td class="code line-ctx">${hl(p.r.c, fd.lang)}</td>`;
+        } else if(p.r){
+          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c) + `<td class="code line-add">${hl(p.r.c, fd.lang)}</td>`;
+        } else {
+          b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
+        }
+        b += `</tr>`;
+      }
+    }
+    return `<table class="diff split"><colgroup><col class="c-ln"><col class="c-gut"><col><col class="c-ln"><col class="c-gut"><col></colgroup><tbody>${b}</tbody></table>`;
+  }
+
+  // ---- comment rows ----
+  function createCommentRow(g, prefill){
+    const tr = g.closest("tr");
+    const mount = g.closest(".diff-mount");
+    const pr = g.closest("section.pr").dataset.pr;
+    const file = g.dataset.file, key = g.dataset.key;
+    const id = uid(pr,file,key);
+    const existing = mount.querySelector('.comment-row[data-cid="'+cssEsc(id)+'"]');
+    if(existing){ return existing.querySelector("textarea"); }
+    const crow = document.createElement("tr");
+    crow.className="comment-row"; crow.dataset.cid = id;
+    const td = document.createElement("td"); td.colSpan = tr.children.length;
+    const box = document.createElement("div"); box.className="comment-box";
+    const meta = document.createElement("div"); meta.className="cb-meta";
+    meta.innerHTML = '<span class="who-you">You</span><span>' + escAttr(file) + " · line " + escAttr(g.dataset.lineno) + "</span>";
+    const ta = document.createElement("textarea"); ta.value = prefill||""; ta.placeholder="Comment on this line…";
+    const actions = document.createElement("div"); actions.className="comment-actions";
+    const del = document.createElement("button"); del.textContent="Delete"; actions.appendChild(del);
+    box.append(meta, ta, actions); td.appendChild(box); crow.appendChild(td);
+    tr.after(crow);
+    const store = () => { state.lines[id] = { pr, file, key, lineno:g.dataset.lineno, code:g.dataset.code, text:ta.value }; save(); updateCounts(); };
+    ta.addEventListener("input", store);
+    ta.addEventListener("blur", () => { if(!ta.value.trim()){ delete state.lines[id]; save(); updateCounts(); crow.remove(); } });
+    del.addEventListener("click", () => { delete state.lines[id]; save(); updateCounts(); crow.remove(); });
+    return ta;
+  }
+  function applyComments(mount){
+    const pr = mount.closest("section.pr").dataset.pr;
+    for(const id in state.lines){
+      const c = state.lines[id]; if(!c || c.pr!==pr) continue;
+      const g = mount.querySelector('.gutter[data-key="'+cssEsc(c.key)+'"][data-file="'+cssEsc(c.file)+'"]');
+      if(g) createCommentRow(g, c.text);
+    }
+  }
+
+  // ---- Claude's automatic review (inline rows + findings list) ----
+  function miniMd(s){
+    return escAttr(s).replace(/`([^`]+)`/g,"<code>$1</code>").replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br>");
+  }
+  function insertAiRow(g, c, pr){
+    const tr = g.closest("tr");
+    const mount = g.closest(".diff-mount");
+    const aiId = pr + " " + c.aid;
+    if(mount.querySelector('.ai-comment[data-aid="'+cssEsc(aiId)+'"]')) return;
+    const row = document.createElement("tr");
+    row.className = "comment-row ai-comment"; row.dataset.aid = aiId;
+    const td = document.createElement("td"); td.colSpan = tr.children.length;
+    td.innerHTML = `<div class="ai-box">
+      <div class="ai-box-head"><span class="who">✦ ${escAttr(REVIEWER)}</span><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span></div>
+      <div class="ai-box-body">${miniMd(c.body)}</div>
+      <div class="ai-box-actions"><button data-a="accept">✓ Accept</button><button data-a="dismiss">✕ Dismiss</button><button data-a="reply">Reply</button><span class="ai-state"></span></div>
+    </div>`;
+    row.appendChild(td);
+    tr.after(row);
+    const acc = td.querySelector('[data-a="accept"]'), dis = td.querySelector('[data-a="dismiss"]'), rep = td.querySelector('[data-a="reply"]'), st = td.querySelector(".ai-state");
+    const refresh = () => {
+      const s = state.aiState[aiId] || "";
+      row.classList.toggle("dismissed", s==="dismissed");
+      acc.classList.toggle("on-accept", s==="accepted");
+      dis.classList.toggle("on-dismiss", s==="dismissed");
+      st.textContent = s ? s : "";
+    };
+    const set = (s) => { if(state.aiState[aiId]===s) delete state.aiState[aiId]; else state.aiState[aiId]=s; save(); refresh(); renderFindingList(); updateProgress(); };
+    acc.addEventListener("click", ()=>set("accepted"));
+    dis.addEventListener("click", ()=>set("dismissed"));
+    rep.addEventListener("click", ()=>{ const ta=createCommentRow(g,""); if(ta) ta.focus(); });
+    refresh();
+  }
+  function applyReview(mount){
+    if(!HAS_REVIEW) return;
+    const pr = mount.closest("section.pr").dataset.pr;
+    const rev = REVIEW[pr]; if(!rev) return;
+    for(const c of rev.comments){
+      const g = mount.querySelector('.gutter[data-key="'+cssEsc(c.key)+'"][data-file="'+cssEsc(c.file)+'"]');
+      if(g) insertAiRow(g, c, pr);
+    }
+  }
+  function renderFindingList(){
+    if(!HAS_REVIEW) return;
+    document.querySelectorAll("[data-finding-list]").forEach(list=>{
+      const pr = list.dataset.findingList; const rev = REVIEW[pr]; if(!rev) return;
+      list.innerHTML = rev.comments.map(c=>{
+        const s = state.aiState[pr+" "+c.aid] || "";
+        const statusHtml = s ? `<span class="fi-status ${s}">${s}</span>` : "";
+        return `<button class="finding-item${s?" done":""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span>${statusHtml}</span><span class="finding-text">${escAttr(c.body)}</span></button>`;
+      }).join("");
+    });
+  }
+
+  // ---- render all mounts in a mode ----
+  function renderAll(mode){
+    document.querySelectorAll(".diff-mount").forEach(mnt=>{
+      const fd = DATA[mnt.dataset.fid]; if(!fd) return;
+      mnt.innerHTML = mode==="split" ? splitTable(fd) : unifiedTable(fd);
+      applyComments(mnt);
+      applyReview(mnt);
+    });
+  }
+
+  // ---- counts ----
+  function updateCounts(){
+    let total = 0; const perFile = {}, perPr = {};
+    for(const k in state.lines){
+      const c = state.lines[k]; if(!c || !c.text || !c.text.trim()) continue;
+      total++; perFile[c.pr+" "+c.file]=(perFile[c.pr+" "+c.file]||0)+1; perPr[c.pr]=(perPr[c.pr]||0)+1;
+    }
+    for(const k in state.files){
+      const c = state.files[k]; if(!c || !c.text || !c.text.trim()) continue;
+      total++; perFile[c.pr+" "+c.file]=(perFile[c.pr+" "+c.file]||0)+1; perPr[c.pr]=(perPr[c.pr]||0)+1;
+    }
+    for(const pr in state.general){ if((state.general[pr]||"").trim()){ total++; perPr[pr]=(perPr[pr]||0)+1; } }
+    document.getElementById("commentCount").textContent = total + (total===1?" comment":" comments");
+    document.querySelectorAll("[data-file-count]").forEach(b=>{
+      const sec=b.closest("section.pr"); const pr=sec?sec.dataset.pr:"";
+      const n=perFile[pr+" "+b.dataset.fileCount]||0;
+      if(n){ b.hidden=false; b.textContent=n; } else b.hidden=true;
+    });
+    document.querySelectorAll("[data-tab-count]").forEach(b=>{
+      const n=perPr[b.dataset.tabCount]||0;
+      if(n){ b.hidden=false; b.textContent=n; } else b.hidden=true;
+    });
+    updateProgress();
+    renderCommentList();
+  }
+
+  // ---- right-side progress dock (files viewed + findings reviewed) ----
+  function ring(done, total, label){
+    const pct = total ? done/total : 0;
+    const r=18, c=2*Math.PI*r, off=c*(1-pct), complete=total>0 && done===total;
+    return `<div class="pd-item${complete?" done":""}"><div class="pd-ringwrap">`
+      + `<svg class="pd-ring" viewBox="0 0 46 46"><circle class="pd-track" cx="23" cy="23" r="${r}"/>`
+      + `<circle class="pd-fill" cx="23" cy="23" r="${r}" style="stroke-dasharray:${c.toFixed(1)};stroke-dashoffset:${off.toFixed(1)}"/></svg>`
+      + `<div class="pd-count">${done}/${total}</div></div><div class="pd-label">${label}</div></div>`;
+  }
+  function updateProgress(){
+    const dock = document.getElementById("progressDock");
+    const filesTotal = document.querySelectorAll(".file").length;
+    const filesViewed = document.querySelectorAll(".file.viewed").length;
+    let html = filesTotal ? ring(filesViewed, filesTotal, "Files") : "";
+    if(HAS_REVIEW){
+      let ftotal=0, fdone=0;
+      for(const pr in REVIEW){ for(const c of REVIEW[pr].comments){ ftotal++; if(state.aiState[pr+" "+c.aid]) fdone++; } }
+      if(ftotal) html += ring(fdone, ftotal, "Reviewed");
+    }
+    dock.innerHTML = html;
+    dock.hidden = !html;
+    document.body.classList.toggle("has-dock", !!html);
+  }
+
+  // ---- sidebar comment list (file notes + line comments) ----
+  function renderCommentList(){
+    document.querySelectorAll("[data-comment-list]").forEach(list=>{
+      const pr = list.dataset.commentList;
+      let html = "", count = 0;
+      for(const k in state.files){
+        const c=state.files[k]; if(!c||c.pr!==pr||!c.text||!c.text.trim()) continue; count++;
+        html += `<button class="cl-item cl-file" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}"><span class="cl-loc">📄 ${escAttr(c.file)}</span><span class="cl-text">${escAttr(c.text)}</span></button>`;
+      }
+      const items = [];
+      for(const id in state.lines){ const c=state.lines[id]; if(!c||c.pr!==pr||!c.text||!c.text.trim()) continue; items.push(c); }
+      items.sort((a,b)=> a.file<b.file?-1:a.file>b.file?1:(parseInt(a.lineno)||0)-(parseInt(b.lineno)||0));
+      for(const c of items){ count++; html += `<button class="cl-item" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}"><span class="cl-loc">${escAttr(c.file)}:${escAttr(c.lineno)}</span><span class="cl-text">${escAttr(c.text)}</span></button>`; }
+      list.innerHTML = count ? html : '<div class="cl-empty">No comments yet. Hover a diff line and click + — or 💬 on a file header.</div>';
+      const cnt = list.closest(".cl-wrap")?.querySelector("[data-cl-count]"); if(cnt) cnt.textContent = count;
+    });
+  }
+  // jump to a line / file / finding from a list item
+  document.addEventListener("click", (e)=>{
+    const it = e.target.closest(".cl-item, .finding-item"); if(!it) return;
+    const sec = document.querySelector('section.pr[data-pr="'+cssEsc(it.dataset.pr)+'"]');
+    if(!sec) return;
+    if(it.classList.contains("cl-file")){
+      const fileEl = [...sec.querySelectorAll(".file")].find(f=>f.dataset.file===it.dataset.file);
+      if(fileEl){ fileEl.classList.remove("collapsed"); fileEl.scrollIntoView({ block:"start", behavior:"smooth" }); fileNoteBox(fileEl, (state.files[it.dataset.pr+" "+it.dataset.file]||{}).text||"", true); }
+      return;
+    }
+    const g = sec.querySelector('.gutter[data-key="'+cssEsc(it.dataset.key)+'"][data-file="'+cssEsc(it.dataset.file)+'"]');
+    if(!g) return;
+    const file = g.closest(".file"); if(file) file.classList.remove("collapsed");
+    g.scrollIntoView({ block:"center", behavior:"smooth" });
+    if(it.classList.contains("cl-item")){ const ta = createCommentRow(g, ""); if(ta) ta.focus(); }
+  });
+
+  // ---- events: comment gutter (delegated, survives re-render) ----
+  document.getElementById("main").addEventListener("click", (e)=>{
+    const g = e.target.closest(".gutter"); if(!g || g.classList.contains("empty") || !g.dataset.key) return;
+    const ta = createCommentRow(g, ""); if(ta) ta.focus();
+  });
+
+  // ---- general comments ----
+  document.querySelectorAll(".general-input").forEach(ta=>{
+    const pr = ta.dataset.general; ta.value = state.general[pr] || "";
+    ta.addEventListener("input", ()=>{ state.general[pr]=ta.value; save(); updateCounts(); });
+  });
+
+  // ---- file collapse (ignore clicks on the action controls) ----
+  document.querySelectorAll(".file-header").forEach(h=>{
+    h.addEventListener("click", (e)=>{ if(e.target.closest(".file-actions")) return; h.closest(".file").classList.toggle("collapsed"); });
+  });
+
+  // ---- per-file comment + "Viewed" (GitHub-style) ----
+  function fileNoteBox(fileEl, prefill, focus){
+    const slot = fileEl.querySelector(".file-note-slot");
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
+    const btn = fileEl.querySelector(".file-note-btn");
+    let box = slot.querySelector(".file-note");
+    if(box){ const t=box.querySelector("textarea"); if(focus) t.focus(); return t; }
+    box = document.createElement("div"); box.className="file-note";
+    box.innerHTML = '<div class="cb-meta"><span class="who-you">You</span><span>File comment · '+escAttr(file)+'</span></div><textarea placeholder="Comment on this whole file…"></textarea><div class="comment-actions"><button type="button">Delete</button></div>';
+    slot.appendChild(box);
+    const ta = box.querySelector("textarea"); ta.value = prefill || "";
+    const store = () => { state.files[id] = { pr, file, text: ta.value }; save(); updateCounts(); if(btn) btn.classList.toggle("has-note", !!ta.value.trim()); };
+    ta.addEventListener("input", store);
+    ta.addEventListener("blur", ()=>{ if(!ta.value.trim()){ delete state.files[id]; save(); updateCounts(); box.remove(); if(btn) btn.classList.remove("has-note"); } });
+    box.querySelector(".comment-actions button").addEventListener("click", ()=>{ delete state.files[id]; save(); updateCounts(); box.remove(); if(btn) btn.classList.remove("has-note"); });
+    if(focus) ta.focus();
+    return ta;
+  }
+  function setViewed(fileEl, viewed, persist){
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
+    fileEl.classList.toggle("viewed", viewed);
+    fileEl.classList.toggle("collapsed", viewed);
+    const cb = fileEl.querySelector(".viewed-cb"); if(cb) cb.checked = viewed;
+    if(persist){ if(viewed) state.viewed[id]=true; else delete state.viewed[id]; save(); updateCounts(); }
+  }
+  document.querySelectorAll(".file").forEach(fileEl=>{
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
+    const btn = fileEl.querySelector(".file-note-btn");
+    if(btn) btn.addEventListener("click", (e)=>{ e.stopPropagation(); fileNoteBox(fileEl, "", true); });
+    const cb = fileEl.querySelector(".viewed-cb");
+    if(cb) cb.addEventListener("change", ()=> setViewed(fileEl, cb.checked, true));
+    if(state.files[id] && (state.files[id].text||"").trim()){ fileNoteBox(fileEl, state.files[id].text, false); if(btn) btn.classList.add("has-note"); }
+    if(state.viewed[id]) setViewed(fileEl, true, false);
+  });
+
+  // ---- tabs ----
+  document.querySelectorAll(".tab").forEach(tab=>{
+    tab.addEventListener("click", ()=>{
+      const id = tab.dataset.tab;
+      document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active", t===tab));
+      document.querySelectorAll("section.pr").forEach(s=>{ s.hidden = s.dataset.pr !== id; });
+      window.scrollTo(0,0);
+    });
+  });
+
+  // ---- diff mode (persisted view pref) ----
+  let mode = "unified";
+  try { const m = localStorage.getItem(MODE_KEY); if(m==="split"||m==="unified") mode=m; } catch(e){}
+  function setMode(m){
+    mode = m; try{ localStorage.setItem(MODE_KEY, m); }catch(e){}
+    document.querySelectorAll(".diff-mode-seg button").forEach(b=>b.classList.toggle("active", b.dataset.mode===m));
+    renderAll(m);
+  }
+  document.querySelectorAll(".diff-mode-seg button").forEach(b=> b.addEventListener("click", ()=>setMode(b.dataset.mode)));
+
+  // ---- theme: system default, session override cycle (not persisted) ----
+  const themeBtn = document.getElementById("themeBtn");
+  const THEMES = [
+    {v:null, icon:"◐", label:"system"},
+    {v:"light", icon:"☀", label:"light"},
+    {v:"dark", icon:"☾", label:"dark"},
+  ];
+  let ti = 0;
+  themeBtn.addEventListener("click", ()=>{
+    ti = (ti+1) % THEMES.length; const t = THEMES[ti];
+    if(t.v) document.documentElement.setAttribute("data-theme", t.v);
+    else document.documentElement.removeAttribute("data-theme");
+    themeBtn.textContent = t.icon; themeBtn.title = "Theme: " + t.label;
+  });
+
+  // ---- export ----
+  function buildMarkdown(){
+    let out = "# " + TITLE + "\n_" + SUBTITLE + "_\n"; let any=false;
+    document.querySelectorAll("section.pr").forEach(sec=>{
+      const pr = sec.dataset.pr; const title = sec.querySelector(".summary-head h2")?.textContent || sec.querySelector("h2")?.textContent || pr;
+      let block="";
+      // decisions on Claude's automatic review
+      const rev = REVIEW[pr];
+      if(rev && rev.comments.length){
+        block += "\n**On the " + REVIEWER + " review:**\n";
+        for(const c of rev.comments){
+          const s = state.aiState[pr+" "+c.aid] || "open";
+          block += "- [" + s + "] " + c.file + " L" + c.line + " (" + c.severity + ") — " + c.body.replace(/\n+/g," ").trim() + "\n";
+        }
+      }
+      const gen=(state.general[pr]||"").trim();
+      if(gen) block += "\n**My overall:** " + gen + "\n";
+      const byFile = {};
+      const F = (f)=> byFile[f] = byFile[f] || { note:"", lines:[] };
+      for(const k in state.files){ const c=state.files[k]; if(!c||c.pr!==pr||!c.text||!c.text.trim()) continue; F(c.file).note = c.text; }
+      for(const k in state.lines){ const c=state.lines[k]; if(!c||c.pr!==pr||!c.text||!c.text.trim()) continue; F(c.file).lines.push(c); }
+      for(const file in byFile){
+        block += "\n### " + file + "\n";
+        const fm = byFile[file];
+        if(fm.note) block += "- **File:** " + fm.note.replace(/\n+/g," ").trim() + "\n";
+        fm.lines.sort((a,b)=>(parseInt(a.lineno)||0)-(parseInt(b.lineno)||0));
+        for(const c of fm.lines){
+          block += "- **L" + c.lineno + "** — " + c.text.replace(/\n+/g," ").trim() + "\n";
+          if(c.code && c.code.trim()) block += "  > `" + c.code.trim().slice(0,160) + "`\n";
+        }
+      }
+      if(block.trim()){ any=true; out += "\n## " + title + "\n" + block; }
+    });
+    if(!any) out += "\n_No comments yet._\n";
+    return out;
+  }
+  const modal = document.getElementById("exportModal");
+  const exportText = document.getElementById("exportText");
+  document.getElementById("exportBtn").addEventListener("click", ()=>{ exportText.value = buildMarkdown(); modal.hidden=false; });
+  document.getElementById("closeModal").addEventListener("click", ()=> modal.hidden=true);
+  modal.addEventListener("click", e=>{ if(e.target===modal) modal.hidden=true; });
+  document.getElementById("copyBtn").addEventListener("click", async ()=>{
+    try { await navigator.clipboard.writeText(exportText.value); } catch(e){ exportText.select(); document.execCommand("copy"); }
+    const m=document.getElementById("copiedMsg"); m.hidden=false; setTimeout(()=>m.hidden=true,1800);
+  });
+  document.getElementById("downloadBtn").addEventListener("click", ()=>{
+    const blob = new Blob([exportText.value], {type:"text/markdown"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = "review-comments-" + REVIEW_ID + ".md"; a.click(); URL.revokeObjectURL(a.href);
+  });
+
+  // ---- resizable columns (drag the divider; double-click resets 50/50) ----
+  try { const w = localStorage.getItem("htmlreview:leftw"); if(w) document.documentElement.style.setProperty("--left-w", w); } catch(e){}
+  let rzTarget = null;
+  document.addEventListener("mousedown", (e)=>{ const rz=e.target.closest(".col-resizer"); if(!rz) return; rzTarget=rz.closest(".pr-cols"); rz.classList.add("active"); document.body.style.userSelect="none"; e.preventDefault(); });
+  document.addEventListener("mousemove", (e)=>{ if(!rzTarget) return; const rect=rzTarget.getBoundingClientRect(); let pct=(e.clientX-rect.left)/rect.width*100; pct=Math.max(20,Math.min(80,pct)); document.documentElement.style.setProperty("--left-w", pct.toFixed(1)+"%"); });
+  document.addEventListener("mouseup", ()=>{ if(!rzTarget) return; document.querySelectorAll(".col-resizer.active").forEach(r=>r.classList.remove("active")); document.body.style.userSelect=""; try{ localStorage.setItem("htmlreview:leftw", document.documentElement.style.getPropertyValue("--left-w")||"50%"); }catch(e){} rzTarget=null; });
+  document.addEventListener("dblclick", (e)=>{ if(!e.target.closest(".col-resizer")) return; document.documentElement.style.setProperty("--left-w","50%"); try{ localStorage.setItem("htmlreview:leftw","50%"); }catch(e){} });
+
+  // ---- diagram / image lightbox (click to fullscreen) ----
+  const lb = document.getElementById("lightbox"), lbInner = lb.querySelector(".lb-inner");
+  document.addEventListener("click", (e)=>{
+    if(!lb.hidden && lb.contains(e.target)){ lb.hidden=true; lbInner.innerHTML=""; return; }
+    const db = e.target.closest(".diagram-body"); if(!db) return;
+    const g = db.querySelector("svg,img"); if(!g) return;
+    lbInner.innerHTML=""; lbInner.appendChild(g.cloneNode(true)); lb.hidden=false;
+  });
+
+  // ---- fullscreen the diff ----
+  // The .maximized CSS overlay is the source of truth (instant, works anywhere);
+  // native Fullscreen is a best-effort upgrade to also hide browser chrome.
+  function enterMax(db){ db.classList.add("maximized"); if(db.requestFullscreen) db.requestFullscreen().catch(()=>{}); }
+  function exitMax(db){ db.classList.remove("maximized"); if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(()=>{}); }
+  document.querySelectorAll(".dbh-fs").forEach(btn=>{
+    btn.addEventListener("click", ()=>{ const db=btn.closest(".diff-block"); db.classList.contains("maximized") ? exitMax(db) : enterMax(db); });
+  });
+  document.addEventListener("fullscreenchange", ()=>{ if(!document.fullscreenElement) document.querySelectorAll(".diff-block.maximized").forEach(d=>d.classList.remove("maximized")); });
+
+  document.addEventListener("keydown", (e)=>{
+    if(e.key!=="Escape") return;
+    if(!lb.hidden){ lb.hidden=true; lbInner.innerHTML=""; }
+    document.querySelectorAll(".diff-block.maximized").forEach(d=>exitMax(d));
+  });
+
+  // ---- init ----
+  setMode(mode);
+  renderFindingList();
+  updateCounts();
+})();
+</script>
+{{MERMAID}}
+</body>
+</html>
