@@ -104,7 +104,25 @@ export function validateReviewSpec(spec, options = {}) {
       add("expected-object", root, `${root} must be an object.`);
       return;
     }
-    rejectUnknown(pr, new Set(["id", "title", "url", "summary", "diff", "diffFile", "diagrams", "blocks", "groups", "review"]), root);
+    rejectUnknown(
+      pr,
+      new Set([
+        "id",
+        "title",
+        "url",
+        "summary",
+        "diff",
+        "diffFile",
+        "diagrams",
+        "blocks",
+        "groups",
+        "groupFile",
+        "changeGroups",
+        "autoGroups",
+        "review",
+      ]),
+      root,
+    );
     requireString(pr.title, `${root}.title`);
     optionalString(pr.id, `${root}.id`);
     optionalString(pr.url, `${root}.url`);
@@ -215,6 +233,51 @@ export function validateReviewSpec(spec, options = {}) {
           }
         });
       }
+    }
+
+    const groupSources = [
+      pr.groups !== undefined && "groups",
+      pr.groupFile !== undefined && "groupFile",
+      pr.changeGroups !== undefined && "changeGroups",
+      pr.autoGroups === true && "autoGroups",
+    ].filter(Boolean);
+    if (groupSources.length > 1) {
+      add(
+        "multiple-group-sources",
+        root,
+        `${root} defines multiple grouping sources: ${groupSources.join(", ")}.`,
+        "Use one of groups, groupFile, changeGroups, or autoGroups.",
+      );
+    }
+    if (pr.groupFile !== undefined) {
+      if (requireString(pr.groupFile, `${root}.groupFile`) && checkFiles) {
+        const groupPath = path.isAbsolute(pr.groupFile)
+          ? pr.groupFile
+          : path.resolve(baseDir, pr.groupFile);
+        if (!fs.existsSync(groupPath)) {
+          add(
+            "group-file-not-found",
+            `${root}.groupFile`,
+            `Group file '${pr.groupFile}' does not exist.`,
+            `Resolved path: ${groupPath}`,
+          );
+        }
+      }
+    }
+    if (pr.changeGroups !== undefined) {
+      if (!isObject(pr.changeGroups)) {
+        add("expected-object", `${root}.changeGroups`, `${root}.changeGroups must be an object.`);
+      } else if (pr.changeGroups.schemaVersion !== 1) {
+        add(
+          "unsupported-group-schema",
+          `${root}.changeGroups.schemaVersion`,
+          `Unsupported change-group schema version '${pr.changeGroups.schemaVersion}'.`,
+          "Use change-group schema version 1.",
+        );
+      }
+    }
+    if (pr.autoGroups !== undefined && typeof pr.autoGroups !== "boolean") {
+      add("expected-boolean", `${root}.autoGroups`, `${root}.autoGroups must be a boolean.`);
     }
 
     if (pr.review !== undefined) {

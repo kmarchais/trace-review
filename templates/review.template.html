@@ -260,6 +260,18 @@
   .group-kind.gk-mechanical { background:var(--muted); } .group-kind.gk-refactor { background:#8a63d2; } .group-kind.gk-feature { background:var(--primary); }
   .group-kind.gk-fix { background:var(--red); } .group-kind.gk-test { background:var(--green); } .group-kind.gk-docs { background:var(--orange); } .group-kind.gk-other { background:var(--secondary-light,#5894AC); }
   .group-count { font-size:.78rem; color:var(--muted); white-space:nowrap; }
+  .group-risk, .group-confidence, .change-range { font-family:var(--font-heading); font-size:.68rem; color:var(--muted); white-space:nowrap; }
+  .change-range { max-width:min(38vw,420px); overflow:hidden; text-overflow:ellipsis; border-left:1px solid var(--border); padding-left:8px; }
+  .group-risk { border:1px solid var(--border); border-radius:10px; padding:2px 7px; }
+  .risk-high { color:var(--red); border-color:var(--red); } .risk-medium { color:var(--orange); border-color:var(--orange); }
+  .reading-order { margin:0 0 14px; padding:10px 12px; border:1px solid var(--border); border-radius:7px; background:var(--panel); color:var(--muted); font-size:.82rem; line-height:1.45; }
+  .group-note details { margin:7px 0; } .group-note summary { cursor:pointer; color:var(--secondary); font-family:var(--font-heading); font-weight:600; }
+  .group-note ul { margin:5px 0 0; } .read-after { color:var(--muted); font-size:.82rem; }
+  .group-correction, .group-merge { display:flex; align-items:center; gap:4px; }
+  .group-correction select, .group-merge select, .group-merge button { max-width:150px; font-family:var(--font-heading); font-size:.68rem; color:var(--muted); background:var(--card); border:1px solid var(--border); border-radius:4px; padding:3px 5px; }
+  .group-merge button { cursor:pointer; } .group-merge button:hover { border-color:var(--primary); color:var(--primary); }
+  .out-of-scope-group { margin:18px 0; opacity:.8; } .out-of-scope-group > .group-head { border-left-color:var(--muted); cursor:default; }
+  .out-of-scope-group .file { border-style:dashed; }
   .group-viewed { display:flex; align-items:center; gap:5px; font-family:var(--font-heading); font-size:.74rem; color:var(--muted); cursor:pointer; white-space:nowrap; }
   .group-viewed input { accent-color:var(--green); width:15px; height:15px; cursor:pointer; }
   .group-note { font-size:.9rem; line-height:1.5; color:var(--text); padding:10px 14px 2px; }
@@ -338,6 +350,11 @@
   .comment-box textarea { font-family:var(--font-body); min-height:40px; }
   .comment-actions { margin-top:6px; }
   .comment-actions button { font-size:.76rem; background:none; border:none; color:var(--red); cursor:pointer; }
+  .attachment-tray { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .comment-attachment { position:relative; width:132px; margin:0; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--panel); }
+  .comment-attachment img { display:block; width:100%; height:92px; object-fit:cover; cursor:zoom-in; }
+  .comment-attachment button { position:absolute; top:4px; right:4px; width:22px; height:22px; padding:0; border:1px solid rgba(255,255,255,.7); border-radius:50%; background:rgba(24,35,45,.78); color:#fff; cursor:pointer; line-height:18px; }
+  .paste-hint { margin-top:4px; font-size:.68rem; color:var(--muted); font-family:var(--font-heading); }
 
   .modal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:50; padding:20px; }
   .modal[hidden] { display:none; }
@@ -394,6 +411,7 @@
   .ft-dir.collapsed > .ft-row .ft-tw { transform:rotate(-90deg); }
   .ft-dir.collapsed > .ft-children { display:none; }
   .ft-file .ft-name { font-family:var(--mono); flex:1; }
+  .ft-topic { display:block; margin-top:2px; font-family:var(--font-heading); font-size:.66rem; font-weight:400; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:230px; }
   .ft-file .ft-stats { font-family:var(--mono); font-size:.72rem; margin-left:auto; flex:0 0 auto; }
   .ft-file.viewed .ft-name { color:var(--muted); text-decoration:line-through; opacity:.8; }
   .ft-file.viewed .ft-name::after { content:" ✓"; color:var(--green); text-decoration:none; font-family:var(--font-heading); }
@@ -472,10 +490,10 @@
   const HAS_REVIEW = Object.keys(REVIEW).length > 0;
 
   // ---- state ----
-  let state = { general:{}, lines:{}, aiState:{}, files:{}, viewed:{} };
+  let state = { general:{}, lines:{}, aiState:{}, files:{}, viewed:{}, grouping:{}, attachments:{} };
   try { const raw = localStorage.getItem(STORE_KEY); if (raw) state = JSON.parse(raw); } catch(e){}
   state.general = state.general || {}; state.lines = state.lines || {}; state.aiState = state.aiState || {};
-  state.files = state.files || {}; state.viewed = state.viewed || {};
+  state.files = state.files || {}; state.viewed = state.viewed || {}; state.grouping = state.grouping || {}; state.attachments = state.attachments || {};
 
   // ---- syntax highlighting (highlight.js, loaded above; degrades offline) ----
   // Highlight a whole block and split into per-line HTML, keeping <span>s
@@ -512,6 +530,52 @@
   const uid = (pr,file,key) => pr + " " + file + " " + key;
   const escAttr = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   const cssEsc = (s) => { try { return CSS.escape(s); } catch(e){ return String(s).replace(/"/g,'\\"'); } };
+  const attachmentId = (kind,pr,file,key) => [kind,pr,file||"",key||""].join(" ");
+  const attachmentItems = (id) => state.attachments[id] || [];
+  const hasAttachments = (id) => attachmentItems(id).length > 0;
+  const hasCommentContent = (text,id) => !!String(text||"").trim() || hasAttachments(id);
+  function renderAttachmentTray(box,id,onChange){
+    let tray=box.querySelector(".attachment-tray");
+    if(!tray){ tray=document.createElement("div"); tray.className="attachment-tray"; box.querySelector("textarea").after(tray); }
+    tray.innerHTML=attachmentItems(id).map((item,index)=>
+      `<figure class="comment-attachment"><img src="${escAttr(item.data)}" alt="Pasted image ${index+1}"><button type="button" data-remove-attachment="${index}" title="Remove image">×</button></figure>`
+    ).join("");
+    tray.hidden=!hasAttachments(id);
+    tray.querySelectorAll("[data-remove-attachment]").forEach(button=>button.addEventListener("click",()=>{
+      const items=attachmentItems(id).slice(); items.splice(Number(button.dataset.removeAttachment),1);
+      if(items.length) state.attachments[id]=items; else delete state.attachments[id];
+      save(); renderAttachmentTray(box,id,onChange); if(onChange) onChange();
+    }));
+  }
+  function bindImagePaste(ta,box,id,onChange){
+    ta.title="Paste text or an image from the clipboard";
+    if(!box.querySelector(".paste-hint")){
+      const hint=document.createElement("div"); hint.className="paste-hint"; hint.textContent="Tip: paste a screenshot directly into this comment.";
+      ta.after(hint);
+    }
+    renderAttachmentTray(box,id,onChange);
+    ta.addEventListener("paste",(event)=>{
+      const files=[...(event.clipboardData?.items||[])]
+        .filter(item=>item.kind==="file" && item.type.startsWith("image/"))
+        .map(item=>item.getAsFile()).filter(Boolean);
+      if(!files.length) return;
+      event.preventDefault();
+      const available=Math.max(0,4-attachmentItems(id).length);
+      if(!available){ window.alert("A comment can contain up to 4 pasted images."); return; }
+      files.slice(0,available).forEach(file=>{
+        if(file.size>1.5*1024*1024){ window.alert("Pasted images must be 1.5 MB or smaller."); return; }
+        const storedBytes=attachmentItems(id).reduce((sum,item)=>sum+String(item.data||"").length,0);
+        if(storedBytes+file.size*1.4>3*1024*1024){ window.alert("Pasted images in one comment must stay under 3 MB total."); return; }
+        const reader=new FileReader();
+        reader.addEventListener("load",()=>{
+          const items=attachmentItems(id).slice();
+          items.push({ name:file.name||"pasted-image", type:file.type||"image/png", data:String(reader.result) });
+          state.attachments[id]=items; if(onChange) onChange(); save(); renderAttachmentTray(box,id,onChange); updateCounts();
+        });
+        reader.readAsDataURL(file);
+      });
+    });
+  }
 
   // ---- diff table builders (client-side, per mode) ----
   function gutter(file,key,lineno,c){
@@ -583,6 +647,7 @@
     const pr = g.closest("section.pr").dataset.pr;
     const file = g.dataset.file, key = g.dataset.key;
     const id = uid(pr,file,key);
+    const attachId = attachmentId("line",pr,file,key);
     const existing = mount.querySelector('.comment-row[data-cid="'+cssEsc(id)+'"]');
     if(existing){ return existing.querySelector("textarea"); }
     const crow = document.createElement("tr");
@@ -597,9 +662,10 @@
     box.append(meta, ta, actions); td.appendChild(box); crow.appendChild(td);
     tr.after(crow);
     const store = () => { state.lines[id] = { pr, file, key, lineno:g.dataset.lineno, code:g.dataset.code, text:ta.value }; save(); updateCounts(); };
+    bindImagePaste(ta,box,attachId,store);
     ta.addEventListener("input", store);
-    ta.addEventListener("blur", () => { if(!ta.value.trim()){ delete state.lines[id]; save(); updateCounts(); crow.remove(); } });
-    del.addEventListener("click", () => { delete state.lines[id]; save(); updateCounts(); crow.remove(); });
+    ta.addEventListener("blur", () => { if(!hasCommentContent(ta.value,attachId)){ delete state.lines[id]; save(); updateCounts(); crow.remove(); } });
+    del.addEventListener("click", () => { delete state.lines[id]; delete state.attachments[attachId]; save(); updateCounts(); crow.remove(); });
     return ta;
   }
   function applyComments(mount){
@@ -679,14 +745,15 @@
   function updateCounts(){
     let total = 0; const perFile = {}, perPr = {};
     for(const k in state.lines){
-      const c = state.lines[k]; if(!c || !c.text || !c.text.trim()) continue;
+      const c = state.lines[k]; if(!c || !hasCommentContent(c.text,attachmentId("line",c.pr,c.file,c.key))) continue;
       total++; perFile[c.pr+" "+c.file]=(perFile[c.pr+" "+c.file]||0)+1; perPr[c.pr]=(perPr[c.pr]||0)+1;
     }
     for(const k in state.files){
-      const c = state.files[k]; if(!c || !c.text || !c.text.trim()) continue;
-      total++; perFile[c.pr+" "+c.file]=(perFile[c.pr+" "+c.file]||0)+1; perPr[c.pr]=(perPr[c.pr]||0)+1;
+      const c = state.files[k]; if(!c || !hasCommentContent(c.text,attachmentId("file",c.pr,c.file,""))) continue;
+      total++; perFile[c.pr+" "+c.file]=(perFile[c.pr+" "+c.file]||0)+1; perPr[c.pr]=(perPr[c.pr]||0)+1;
     }
-    for(const pr in state.general){ if((state.general[pr]||"").trim()){ total++; perPr[pr]=(perPr[pr]||0)+1; } }
+    const generalPrs=new Set([...Object.keys(state.general),...Object.keys(state.attachments).filter(key=>key.startsWith("general ")).map(key=>key.split(" ")[1])]);
+    for(const pr of generalPrs){ if(hasCommentContent(state.general[pr],attachmentId("general",pr,"",""))){ total++; perPr[pr]=(perPr[pr]||0)+1; } }
     document.getElementById("commentCount").textContent = total + (total===1?" comment":" comments");
     document.querySelectorAll("[data-file-count]").forEach(b=>{
       const sec=b.closest("section.pr"); const pr=sec?sec.dataset.pr:"";
@@ -742,13 +809,13 @@
       const pr = list.dataset.commentList;
       let html = "", count = 0;
       for(const k in state.files){
-        const c=state.files[k]; if(!c||c.pr!==pr||!c.text||!c.text.trim()) continue; count++;
-        html += `<button class="cl-item cl-file" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}"><span class="cl-loc">📄 ${escAttr(c.file)}</span><span class="cl-text">${escAttr(c.text)}</span></button>`;
+        const c=state.files[k]; if(!c||c.pr!==pr||!hasCommentContent(c.text,attachmentId("file",c.pr,c.file,""))) continue; count++;
+        html += `<button class="cl-item cl-file" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}"><span class="cl-loc">📄 ${escAttr(c.file)}</span><span class="cl-text">${escAttr(c.text||"📎 Pasted image")}</span></button>`;
       }
       const items = [];
-      for(const id in state.lines){ const c=state.lines[id]; if(!c||c.pr!==pr||!c.text||!c.text.trim()) continue; items.push(c); }
+      for(const id in state.lines){ const c=state.lines[id]; if(!c||c.pr!==pr||!hasCommentContent(c.text,attachmentId("line",c.pr,c.file,c.key))) continue; items.push(c); }
       items.sort((a,b)=> a.file<b.file?-1:a.file>b.file?1:(parseInt(a.lineno)||0)-(parseInt(b.lineno)||0));
-      for(const c of items){ count++; html += `<button class="cl-item" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}"><span class="cl-loc">${escAttr(c.file)}:${escAttr(c.lineno)}</span><span class="cl-text">${escAttr(c.text)}</span></button>`; }
+      for(const c of items){ count++; html += `<button class="cl-item" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}"><span class="cl-loc">${escAttr(c.file)}:${escAttr(c.lineno)}</span><span class="cl-text">${escAttr(c.text||"📎 Pasted image")}</span></button>`; }
       list.innerHTML = count ? html : '<div class="cl-empty">No comments yet. Hover a diff line and click + — or 💬 on a file header.</div>';
       const cnt = list.closest(".cl-wrap")?.querySelector("[data-cl-count]"); if(cnt) cnt.textContent = count;
     });
@@ -766,6 +833,8 @@
     const g = sec.querySelector('.gutter[data-key="'+cssEsc(it.dataset.key)+'"][data-file="'+cssEsc(it.dataset.file)+'"]');
     if(!g) return;
     const file = g.closest(".file"); if(file) file.classList.remove("collapsed");
+    const group = g.closest(".group"); if(group) group.classList.remove("collapsed");
+    const outOfScope = g.closest("[data-out-of-scope]"); if(outOfScope) outOfScope.hidden=false;
     g.scrollIntoView({ block:"center", behavior:"smooth" });
     if(it.classList.contains("cl-item")){ const ta = createCommentRow(g, ""); if(ta) ta.focus(); }
   });
@@ -779,7 +848,10 @@
   // ---- general comments ----
   document.querySelectorAll(".general-input").forEach(ta=>{
     const pr = ta.dataset.general; ta.value = state.general[pr] || "";
-    ta.addEventListener("input", ()=>{ state.general[pr]=ta.value; save(); updateCounts(); });
+    const id=attachmentId("general",pr,"","");
+    const store=()=>{ state.general[pr]=ta.value; save(); updateCounts(); };
+    bindImagePaste(ta,ta.closest(".overall-bar"),id,store);
+    ta.addEventListener("input", store);
   });
 
   // ---- file collapse (ignore clicks on the action controls) ----
@@ -791,6 +863,7 @@
   function fileNoteBox(fileEl, prefill, focus){
     const slot = fileEl.querySelector(".file-note-slot");
     const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
+    const attachId = attachmentId("file",pr,file,"");
     const btn = fileEl.querySelector(".file-note-btn");
     let box = slot.querySelector(".file-note");
     if(box){ const t=box.querySelector("textarea"); if(focus) t.focus(); return t; }
@@ -798,15 +871,16 @@
     box.innerHTML = '<div class="cb-meta"><span class="who-you">You</span><span>File comment · '+escAttr(file)+'</span></div><textarea placeholder="Comment on this whole file…"></textarea><div class="comment-actions"><button type="button">Delete</button></div>';
     slot.appendChild(box);
     const ta = box.querySelector("textarea"); ta.value = prefill || "";
-    const store = () => { state.files[id] = { pr, file, text: ta.value }; save(); updateCounts(); if(btn) btn.classList.toggle("has-note", !!ta.value.trim()); };
+    const store = () => { state.files[id] = { pr, file, text: ta.value }; save(); updateCounts(); if(btn) btn.classList.toggle("has-note", hasCommentContent(ta.value,attachId)); };
+    bindImagePaste(ta,box,attachId,store);
     ta.addEventListener("input", store);
-    ta.addEventListener("blur", ()=>{ if(!ta.value.trim()){ delete state.files[id]; save(); updateCounts(); box.remove(); if(btn) btn.classList.remove("has-note"); } });
-    box.querySelector(".comment-actions button").addEventListener("click", ()=>{ delete state.files[id]; save(); updateCounts(); box.remove(); if(btn) btn.classList.remove("has-note"); });
+    ta.addEventListener("blur", ()=>{ if(!hasCommentContent(ta.value,attachId)){ delete state.files[id]; save(); updateCounts(); box.remove(); if(btn) btn.classList.remove("has-note"); } });
+    box.querySelector(".comment-actions button").addEventListener("click", ()=>{ delete state.files[id]; delete state.attachments[attachId]; save(); updateCounts(); box.remove(); if(btn) btn.classList.remove("has-note"); });
     if(focus) ta.focus();
     return ta;
   }
   function setViewed(fileEl, viewed, persist){
-    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.change || fileEl.dataset.file, id = pr + " " + file;
     fileEl.classList.toggle("viewed", viewed);
     fileEl.classList.toggle("collapsed", viewed);
     const cb = fileEl.querySelector(".viewed-cb"); if(cb) cb.checked = viewed;
@@ -839,18 +913,20 @@
     cb.indeterminate = n>0 && n<files.length;
   }
   document.querySelectorAll(".file").forEach(fileEl=>{
-    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.change || fileEl.dataset.file, id = pr + " " + file;
+    const fileNoteId = pr + " " + fileEl.dataset.file;
+    const fileAttachId = attachmentId("file",pr,fileEl.dataset.file,"");
     const btn = fileEl.querySelector(".file-note-btn");
     if(btn) btn.addEventListener("click", (e)=>{ e.stopPropagation(); fileNoteBox(fileEl, "", true); });
     const cb = fileEl.querySelector(".viewed-cb");
     if(cb) cb.addEventListener("change", ()=>{ setViewed(fileEl, cb.checked, true); if(cb.checked) scrollFileToTop(fileEl); });
-    if(state.files[id] && (state.files[id].text||"").trim()){ fileNoteBox(fileEl, state.files[id].text, false); if(btn) btn.classList.add("has-note"); }
+    if(state.files[fileNoteId] && hasCommentContent(state.files[fileNoteId].text,fileAttachId)){ fileNoteBox(fileEl, state.files[fileNoteId].text, false); if(btn) btn.classList.add("has-note"); }
     if(state.viewed[id]) setViewed(fileEl, true, false);
   });
 
   // ---- change groups: collapse + one "Reviewed" that clears the whole group ----
   document.querySelectorAll(".group-head").forEach(h=>{
-    h.addEventListener("click", (e)=>{ if(e.target.closest(".group-viewed")) return; h.closest(".group").classList.toggle("collapsed"); });
+    h.addEventListener("click", (e)=>{ if(e.target.closest(".group-viewed, .group-merge")) return; const group=h.closest(".group"); if(group) group.classList.toggle("collapsed"); });
   });
   document.querySelectorAll(".group").forEach(group=>{
     const cb = group.querySelector(".gv-cb");
@@ -868,12 +944,57 @@
     syncGroupCb(group);
   });
 
+  // ---- reviewer corrections: move/split hunk units, merge groups, or mark out of scope ----
+  function groupingKey(fileEl){
+    const sec=fileEl.closest("section.pr");
+    return sec.dataset.pr + " " + (fileEl.dataset.change || fileEl.dataset.file);
+  }
+  function refreshGroupMeta(sec){
+    sec.querySelectorAll(".group").forEach(group=>{
+      const files=[...group.querySelectorAll(":scope > .group-files > .file")];
+      const count=group.querySelector(".group-count");
+      if(count) count.textContent=files.length+" change unit"+(files.length===1?"":"s");
+      syncGroupCb(group);
+    });
+    const out=sec.querySelector("[data-out-of-scope]");
+    if(out) out.hidden=!out.querySelector(".file");
+    updateProgress();
+    refreshTree();
+  }
+  function moveChange(fileEl, target, persist){
+    const sec=fileEl.closest("section.pr");
+    const destination=target==="__out"
+      ? sec.querySelector("[data-out-of-scope] .group-files")
+      : sec.querySelector('.group[data-group="'+cssEsc(target)+'"] > .group-files');
+    if(!destination) return;
+    destination.appendChild(fileEl);
+    const select=fileEl.querySelector(".change-group-select");
+    if(select) select.value=target;
+    if(persist){ state.grouping[groupingKey(fileEl)]=target; save(); }
+    refreshGroupMeta(sec);
+  }
+  document.querySelectorAll(".file[data-change]").forEach(fileEl=>{
+    const select=fileEl.querySelector(".change-group-select");
+    if(select) select.addEventListener("change", e=>{ e.stopPropagation(); moveChange(fileEl, select.value, true); });
+    const saved=state.grouping[groupingKey(fileEl)];
+    if(saved) moveChange(fileEl, saved, false);
+  });
+  document.querySelectorAll(".group-merge-btn").forEach(button=>{
+    button.addEventListener("click", e=>{
+      e.stopPropagation();
+      const source=button.closest(".group");
+      const target=source.querySelector(".group-merge-select").value;
+      if(!target || target===source.dataset.group) return;
+      [...source.querySelectorAll(":scope > .group-files > .file")].forEach(file=>moveChange(file,target,true));
+    });
+  });
+
   // ---- file tree drawer (navigate a big diff by path) ----
   function collectTreeFiles(sec){
     return [...sec.querySelectorAll(".file")].map(el=>{
       const p = el.dataset.file || "";
       const num = (sel)=>{ const t=el.querySelector(".file-header "+sel); return t?parseInt(t.textContent.replace(/[^0-9]/g,""))||0:0; };
-      return { path:p, name:p.split("/").pop(), add:num(".stat-add"), del:num(".stat-del"), viewed:el.classList.contains("viewed") };
+      return { path:p, change:el.dataset.change||"", topic:el.querySelector(".change-range")?.textContent||"", name:p.split("/").pop(), add:num(".stat-add"), del:num(".stat-del"), viewed:el.classList.contains("viewed") };
     });
   }
   function treeModel(files){
@@ -896,7 +1017,7 @@
       html += `<li class="ft-dir"><div class="ft-row ft-dirrow"><span class="ft-tw">▾</span><span class="ft-name">${escAttr(name)}</span></div><ul class="ft-children">${renderTreeDir(child)}</ul></li>`;
     });
     node.files.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(f=>{
-      html += `<li class="ft-file${f.viewed?" viewed":""}" data-file="${escAttr(f.path)}"><div class="ft-row"><span class="ft-name" title="${escAttr(f.path)}">${escAttr(f.name)}</span><span class="ft-stats"><span class="stat-add">+${f.add}</span> <span class="stat-del">-${f.del}</span></span></div></li>`;
+      html += `<li class="ft-file${f.viewed?" viewed":""}" data-file="${escAttr(f.path)}"${f.change?` data-change="${escAttr(f.change)}"`:""}><div class="ft-row"><span class="ft-name" title="${escAttr(f.path)}">${escAttr(f.name)}${f.topic?`<small class="ft-topic">${escAttr(f.topic)}</small>`:""}</span><span class="ft-stats"><span class="stat-add">+${f.add}</span> <span class="stat-del">-${f.del}</span></span></div></li>`;
     });
     return html;
   }
@@ -921,7 +1042,11 @@
     const dir = e.target.closest(".ft-dirrow"); if(dir){ dir.parentElement.classList.toggle("collapsed"); return; }
     const fr = e.target.closest(".ft-file"); if(!fr) return;
     const sec = activeSection(); if(!sec) return;
-    const el = [...sec.querySelectorAll(".file")].find(f=>f.dataset.file===fr.dataset.file);
+    const el = [...sec.querySelectorAll(".file")].find(f=>
+      fr.dataset.change
+        ? f.dataset.change===fr.dataset.change
+        : f.dataset.file===fr.dataset.file
+    );
     if(el){ const g=el.closest(".group"); if(g) g.classList.remove("collapsed"); el.classList.remove("collapsed"); scrollFileToTop(el); }
   });
   document.querySelectorAll("#fileTree [data-ft]").forEach(b=> b.addEventListener("click", ()=>{
@@ -967,6 +1092,9 @@
   });
 
   // ---- export ----
+  function attachmentMarkdown(id,indent=""){
+    return attachmentItems(id).map((item,index)=>indent+"![Pasted image "+(index+1)+"]("+item.data+")").join("\n");
+  }
   function buildMarkdown(){
     let out = "# " + TITLE + "\n_" + SUBTITLE + "_\n"; let any=false;
     document.querySelectorAll("section.pr").forEach(sec=>{
@@ -982,19 +1110,34 @@
         }
       }
       const gen=(state.general[pr]||"").trim();
-      if(gen) block += "\n**My overall:** " + gen + "\n";
+      const generalAttachments=attachmentMarkdown(attachmentId("general",pr,"",""));
+      if(gen||generalAttachments){
+        block += "\n**My overall:**" + (gen ? " " + gen : "") + "\n";
+        if(generalAttachments) block += generalAttachments + "\n";
+      }
+      const corrections=Object.entries(state.grouping).filter(([key])=>key.startsWith(pr+" "));
+      if(corrections.length){
+        block += "\n**Grouping corrections:**\n";
+        for(const [key,target] of corrections) block += "- `" + key.slice(pr.length+1) + "` → " + (target==="__out" ? "out of scope" : target) + "\n";
+      }
       const byFile = {};
       const F = (f)=> byFile[f] = byFile[f] || { note:"", lines:[] };
-      for(const k in state.files){ const c=state.files[k]; if(!c||c.pr!==pr||!c.text||!c.text.trim()) continue; F(c.file).note = c.text; }
-      for(const k in state.lines){ const c=state.lines[k]; if(!c||c.pr!==pr||!c.text||!c.text.trim()) continue; F(c.file).lines.push(c); }
+      for(const k in state.files){ const c=state.files[k]; if(!c||c.pr!==pr||!hasCommentContent(c.text,attachmentId("file",c.pr,c.file,""))) continue; F(c.file).note = c.text; }
+      for(const k in state.lines){ const c=state.lines[k]; if(!c||c.pr!==pr||!hasCommentContent(c.text,attachmentId("line",c.pr,c.file,c.key))) continue; F(c.file).lines.push(c); }
       for(const file in byFile){
         block += "\n### " + file + "\n";
         const fm = byFile[file];
-        if(fm.note) block += "- **File:** " + fm.note.replace(/\n+/g," ").trim() + "\n";
+        const fileAttachments=attachmentMarkdown(attachmentId("file",pr,file,""),"  ");
+        if(fm.note||fileAttachments){
+          block += "- **File:**" + (fm.note ? " " + fm.note.replace(/\n+/g," ").trim() : " Pasted image") + "\n";
+          if(fileAttachments) block += fileAttachments + "\n";
+        }
         fm.lines.sort((a,b)=>(parseInt(a.lineno)||0)-(parseInt(b.lineno)||0));
         for(const c of fm.lines){
-          block += "- **L" + c.lineno + "** — " + c.text.replace(/\n+/g," ").trim() + "\n";
+          const lineAttachments=attachmentMarkdown(attachmentId("line",pr,c.file,c.key),"  ");
+          block += "- **L" + c.lineno + "** — " + (c.text ? c.text.replace(/\n+/g," ").trim() : "Pasted image") + "\n";
           if(c.code && c.code.trim()) block += "  > `" + c.code.trim().slice(0,160) + "`\n";
+          if(lineAttachments) block += lineAttachments + "\n";
         }
       }
       if(block.trim()){ any=true; out += "\n## " + title + "\n" + block; }
@@ -1029,8 +1172,9 @@
   const lb = document.getElementById("lightbox"), lbInner = lb.querySelector(".lb-inner");
   document.addEventListener("click", (e)=>{
     if(!lb.hidden && lb.contains(e.target)){ lb.hidden=true; lbInner.innerHTML=""; return; }
-    const db = e.target.closest(".diagram-body"); if(!db) return;
-    const g = db.querySelector("svg,img"); if(!g) return;
+    const pasted = e.target.closest(".comment-attachment img");
+    const db = e.target.closest(".diagram-body");
+    const g = pasted || (db && db.querySelector("svg,img")); if(!g) return;
     lbInner.innerHTML=""; lbInner.appendChild(g.cloneNode(true)); lb.hidden=false;
   });
 

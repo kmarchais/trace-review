@@ -32,7 +32,7 @@ const GENERATED_PATHS = [
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-function decodeGitPath(token) {
+export function decodeGitPath(token) {
   if (!token.startsWith('"') || !token.endsWith('"')) return token;
   const input = token.slice(1, -1);
   const bytes = [];
@@ -66,7 +66,7 @@ function decodeGitPath(token) {
   return textDecoder.decode(Uint8Array.from(bytes));
 }
 
-function parseDiffPaths(line) {
+export function parseDiffPaths(line) {
   const unquoted = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
   if (unquoted) return { oldPath: unquoted[1], path: unquoted[2] };
   const quoted =
