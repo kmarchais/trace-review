@@ -209,8 +209,9 @@ files** (a rename, an added `#include`, a signature tweak). Add a `groups` array
 
 - Each group renders as a labelled band (colour-coded `kind` badge + note +
   summed `+/-`) with its files beneath, and **one "Reviewed" checkbox that marks
-  every file in the group viewed at once** — the fix for a repeated mechanical
-  change.
+  every file in the group viewed at once** after a confirmation that names the
+  group, file count, and affected paths — the fix for a repeated mechanical
+  change without an accidental bulk action.
 - `kind`: `mechanical` · `refactor` · `feature` · `fix` · `test` · `docs` ·
   `other`. `mechanical` groups **collapse their files by default** (expand one to
   see the pattern); override per group with `collapsed: true|false`.

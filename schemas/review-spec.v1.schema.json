@@ -51,10 +51,11 @@
     },
     "diagram": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "title": { "type": "string" },
         "surface": { "enum": ["light", "dark"] },
-        "svg": { "type": "string" },
+        "svg": { "type": "string", "minLength": 1 },
         "svgFile": { "type": "string", "minLength": 1 },
         "mermaid": { "type": "string", "minLength": 1 }
       },
@@ -66,6 +67,7 @@
     },
     "block": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["type"],
       "properties": {
         "type": { "enum": ["prose", "diagram", "stats", "table", "callout", "heading"] },
@@ -76,13 +78,33 @@
         "title": { "type": "string" },
         "variant": { "enum": ["info", "warn", "success"] },
         "surface": { "enum": ["light", "dark"] },
-        "svg": { "type": "string" },
+        "svg": { "type": "string", "minLength": 1 },
         "svgFile": { "type": "string", "minLength": 1 },
         "mermaid": { "type": "string", "minLength": 1 },
         "items": { "type": "array", "items": { "type": "object" } },
         "headers": { "type": "array" },
         "rows": { "type": "array", "items": { "type": "array" } }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "diagram" } }, "required": ["type"] },
+          "then": {
+            "oneOf": [
+              { "required": ["svg"], "not": { "anyOf": [{ "required": ["svgFile"] }, { "required": ["mermaid"] }] } },
+              { "required": ["svgFile"], "not": { "anyOf": [{ "required": ["svg"] }, { "required": ["mermaid"] }] } },
+              { "required": ["mermaid"], "not": { "anyOf": [{ "required": ["svg"] }, { "required": ["svgFile"] }] } }
+            ]
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "stats" } }, "required": ["type"] },
+          "then": { "required": ["items"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "table" } }, "required": ["type"] },
+          "then": { "required": ["rows"] }
+        }
+      ]
     },
     "group": {
       "type": "object",

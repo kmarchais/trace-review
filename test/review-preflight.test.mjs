@@ -101,3 +101,19 @@ test("comprehensive fixture covers C++, CMake, rename, generated, and binary cha
   assert.equal(byPath.get("generated/api.generated.js").generated, true);
   assert.equal(byPath.get("assets/widget.png").binary, true);
 });
+
+test("documented example patch passes deterministic preflight", () => {
+  const stdout = execFileSync(
+    process.execPath,
+    [
+      path.join(root, "scripts", "review-preflight.mjs"),
+      "--diff",
+      path.join(root, "examples", "pr-1.patch"),
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
+
+  const preflight = JSON.parse(stdout);
+  assert.equal(preflight.patch.valid, true);
+  assert.equal(preflight.patch.gitApply.valid, true);
+});

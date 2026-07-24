@@ -23,6 +23,41 @@ test("review modes and schema version are stable public constants", () => {
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
 });
 
+test("portable block and diagram schemas enforce the runtime contract", () => {
+  const schema = JSON.parse(fs.readFileSync(path.join(root, "schemas", "review-spec.v1.schema.json"), "utf8"));
+  const diagram = schema.$defs.diagram;
+  const block = schema.$defs.block;
+
+  assert.equal(diagram.additionalProperties, false);
+  assert.equal(block.additionalProperties, false);
+  assert.equal(diagram.properties.svg.minLength, 1);
+  assert.equal(block.properties.svg.minLength, 1);
+  assert.ok(Array.isArray(block.allOf), "block variants should carry conditional requirements");
+  assert.deepEqual(
+    block.allOf.map((rule) => rule.if.properties.type.const),
+    ["diagram", "stats", "table"],
+  );
+
+  const invalidBlocks = [
+    { type: "diagram", svg: "<svg/>", surprise: true },
+    { type: "diagram" },
+    { type: "stats" },
+    { type: "table" },
+  ];
+  for (const invalidBlock of invalidBlocks) {
+    const result = validateReviewSpec({
+      schemaVersion: 1,
+      mode: "workspace",
+      prs: [{
+        title: "Invalid block",
+        diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+        blocks: [invalidBlock],
+      }],
+    });
+    assert.equal(result.valid, false, `${invalidBlock.type} specimen should fail runtime validation`);
+  }
+});
+
 test("workspace and AI-analysis fixtures satisfy the versioned contract", () => {
   for (const name of ["workspace-spec.json", "ai-analysis-spec.json"]) {
     const spec = JSON.parse(fs.readFileSync(path.join(fixtures, name), "utf8"));

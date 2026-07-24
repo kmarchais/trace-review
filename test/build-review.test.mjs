@@ -107,6 +107,23 @@ test("visual contract matches the checked-in baseline", (t) => {
   }
 });
 
+test("change groups visually contain their files and confirm bulk review", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-groups-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const result = build(path.join(fixtures, "workspace-spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+
+  assert.match(
+    html,
+    /\.group \{[^}]*border:1px solid var\(--border\);[^}]*border-top:3px solid var\(--group-accent\)/s,
+  );
+  assert.match(html, /if\(want && !window\.confirm\(/);
+  assert.match(html, /Mark all .* files in .* as viewed/);
+  assert.match(html, /files\.map\(f=> "• " \+ f\.dataset\.file\)/);
+});
+
 test("large-diff generation stays within the Phase 0 performance budget", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-large-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
