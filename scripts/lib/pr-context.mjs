@@ -242,7 +242,14 @@ function gitFacts(repo, run) {
   };
 }
 
-function collectLocalContext(facts, selection, reason, options, run) {
+function collectLocalContext(
+  facts,
+  selection,
+  reason,
+  options,
+  run,
+  collectionDiagnostics = [],
+) {
   let baseRef = options.base;
   if (!baseRef) {
     try {
@@ -274,7 +281,7 @@ function collectLocalContext(facts, selection, reason, options, run) {
     pullRequest: null,
     diff,
     preflight: preflightPatch(diff, run, facts.repository.root),
-    collectionDiagnostics: [],
+    collectionDiagnostics,
   };
   context.validation = validateContext(context);
   return context;
@@ -303,12 +310,26 @@ export function collectPrContext(options, run) {
     raw = JSON.parse(run("gh", viewArgs, { cwd: facts.repository.root }));
   } catch (error) {
     if (mode !== "auto") throw error;
+    const noPullRequest =
+      /no pull requests? found|could not find a pull request|no pull request found/i.test(
+        error.message,
+      );
+    const collectionDiagnostics = noPullRequest
+      ? []
+      : [
+          {
+            level: "warning",
+            code: "remote-context-unavailable",
+            message: `GitHub context unavailable: ${error.message}`,
+          },
+        ];
     return collectLocalContext(
       facts,
       selection,
-      "current-branch-pr-not-found",
+      noPullRequest ? "current-branch-pr-not-found" : "remote-context-unavailable",
       options,
       run,
+      collectionDiagnostics,
     );
   }
   const pullRequest = normalizePr(raw);

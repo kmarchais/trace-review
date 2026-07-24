@@ -53,8 +53,14 @@ Both agents discover the skill as `trace-review`; Claude Code exposes it as
 
 ## Requirements
 
-- **Node 18+** (zero npm dependencies)
-- **git** and/or the **GitHub CLI (`gh`)** to produce diffs
+- **Node 18+** — required by the dependency-free collection and build scripts.
+- **Git** — required for repository facts and local diffs.
+- **GitHub CLI (`gh`)** — optional. Automatic mode warns and falls back to a
+  local diff when GitHub context is unavailable. Explicit PR numbers/URLs
+  require `gh`.
+- **Claude Code or Codex** — needed only to invoke the skill workflow and
+  generate AI analysis. The scripts can be run manually without either agent,
+  and a generated review works as a standalone HTML file in a modern browser.
 
 ## Usage
 
@@ -88,6 +94,11 @@ for any existing patch with:
 ```bash
 node scripts/review-preflight.mjs --diff changes.patch
 ```
+
+When automatic GitHub collection fails because `gh` is missing, unauthenticated,
+or unavailable, the command prints a warning and records
+`remote-context-unavailable` in the JSON before continuing locally. It does not
+silently claim that the branch has no pull request.
 
 ### Under the hood
 

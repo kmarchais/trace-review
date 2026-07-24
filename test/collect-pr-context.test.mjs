@@ -169,6 +169,34 @@ test("auto mode falls back to local context when the branch has no pull request"
   assert.equal(context.preflight.patch.valid, true);
 });
 
+test("auto mode warns when GitHub context is unavailable", () => {
+  const run = fakeRunner({
+    "git rev-parse --show-toplevel": "C:/work/widgets\n",
+    "git branch --show-current": "feature/widgets\n",
+    "git rev-parse HEAD": "abc123\n",
+    "git remote get-url origin": "https://github.com/acme/widgets.git\n",
+    "git status --short --untracked-files=normal": "",
+    "gh pr view --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments":
+      new Error("Could not run 'gh': spawn gh ENOENT"),
+    "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": "origin/main\n",
+    "git diff --binary --no-ext-diff origin/main": patch,
+    "git apply --numstat -": "1\t0\tsrc/app.js\n1\t1\tpackage-lock.json\n-\t-\tassets/logo.png\n",
+  });
+
+  const context = collectPrContext({ repo: "C:/work/widgets", pr: "auto" }, run);
+
+  assert.equal(context.source, "local");
+  assert.equal(context.selection.reason, "remote-context-unavailable");
+  assert.deepEqual(context.collectionDiagnostics, [
+    {
+      level: "warning",
+      code: "remote-context-unavailable",
+      message: "GitHub context unavailable: Could not run 'gh': spawn gh ENOENT",
+    },
+  ]);
+  assert.equal(context.validation.valid, true);
+});
+
 test("explicit mode passes a pull request URL to GitHub selection", () => {
   const selector = "https://github.com/other/project/pull/42";
   const run = fakeRunner({

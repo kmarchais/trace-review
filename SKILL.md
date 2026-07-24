@@ -36,8 +36,13 @@ absolute paths for `--spec`/`--out` when in doubt.
 
 ## Prerequisites
 
-- **Node 18+** (`node --version`) — no npm install, zero dependencies.
-- **git** and/or **`gh`** to produce the diffs.
+- **Node 18+** (`node --version`) — required; no npm install, zero dependencies.
+- **Git** — required for repository facts and local diffs.
+- **`gh`** — optional in automatic/local mode and required for explicit PR
+  selection. If it is missing, unauthenticated, or unavailable, automatic mode
+  emits a warning and falls back to a local diff.
+- The skill workflow needs a compatible agent host (Claude Code or Codex), but
+  the scripts and generated HTML do not. They can be run or opened standalone.
 - The doc pulls three things from CDNs when opened (so ideally online, but each
   degrades gracefully offline): **syntax highlighting** (highlight.js — falls
   back to plain, still diff-colored), **Mermaid** diagrams (SVG diagrams need
@@ -66,7 +71,10 @@ node <skill-dir>/scripts/collect-pr-context.mjs --no-remote --base main
 Use `--repo <path>` when the command is not run inside the target repository,
 and `--out` / `--diff-out` to choose other output locations. In automatic mode,
 an unavailable `gh` command or a branch with no PR falls back to a local diff.
-Explicit PR selection fails instead of silently reviewing something else.
+Remote failures produce a visible warning and a `remote-context-unavailable`
+diagnostic; a confirmed no-PR response uses `current-branch-pr-not-found`.
+Explicit PR selection fails with an installation/local-mode hint instead of
+silently reviewing something else.
 
 For an already-created patch, run the standalone deterministic inventory:
 

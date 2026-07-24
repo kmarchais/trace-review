@@ -70,6 +70,9 @@ if (process.argv.includes("--diff-out")) ensureValue(args, "diffOut", "--diff-ou
 
 try {
   const context = collectPrContext(args, run);
+  for (const diagnostic of context.collectionDiagnostics || []) {
+    console.warn(`${diagnostic.level.toUpperCase()} ${diagnostic.code}: ${diagnostic.message}`);
+  }
   if (!context.validation.valid) {
     for (const diagnostic of context.validation.diagnostics) {
       console.error(`${diagnostic.level.toUpperCase()} ${diagnostic.code}: ${diagnostic.message}`);
@@ -99,6 +102,11 @@ try {
   console.log(`Wrote ${outputPath}`);
   console.log(`Wrote ${diffPath}`);
 } catch (error) {
-  console.error(`Error: ${error.message}`);
+  const missingGh =
+    args.pr !== "auto" && args.pr !== "none" && /Could not run 'gh'/.test(error.message);
+  const hint = missingGh
+    ? " Install the GitHub CLI for explicit PR selection, or use --no-remote for a local review."
+    : "";
+  console.error(`Error: ${error.message}${hint}`);
   process.exit(1);
 }

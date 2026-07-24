@@ -3,6 +3,8 @@
 `collect-pr-context.mjs` writes a validated local fact pack before a review is
 generated. The JSON is deliberately separate from the patch so agents can read
 complete pull-request facts without loading the full diff into the conversation.
+This contract is committed with the collector because scripts, agent workflows,
+and future schema migrations all depend on the same versioned field meanings.
 
 ## Top-level fields
 
