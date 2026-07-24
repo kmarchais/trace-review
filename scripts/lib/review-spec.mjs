@@ -296,7 +296,7 @@ export function validateReviewSpec(spec, options = {}) {
               add("expected-object", commentPath, `${commentPath} must be an object.`);
               return;
             }
-            rejectUnknown(comment, new Set(["file", "line", "severity", "body", "confidence"]), commentPath);
+            rejectUnknown(comment, new Set(["file", "line", "severity", "body", "confidence", "rationale"]), commentPath);
             requireString(comment.file, `${commentPath}.file`);
             const validLine = Number.isInteger(comment.line) && comment.line > 0;
             const validOldLine = typeof comment.line === "string" && /^o[1-9]\d*$/.test(comment.line);
@@ -305,7 +305,8 @@ export function validateReviewSpec(spec, options = {}) {
             }
             if (comment.severity !== undefined) enumValue(comment.severity, SEVERITIES, `${commentPath}.severity`);
             requireString(comment.body, `${commentPath}.body`);
-            if (comment.confidence !== undefined && (typeof comment.confidence !== "number" || comment.confidence < 0 || comment.confidence > 1)) {
+            requireString(comment.rationale, `${commentPath}.rationale`);
+            if (typeof comment.confidence !== "number" || comment.confidence < 0 || comment.confidence > 1) {
               add("invalid-confidence", `${commentPath}.confidence`, "Finding confidence must be a number from 0 to 1.");
             }
           });

@@ -33,9 +33,10 @@ publish from the `main` branch and `/docs` folder.
   suggested concept → consumer → integration → test reading order.
 - **Correctable grouping**: move or split individual hunk units, merge groups,
   and mark changes out of scope; corrections persist and export with comments.
-- **Optional AI review**: a global assessment plus severity-tagged findings
-  anchored to lines, each with Accept / Dismiss / Reply. Attribution is neutral
-  ("AI") by default and configurable via `reviewer`.
+- **Focused AI analysis**: candidate groups and deterministic facts feed a
+  sparse, budgeted set of line findings with confidence and rationale, each
+  with Accept / Dismiss / Reply. Attribution is neutral ("AI") by default and
+  configurable via `reviewer`.
 - **Export**: all comments and review decisions export as clean Markdown to
   paste back into the conversation (or download and have the agent read).
 - Elsyca-branded, light/dark (follows the OS), fully offline except diagrams,
@@ -72,7 +73,8 @@ Both agents discover the skill as `trace-review`; Claude Code exposes it as
 In Claude Code:
 
 - `/trace-review` — open the default review workspace without AI findings.
-- `/trace-review review` — add explicit AI analysis (global + line findings).
+- `/trace-review ai-analysis` — add focused AI analysis (global + line findings).
+- `/trace-review review` — temporary compatibility alias for `ai-analysis`.
 - Ask for a **deep audit** when a high-risk change warrants broader dependency,
   failure-mode, and test analysis.
 
@@ -109,6 +111,24 @@ inspection** or **Unclassified**. Run preflight directly with:
 
 ```bash
 node scripts/review-preflight.mjs --diff changes.patch
+```
+
+For AI analysis, turn the collected context into the compact analyzer input
+instead of handing an agent the raw diff alone:
+
+```bash
+node scripts/prepare-ai-analysis.mjs \
+  --context .review/context.json --out .review/analysis-input.json
+
+# Deep audit is admitted only for high-risk facts or an explicit request
+node scripts/prepare-ai-analysis.mjs \
+  --context .review/context.json --mode deep-audit --explicit
+
+# Validate the sparse result and convert it to a review-spec review object
+node scripts/finalize-ai-analysis.mjs \
+  --input .review/analysis-input.json \
+  --result .review/analysis-result.json \
+  --out .review/review.json
 ```
 
 When automatic GitHub collection fails because `gh` is missing, unauthenticated,
@@ -151,6 +171,8 @@ scripts/collect-pr-context.mjs  PR detection + validated local fact pack
 scripts/review-preflight.mjs deterministic patch inventory and checks
 scripts/validate-review-spec.mjs  versioned review-spec validation
 scripts/detect-mechanical-groups.mjs  hunk groups, dependencies, and reading order
+scripts/prepare-ai-analysis.mjs  compact facts, risk gate, and finding budget
+scripts/finalize-ai-analysis.mjs  validate findings and emit review-spec content
 templates/review.template.html  the static, interactive HTML template
 examples/                    example spec + screenshot
 test/fixtures/               patch, spec, and visual-contract fixtures

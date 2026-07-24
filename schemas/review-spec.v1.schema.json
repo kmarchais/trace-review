@@ -153,7 +153,7 @@
     "finding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["file", "line", "body"],
+      "required": ["file", "line", "body", "confidence", "rationale"],
       "properties": {
         "file": { "type": "string", "minLength": 1 },
         "line": {
@@ -164,7 +164,8 @@
         },
         "severity": { "enum": ["nit", "suggestion", "concern", "question", "praise", "comment"] },
         "body": { "type": "string", "minLength": 1 },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "rationale": { "type": "string", "minLength": 1 }
       }
     }
   },

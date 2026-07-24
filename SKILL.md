@@ -26,8 +26,9 @@ only author a short JSON spec.
 | **Deep audit** (explicit/high-risk only) | Set `"mode": "deep-audit"` after the user requests or accepts deeper analysis. | Uses the same finding contract after broader dependency, failure-mode, and test analysis. |
 
 Default is **workspace**. Add AI analysis when the user invokes
-`/trace-review review`, or asks for it in words ("review this and add your
-findings"). Invoking `/trace-review` (or `… no-review`) stays in workspace mode
+`/trace-review ai-analysis`, or asks for it in words ("review this and add your
+findings"). `/trace-review review` remains a temporary compatibility alias.
+Invoking `/trace-review` (or `… no-review`) stays in workspace mode
 — don't spend tokens analysing the diff unless asked. Deep audit is never
 silently selected. See [REVIEW-SPEC.md](REVIEW-SPEC.md) for the versioned
 contract.
@@ -116,7 +117,38 @@ fact pack also links definitions to usages, configuration/build integration,
 and tests, then computes a suggested concept → consumer → integration → test
 reading order.
 
-### 3. Read the facts and write a short spec
+### 3. Prepare focused AI input when requested
+
+For `ai-analysis`, prepare a compact analyzer input from the collected context:
+
+```bash
+node <skill-dir>/scripts/prepare-ai-analysis.mjs \
+  --context .review/context.json --out .review/analysis-input.json
+```
+
+Read `analysis-input.json` first. It carries PR context, deterministic preflight
+facts, candidate groups, dependency order, a risk assessment, the diff path,
+and a fact-derived finding budget. The raw patch remains separately available
+for verifying candidate findings; it is not the analyzer's only input.
+
+Use `--mode deep-audit` only when the fact pack is high risk. When the user
+explicitly requests a deep audit, also pass `--explicit`. The command otherwise
+refuses to escalate a low- or medium-risk review.
+
+Produce `analysis-result.json` with `verdict`, `global`, and `findings`, then
+validate and convert it:
+
+```bash
+node <skill-dir>/scripts/finalize-ai-analysis.mjs \
+  --input .review/analysis-input.json \
+  --result .review/analysis-result.json \
+  --out .review/review.json
+```
+
+Do not bypass a finding-budget or contract failure. Reduce noise or fix missing
+evidence before copying the resulting review object into the review spec.
+
+### 4. Read the facts and write a short spec
 
 Read the collected context and patches to understand the change, then write
 `.review/spec.json`.
@@ -187,8 +219,7 @@ a person's name) to relabel the card, pills, findings, and export.
   "verdict": "approve | comment | request-changes",
   "global": "markdown — overall assessment",
   "comments": [
-    { "file": "auth.js", "line": 3, "severity": "concern", "body": "markdown" },
-    { "file": "auth.js", "line": 11, "severity": "nit", "body": "…" }
+    { "file": "auth.js", "line": 3, "severity": "concern", "body": "markdown", "confidence": 0.94, "rationale": "brief, verifiable evidence" }
   ]
 }
 ```
@@ -197,6 +228,8 @@ a person's name) to relabel the card, pills, findings, and export.
   **removed** line, use `"o"` + the old line number (e.g. `"o7"`).
 - `severity` ∈ `nit` · `suggestion` · `concern` · `question` · `praise`
   (color-coded badges). Default `comment`.
+- `confidence` is required from 0 to 1, and `rationale` is a required concise
+  statement of the evidence that makes the finding credible.
 - `global`/`verdict` render as a read-only **"&lt;reviewer&gt; review"** card;
   each `comments` entry renders inline at its line (Accept / Dismiss / Reply)
   and in a **findings** list. The reviewer's Accept/Dismiss/reply decisions ride
@@ -261,7 +294,7 @@ files** (a rename, an added `#include`, a signature tweak). Add a `groups` array
   changes. A rename that *also* edits the file is a normal reviewable file (and
   you can put it in a group). You rarely need to list renames in `groups`.
 
-### 4. Build and open
+### 5. Build and open
 
 ```bash
 node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --open
@@ -270,7 +303,7 @@ node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.js
 `--open` launches the default browser (Windows `start` / macOS `open` /
 Linux `xdg-open`). Drop it and just tell the user the path if you prefer.
 
-### 5. Re-import the reviewer's comments
+### 6. Re-import the reviewer's comments
 
 In the doc the reviewer hovers a line and clicks the **+** in its gutter to
 comment (works in both unified and split view — comments follow the line, not

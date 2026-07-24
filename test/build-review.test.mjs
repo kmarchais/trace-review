@@ -67,6 +67,8 @@ test("AI-analysis fixture renders its global assessment and line finding", (t) =
   assert.match(html, /<body data-review-mode="ai-analysis">/);
   assert.match(html, /The implementation and build changes agree\./);
   assert.match(html, /Should the returned name be part of the public compatibility contract/);
+  assert.match(html, /Math\.round\(c\.confidence\*100\).*% confidence/);
+  assert.match(html, /The return value is exposed by a public header/);
 });
 
 test("generator reports malformed JSON without a stack trace", (t) => {

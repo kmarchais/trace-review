@@ -5,6 +5,8 @@
   "scripts": {
     "test": "node --test",
     "validate:example": "node scripts/validate-review-spec.mjs --spec examples/review-spec.json",
-    "groups": "node scripts/detect-mechanical-groups.mjs"
+    "groups": "node scripts/detect-mechanical-groups.mjs",
+    "analysis:prepare": "node scripts/prepare-ai-analysis.mjs",
+    "analysis:finalize": "node scripts/finalize-ai-analysis.mjs"
   }
 }

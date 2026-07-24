@@ -59,7 +59,9 @@ require one per PR:
       "file": "src/auth.js",
       "line": 42,
       "severity": "concern",
-      "body": "The null path reaches this dereference."
+      "body": "The null path reaches this dereference.",
+      "confidence": 0.94,
+      "rationale": "The preceding branch permits null and this line dereferences it."
     }
   ]
 }
@@ -67,7 +69,9 @@ require one per PR:
 
 Removed-line anchors use `o` plus the old line number, such as `"o7"`.
 Severity is `nit`, `suggestion`, `concern`, `question`, `praise`, or `comment`.
-An optional numeric `confidence` is between 0 and 1.
+Every finding requires numeric `confidence` between 0 and 1 and a concise,
+verifiable `rationale`. Focused analysis also enforces the fact-derived budget
+written by `prepare-ai-analysis.mjs`.
 
 ## Validation
 

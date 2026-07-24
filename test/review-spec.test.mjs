@@ -79,6 +79,26 @@ test("deep audit uses the explicit AI finding contract", () => {
   assert.equal(validateReviewSpec(spec).valid, true);
 });
 
+test("AI findings require confidence and rationale in rendered review specs", () => {
+  const result = validateReviewSpec({
+    schemaVersion: 1,
+    mode: "ai-analysis",
+    prs: [{
+      title: "Focused analysis",
+      diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+      review: {
+        verdict: "comment",
+        global: "One finding.",
+        comments: [{ file: "a", line: 1, severity: "concern", body: "Issue." }],
+      },
+    }],
+  });
+
+  assert.equal(result.valid, false);
+  assert.ok(result.diagnostics.some((item) => item.path === "prs[0].review.comments[0].confidence"));
+  assert.ok(result.diagnostics.some((item) => item.path === "prs[0].review.comments[0].rationale"));
+});
+
 test("validator returns actionable paths and hints for contract violations", () => {
   const result = validateReviewSpec({
     schemaVersion: 2,
