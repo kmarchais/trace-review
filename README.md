@@ -1,12 +1,24 @@
-# html-review
+# Trace Review
 
-A [Claude Code](https://claude.com/claude-code) skill that turns a git diff —
-your working tree, a branch range, or one/many pull requests — into a single
-**self-contained, interactive HTML review document**.
+> **A review organized by decisions, not files.**
+
+A Codex and [Claude Code](https://claude.com/claude-code) skill that turns a git
+diff — your working tree, a branch range, or one/many pull requests — into a
+single **self-contained, interactive HTML review document**.
+
+Trace Review follows a change through its definition, usages, configuration,
+dependent changes, and tests. The product and skill identifier are
+`trace-review`. The GitHub repository is still named `html-review` until its
+remote is renamed.
 
 The heavy lifting lives in a template + build script, so generating a review
 costs almost no model tokens: diffs are read from files on disk (never echoed
 into the conversation), and the agent only authors a short JSON spec.
+
+## Landing page
+
+The static GitHub Pages site lives in [`docs/`](docs/). Configure Pages to
+publish from the `main` branch and `/docs` folder.
 
 ## What you get
 
@@ -26,13 +38,18 @@ into the conversation), and the agent only authors a short JSON spec.
 
 ## Install
 
-Clone into your Claude Code skills directory:
+Clone into your agent's skills directory:
 
 ```bash
-git clone git@github.com:kmarchais/html-review.git ~/.claude/skills/html-review
+# Codex
+git clone git@github.com:kmarchais/html-review.git ~/.codex/skills/trace-review
+
+# Claude Code
+git clone git@github.com:kmarchais/html-review.git ~/.claude/skills/trace-review
 ```
 
-Claude Code auto-discovers it as the `/html-review` skill.
+Both agents discover the skill as `trace-review`; Claude Code exposes it as
+`/trace-review`.
 
 ## Requirements
 
@@ -43,8 +60,8 @@ Claude Code auto-discovers it as the `/html-review` skill.
 
 In Claude Code:
 
-- `/html-review` — render the diff with empty comment fields (diff-only).
-- `/html-review review` — also generate an AI review (global + line findings).
+- `/trace-review` — render the diff with empty comment fields (diff-only).
+- `/trace-review review` — also generate an AI review (global + line findings).
 
 Or ask in words: *"make an HTML review of this branch"*, *"review PR 123 and add
 your findings"*.

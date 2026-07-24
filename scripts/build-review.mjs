@@ -356,7 +356,10 @@ function renderBlocks(pr) {
         break;
       }
       case "diagram":
-        inner = `<figure class="diagram">${b.title ? `<figcaption>${esc(b.title)}</figcaption>` : ""}<div class="diagram-body">${inlineSvg(b)}</div></figure>`;
+        {
+          const surface = b.surface === "dark" ? " diagram-surface-dark" : " diagram-surface-light";
+          inner = `<figure class="diagram${surface}">${b.title ? `<figcaption>${esc(b.title)}</figcaption>` : ""}<div class="diagram-body">${inlineSvg(b)}</div></figure>`;
+        }
         break;
       default:
         inner = b.md ? `<div class="summary-body">${md(b.md)}</div>` : "";

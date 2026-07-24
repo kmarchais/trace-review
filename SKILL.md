@@ -1,9 +1,9 @@
 ---
-name: html-review
+name: trace-review
 description: Generate an interactive HTML code-review document from a git diff or one or more pull requests. Use when asked to review changes, do a code review, produce a review doc, review a diff/branch/PR, or collect review comments. Renders a concise summary, optional diagrams, a readable word-level diff, and per-line comment fields that export back into the conversation.
 ---
 
-# html-review
+# Trace Review
 
 Turns a diff (working tree, a branch range, or one/many PRs) into a single
 **self-contained interactive HTML file**: a free-form PR summary, optional
@@ -25,13 +25,13 @@ only author a short JSON spec.
 | **Review** (on request) | Also analyse the diff and emit a `review` object. | Adds **an AI review**: a global assessment + severity-tagged findings anchored to lines, each with Accept/Dismiss/Reply — shown alongside the reviewer's own fields. |
 
 Default is **diff-only**. Add the AI review when the user invokes
-`/html-review review`, or asks for it in words ("review this and add your
-findings"). Invoking `/html-review` (or `… no-review`) stays diff-only — don't
+`/trace-review review`, or asks for it in words ("review this and add your
+findings"). Invoking `/trace-review` (or `… no-review`) stays diff-only — don't
 spend tokens analysing the diff unless asked. Mechanically, "review mode" just
 means you also fill in `prs[].review` (see *Automatic (AI) review*).
 
 Paths below are relative to the skill directory
-(`.claude/skills/html-review/`). Run commands from any working directory; pass
+(`.claude/skills/trace-review/`). Run commands from any working directory; pass
 absolute paths for `--spec`/`--out` when in doubt.
 
 ## Prerequisites
@@ -103,7 +103,7 @@ used when the summary has room.
 | `type` | Fields | Use for |
 |--------|--------|---------|
 | `prose` | `md` | Markdown text — the description. |
-| `diagram` | `svgFile` \| `svg` \| `mermaid`, `title?` | A picture. **Prefer SVG** (crisp, offline); Mermaid needs internet. |
+| `diagram` | `svgFile` \| `svg` \| `mermaid`, `title?`, `surface?` | A picture. **Prefer SVG** (crisp, offline); Mermaid needs internet. `surface` is `light` by default or `dark` when the diagram was designed for a dark canvas. |
 | `stats` | `items: [{label, value, accent?}]` | A row of metric tiles. `accent`: `green`/`red`/`orange`. |
 | `table` | `headers?`, `rows: [[...]]` | Component/risk/impact tables. Cells are plain text. |
 | `callout` | `md`, `variant?` (`info`/`warn`/`success`), `title?` | A note to not miss. |
@@ -189,7 +189,7 @@ files** (a rename, an added `#include`, a signature tweak). Add a `groups` array
 ### 3. Build and open
 
 ```bash
-node .claude/skills/html-review/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --open
+node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --open
 ```
 
 `--open` launches the default browser (Windows `start` / macOS `open` /
@@ -294,7 +294,10 @@ Viewer controls:
 - **Rebuilding after the diff changed:** comments anchored to lines that no
   longer exist stay in storage but silently won't re-attach. Expected.
 - **Mermaid needs internet; SVG does not.** Prefer `svg`/`svgFile` diagrams —
-  they render offline and scale crisply. A spec with no Mermaid = no CDN call.
+  they render offline and scale crisply. Each SVG is placed on an explicit light
+  canvas by default, including in dark mode, so generated diagrams remain legible.
+  Set `surface: "dark"` only when the SVG was designed for a dark canvas. A spec
+  with no Mermaid = no CDN call.
   A missing `svgFile` degrades to a warning box; the rest of the doc is fine.
 - **Previewing inside Claude Code's Browser pane:** local `file://` outside the
   project renders as a static snapshot (no JS). To exercise the interactivity,
