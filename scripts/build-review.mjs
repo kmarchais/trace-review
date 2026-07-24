@@ -449,7 +449,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       <div class="file${collapsed ? " collapsed" : ""}" id="file-${fid}" data-file="${esc(d.path)}"${changeId ? ` data-change="${esc(changeId)}"` : ""}>
         <div class="file-header" data-toggle="file-${fid}">
           <span class="chevron">▾</span>
-          <span class="file-path">${pathLabel}</span>${tag}${changeLabel ? `<span class="change-range">${esc(changeLabel)}</span>` : ""}
+          <span class="file-path">${pathLabel}</span>${tag}${changeLabel ? `<span class="change-range" title="${esc(changeLabel)}">${esc(changeLabel)}</span>` : ""}
           <span class="file-badge" data-file-count="${esc(d.path)}" hidden></span>
           <span class="stats"><span class="stat-add">+${d.add}</span> <span class="stat-del">-${d.del}</span></span>
           <span class="file-actions">
@@ -529,7 +529,15 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           fid,
           d,
           changeId: change.id,
-          changeLabel: change.label || (change.newRange ? `lines ${change.newRange.start}-${change.newRange.end}` : "metadata"),
+          changeLabel: [
+            change.topic,
+            change.label ||
+              (change.newRange
+                ? `lines ${change.newRange.start}-${change.newRange.end}`
+                : "metadata"),
+          ]
+            .filter(Boolean)
+            .join(" · "),
         });
       }
       const options = groupOptions.replace(

@@ -122,6 +122,46 @@ test("rejects overlapping and missing assignments instead of hiding them", () =>
   );
 });
 
+test("quoted paths remain visible and formatting detection preserves string whitespace", () => {
+  const quotedPatch = fs.readFileSync(
+    path.join(root, "test", "fixtures", "quoted-path.patch"),
+    "utf8",
+  );
+  const quoted = detectChangeGroups(quotedPatch, analyzePatch(quotedPatch));
+  assert.equal(quoted.validation.valid, true);
+  assert.equal(quoted.inventory.length, 1);
+  assert.equal(quoted.inventory[0].file, "café.js");
+
+  const semanticWhitespace = `diff --git a/src/message.js b/src/message.js
+index 1111111..2222222 100644
+--- a/src/message.js
++++ b/src/message.js
+@@ -1 +1 @@
+-const message = "a b";
++const message = "ab";
+`;
+  const semantic = detectChangeGroups(
+    semanticWhitespace,
+    analyzePatch(semanticWhitespace),
+  );
+  assert.ok(
+    !semantic.groups.some((group) => group.title === "Formatting-only changes"),
+  );
+
+  const indentationOnly = semanticWhitespace
+    .replace('const message = "a b";', '  const message = "a b";')
+    .replace('const message = "ab";', '\tconst message = "a b";');
+  const formatting = detectChangeGroups(
+    indentationOnly,
+    analyzePatch(indentationOnly),
+  );
+  assert.equal(
+    formatting.groups.find((group) => group.title === "Formatting-only changes")
+      .changes.length,
+    1,
+  );
+});
+
 test("CLI writes a validated group fact pack", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-groups-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
@@ -144,6 +184,11 @@ test("CLI writes a validated group fact pack", (t) => {
   const result = JSON.parse(fs.readFileSync(outPath, "utf8"));
   assert.equal(result.validation.valid, true);
   assert.ok(result.dependencyGraph.suggestedOrder.length > 0);
+  assert.ok(
+    result.groups
+      .flatMap((group) => group.changes)
+      .every((change) => change.topic),
+  );
 });
 
 test("builder consumes group files and emits correction controls", (t) => {
@@ -191,6 +236,11 @@ test("builder consumes group files and emits correction controls", (t) => {
   assert.match(html, /change-group-select/);
   assert.match(html, /Reviewer checks/);
   assert.match(html, /Grouping corrections/);
+  assert.match(html, /class="change-range"[^>]*title=/);
+  assert.match(html, /data-change=/);
+  assert.match(html, /class="ft-topic"/);
+  assert.match(html, /paste a screenshot directly into this comment/i);
+  assert.match(html, /attachmentMarkdown/);
 });
 
 test("review-spec validation accepts one Phase 2 group source and rejects ambiguity", () => {

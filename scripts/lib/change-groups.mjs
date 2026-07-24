@@ -1,4 +1,5 @@
 import path from "node:path";
+import { decodeGitPath, parseDiffPaths } from "./preflight.mjs";
 
 const LOCKFILES = new Set([
   "package-lock.json",
@@ -67,10 +68,11 @@ export function parsePatchChanges(text, preflight = {}) {
 
   for (const line of lines) {
     let match;
-    if ((match = /^diff --git a\/(.+?) b\/(.+)$/.exec(line))) {
+    const diffPaths = parseDiffPaths(line);
+    if (diffPaths) {
       pushMetadata();
-      oldPath = normalizePath(match[1]);
-      file = normalizePath(match[2]);
+      oldPath = normalizePath(diffPaths.oldPath);
+      file = normalizePath(diffPaths.path);
       hunkIndex = -1;
       binary = false;
       renamed = oldPath !== file;
@@ -78,12 +80,12 @@ export function parsePatchChanges(text, preflight = {}) {
     }
     if (!file) continue;
     if ((match = /^rename from (.+)$/.exec(line))) {
-      oldPath = normalizePath(match[1]);
+      oldPath = normalizePath(decodeGitPath(match[1]));
       renamed = true;
       continue;
     }
     if ((match = /^rename to (.+)$/.exec(line))) {
-      file = normalizePath(match[1]);
+      file = normalizePath(decodeGitPath(match[1]));
       renamed = true;
       continue;
     }
@@ -126,8 +128,14 @@ function isLockfile(file) {
 
 function isFormatting(change) {
   if (!change.added.length || !change.deleted.length) return false;
-  const compact = (lines) => lines.join("\n").replace(/\s+/g, "");
-  return compact(change.added) === compact(change.deleted);
+  const visibleLines = (lines) =>
+    lines.map((line) => line.trimStart()).filter((line) => line.trim());
+  const added = visibleLines(change.added);
+  const deleted = visibleLines(change.deleted);
+  return (
+    added.length === deleted.length &&
+    added.every((line, index) => line === deleted[index])
+  );
 }
 
 function changedLines(change) {
@@ -146,6 +154,15 @@ function includeSignatures(change) {
 function rangeLabel(change) {
   if (!change.newRange) return "metadata";
   return `new lines ${change.newRange.start}-${change.newRange.end}`;
+}
+
+function topicOf(change) {
+  if (change.header) return change.header;
+  const candidate = [...change.added, ...change.deleted]
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!candidate) return change.hunk === null ? "File metadata" : "Changed lines";
+  return candidate.length > 88 ? `${candidate.slice(0, 85)}…` : candidate;
 }
 
 function groupFacts(group) {
@@ -175,6 +192,7 @@ function makeGroup(id, title, kind, intent, risk, confidence, reviewerChecks, ch
       oldRange: change.oldRange,
       newRange: change.newRange,
       label: rangeLabel(change),
+      topic: topicOf(change),
     })),
   };
 }
@@ -378,7 +396,7 @@ export function detectChangeGroups(text, preflight = {}) {
     0.97,
     ["Spot-check that token order and string contents are unchanged."],
     take(isFormatting),
-    ["Added and removed text is identical after whitespace is removed."],
+    ["Added and removed lines are identical after ignoring indentation-only differences."],
   );
   add(
     "Imports and includes",
