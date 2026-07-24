@@ -28,6 +28,11 @@ publish from the `main` branch and `/docs` folder.
   Python, CMake, TOML, Markdown, JS/TS, Rust, Go, …), unified **or** split view,
   word-level context, per-line and per-file comments, "Viewed" checkboxes, and a
   **fullscreen** mode for focused reading.
+- **Decision-oriented groups**: deterministic hunk-level classification with
+  intent, evidence, risk, confidence, reviewer checks, dependencies, and a
+  suggested concept → consumer → integration → test reading order.
+- **Correctable grouping**: move or split individual hunk units, merge groups,
+  and mark changes out of scope; corrections persist and export with comments.
 - **Optional AI review**: a global assessment plus severity-tagged findings
   anchored to lines, each with Accept / Dismiss / Reply. Attribution is neutral
   ("AI") by default and configurable via `reviewer`.
@@ -89,9 +94,18 @@ node scripts/collect-pr-context.mjs --no-remote --base main
 ```
 
 The command writes `.review/context.json` and `.review/context.patch`. The JSON
-contains validated repository/PR facts plus a deterministic preflight
-inventory; see [CONTEXT-SCHEMA.md](CONTEXT-SCHEMA.md). Run preflight directly
-for any existing patch with:
+contains validated repository/PR facts, a deterministic preflight inventory,
+and candidate change groups; see [CONTEXT-SCHEMA.md](CONTEXT-SCHEMA.md). Run
+group detection directly for any existing patch with:
+
+```bash
+node scripts/detect-mechanical-groups.mjs \
+  --diff changes.patch --out .review/groups.json
+```
+
+Every textual hunk or metadata-only change must appear exactly once. The
+detector rejects overlaps and leaves uncertain work visible in **Needs
+inspection** or **Unclassified**. Run preflight directly with:
 
 ```bash
 node scripts/review-preflight.mjs --diff changes.patch
@@ -136,6 +150,7 @@ scripts/build-review.mjs     the build script (spec + diffs -> review.html)
 scripts/collect-pr-context.mjs  PR detection + validated local fact pack
 scripts/review-preflight.mjs deterministic patch inventory and checks
 scripts/validate-review-spec.mjs  versioned review-spec validation
+scripts/detect-mechanical-groups.mjs  hunk groups, dependencies, and reading order
 templates/review.template.html  the static, interactive HTML template
 examples/                    example spec + screenshot
 test/fixtures/               patch, spec, and visual-contract fixtures

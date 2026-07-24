@@ -41,6 +41,10 @@ Choosing it changes the analysis workflow, not the meaning of a finding.
 
 `prs` must be non-empty. Each entry requires `title` and exactly one of
 `diffFile` or `diff`. Relative files are resolved from the specification file.
+Phase 2 grouping uses at most one of `groupFile`, embedded `changeGroups`,
+`autoGroups: true`, or the legacy file-level `groups` array. Group files are
+resolved relative to the specification and revalidated against the patch when
+the review is built.
 PR ids and group ids must be unique.
 
 Workspace specs cannot contain `review`. AI-analysis and deep-audit specs
