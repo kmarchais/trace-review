@@ -17,18 +17,20 @@ only author a short JSON spec.
 
 **Do NOT hand-write HTML.** Always go through `build-review.mjs`.
 
-## Two modes
+## Three explicit modes
 
 | Mode | What you do | Result |
 |------|-------------|--------|
-| **Diff** (default) | Just render the diff + empty comment fields. | The reviewer reads the diff and writes their own comments. |
-| **Review** (on request) | Also analyse the diff and emit a `review` object. | Adds **an AI review**: a global assessment + severity-tagged findings anchored to lines, each with Accept/Dismiss/Reply — shown alongside the reviewer's own fields. |
+| **Workspace** (default) | Set top-level `"mode": "workspace"` and omit every `review` object. | The reviewer reads the facts and diff and writes their own comments. |
+| **AI analysis** (on request) | Set `"mode": "ai-analysis"` and emit a `review` object for every PR. | Adds sparse AI findings: a global assessment plus severity-tagged, line-anchored comments. |
+| **Deep audit** (explicit/high-risk only) | Set `"mode": "deep-audit"` after the user requests or accepts deeper analysis. | Uses the same finding contract after broader dependency, failure-mode, and test analysis. |
 
-Default is **diff-only**. Add the AI review when the user invokes
+Default is **workspace**. Add AI analysis when the user invokes
 `/trace-review review`, or asks for it in words ("review this and add your
-findings"). Invoking `/trace-review` (or `… no-review`) stays diff-only — don't
-spend tokens analysing the diff unless asked. Mechanically, "review mode" just
-means you also fill in `prs[].review` (see *Automatic (AI) review*).
+findings"). Invoking `/trace-review` (or `… no-review`) stays in workspace mode
+— don't spend tokens analysing the diff unless asked. Deep audit is never
+silently selected. See [REVIEW-SPEC.md](REVIEW-SPEC.md) for the versioned
+contract.
 
 Paths below are relative to the skill directory
 (`.claude/skills/trace-review/`). Run commands from any working directory; pass
@@ -102,6 +104,8 @@ Minimum viable spec:
 
 ```json
 {
+  "schemaVersion": 1,
+  "mode": "workspace",
   "title": "Review: harden auth flow",
   "reviewId": "harden-auth",
   "prs": [
@@ -112,6 +116,9 @@ Minimum viable spec:
 
 - `diffFile` is resolved **relative to the spec file**. (Or inline the diff as
   a `"diff"` string for tiny changes.)
+- Run `node <skill-dir>/scripts/validate-review-spec.mjs --spec
+  .review/spec.json` to inspect contract diagnostics without generating HTML.
+  The build command runs the same validation and refuses invalid specs.
 - `reviewId` keys the reviewer's saved comments — **keep it stable** across
   rebuilds so comments survive a regenerate.
 
@@ -142,10 +149,10 @@ used when the summary has room.
 | `callout` | `md`, `variant?` (`info`/`warn`/`success`), `title?` | A note to not miss. |
 | `heading` | `text`, `level?` | A sub-heading. |
 
-### Automatic (AI) review (review mode only)
+### Automatic AI findings (`ai-analysis` and `deep-audit` only)
 
-Only when the user asked for a review, add a `review` object to the PR. Skip it
-entirely in the default diff-only mode. The review is attributed to a neutral
+Only when the user asked for AI analysis, add a `review` object to every PR.
+Skip it entirely in workspace mode. The review is attributed to a neutral
 **"AI"** by default — set the top-level `reviewer` (e.g. `"Claude"`, `"GPT-5"`,
 a person's name) to relabel the card, pills, findings, and export.
 
@@ -232,7 +239,7 @@ Linux `xdg-open`). Drop it and just tell the user the path if you prefer.
 
 In the doc the reviewer hovers a line and clicks the **+** in its gutter to
 comment (works in both unified and split view — comments follow the line, not
-the layout), types an overall note, and — in review mode — **Accepts / Dismisses
+the layout), types an overall note, and — in an AI mode — **Accepts / Dismisses
 / Replies** to Claude's findings. Then they hit **Export comments**, which gives
 markdown two ways:
 
@@ -253,6 +260,8 @@ accepted findings and their own comments; leave dismissed ones alone.
 
 | Field | Where | Meaning |
 |-------|-------|---------|
+| `schemaVersion` | top | Required. Always `1`; unknown versions are rejected. |
+| `mode` | top | Required. `workspace`, `ai-analysis`, or `deep-audit`. |
 | `title` | top | Document title (default `Code Review`). |
 | `reviewId` | top | localStorage key for comments (default: slug of title). Keep stable. |
 | `reviewer` | top | Display name for the AI reviewer (default `AI`) — labels the review card, pills, findings, export. |
@@ -265,7 +274,7 @@ accepted findings and their own comments; leave dismissed ones alone.
 | `prs[].diffFile` | per PR | Path to a unified-diff file (relative to spec). |
 | `prs[].diff` | per PR | Inline unified-diff string (alternative to `diffFile`). |
 | `prs[].groups` | per PR | Optional: organise files into themed groups — `[{ id, title, kind?, note?, collapsed?, files[] }]` (see *Change groups*). |
-| `prs[].review` | per PR | Review mode only: `{ verdict?, global?, comments[] }` (see *Automatic (AI) review*). Omit for diff-only. |
+| `prs[].review` | per PR | Required in `ai-analysis` and `deep-audit`: `{ verdict?, global?, comments[] }`. Forbidden in `workspace`. |
 
 One PR → no tabs, section shown directly. Two+ → a tab bar with per-PR comment
 counts.
@@ -278,7 +287,7 @@ See [examples/screenshot.png](examples/screenshot.png). A two-column workspace:
   or `blocks`): a sticky panel with the title, `+/-` stats, PR link, and your
   free-form summary blocks. Omitted for a bare diff.
 - **Right — the review:**
-  - **Top** — in review mode, a bold **"&lt;reviewer&gt; review"** card whose
+  - **Top** — in AI-analysis and deep-audit modes, a bold **"&lt;reviewer&gt; review"** card whose
     header is **coloured by verdict** (green approve / red request-changes /
     blue comment) so it's spotted instantly, then a **findings** list where each
     item is **accent-coloured by severity**, then a live list of the reviewer's
@@ -348,7 +357,6 @@ npm test
 node scripts/build-review.mjs --spec examples/review-spec.json --out review-smoke.html
 ```
 
-The example's first PR points at a `pr-1.patch` that doesn't exist — the build
-**degrades gracefully** (a "Diff file not found" banner, exit 0) rather than
-crashing, and the second PR's inline `diff` still renders. Swap in a real patch
-to see a full diff.
+The suite covers collection, preflight, schema diagnostics, representative
+patches, HTML structure, a checked-in visual contract, and a 300-file
+performance fixture.

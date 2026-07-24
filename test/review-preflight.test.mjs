@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { analyzePatch } from "../scripts/lib/preflight.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -86,4 +87,17 @@ test("review-preflight decodes Git-quoted paths", () => {
   assert.equal(preflight.patch.valid, true);
   assert.equal(preflight.files[0].path, "café.js");
   assert.equal(preflight.files[0].type, "javascript");
+});
+
+test("comprehensive fixture covers C++, CMake, rename, generated, and binary changes", () => {
+  const patch = fs.readFileSync(path.join(root, "test", "fixtures", "comprehensive.patch"), "utf8");
+  const result = analyzePatch(patch);
+  const byPath = new Map(result.files.map((file) => [file.path, file]));
+
+  assert.equal(result.totals.files, 6);
+  assert.equal(byPath.get("src/widget.hpp").type, "cpp");
+  assert.equal(byPath.get("CMakeLists.txt").type, "cmake");
+  assert.equal(byPath.get("docs/widget-name.md").oldPath, "docs/old-name.md");
+  assert.equal(byPath.get("generated/api.generated.js").generated, true);
+  assert.equal(byPath.get("assets/widget.png").binary, true);
 });

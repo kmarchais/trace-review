@@ -1,0 +1,25 @@
+{
+  "palette": {
+    "primary": "#46B8D9",
+    "secondary": "#357290",
+    "orange": "#E78F1F",
+    "red": "#D8544F",
+    "green": "#25A845"
+  },
+  "layout": {
+    "pr-cols": "display:flex",
+    "pr-context": "position:sticky",
+    "review-col": "display:flex",
+    "diff-block-head": "position:sticky",
+    "overall-bar": "position:fixed"
+  },
+  "landmarks": [
+    "app-header",
+    "tabs",
+    "pr-cols",
+    "pr-context",
+    "review-col",
+    "diff-block",
+    "overall-bar"
+  ]
+}

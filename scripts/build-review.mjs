@@ -14,6 +14,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
+import {
+  formatReviewSpecDiagnostics,
+  validateReviewSpec,
+} from "./lib/review-spec.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.resolve(__dirname, "..");
@@ -562,11 +566,23 @@ function main() {
   }
   const specPath = path.resolve(args.spec);
   specDir = path.dirname(specPath);
-  const spec = JSON.parse(fs.readFileSync(specPath, "utf8"));
+  let spec;
+  try {
+    spec = JSON.parse(fs.readFileSync(specPath, "utf8"));
+  } catch (error) {
+    console.error(`Invalid review specification:\nERROR $ [invalid-json]: ${error.message}`);
+    process.exit(2);
+  }
+  const validation = validateReviewSpec(spec, { baseDir: specDir, checkFiles: true });
+  if (!validation.valid) {
+    console.error("Invalid review specification:\n" + formatReviewSpecDiagnostics(validation));
+    process.exit(2);
+  }
   const prs = spec.prs || [];
   const title = spec.title || "Code Review";
   const reviewId = spec.reviewId || slug(title);
   const generated = spec.generated || new Date().toISOString().slice(0, 10);
+  const mode = spec.mode;
   const single = prs.length <= 1;
 
   const tabs = single
@@ -599,7 +615,8 @@ mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', securi
   let tpl = fs.readFileSync(TEMPLATE, "utf8");
   const repl = {
     "{{TITLE}}": esc(title),
-    "{{SUBTITLE}}": esc(`${generated} · ${prs.length} PR${prs.length === 1 ? "" : "s"}`),
+    "{{SUBTITLE}}": esc(`${generated} · ${prs.length} PR${prs.length === 1 ? "" : "s"} · ${mode}`),
+    "{{MODE}}": esc(mode),
     "{{REVIEW_ID}}": esc(reviewId),
     "{{TABS}}": tabs,
     "{{SECTIONS}}": sections,

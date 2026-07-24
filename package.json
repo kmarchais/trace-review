@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "validate:example": "node scripts/validate-review-spec.mjs --spec examples/review-spec.json"
   }
 }

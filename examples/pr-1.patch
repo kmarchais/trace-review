@@ -1,0 +1,8 @@
+diff --git a/src/auth.js b/src/auth.js
+index 1111111..2222222 100644
+--- a/src/auth.js
++++ b/src/auth.js
+@@ -40,4 +40,4 @@ function authenticate(user) {
+-  return user.name;
++  return user?.name;
+ }
