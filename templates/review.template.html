@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{{TITLE}}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700&family=Roboto:wght@400;500&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
   :root {
     --primary:#46B8D9; --secondary:#357290; --orange:#E78F1F; --red:#D8544F; --green:#25A845;
-    --font-heading:'Titillium Web',Calibri,sans-serif; --font-body:'Roboto',Calibri,sans-serif;
+    --font-heading:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif; --font-body:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
     --mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
     /* light (default) */
     --bg:#ffffff; --panel:#f7f9fa; --card:#ffffff; --text:#4B4A4A; --muted:#808080;
@@ -26,8 +26,8 @@
       --border:#243038; --header:#0b2b38; --header-text:#daeff8;
       --add-bg:#132a1d; --add-word:#1f6f38; --del-bg:#30191e; --del-word:#8a2a33;
       --ctx:#c8d2d8; --ln:#111a20; --ln-text:#5a6b73; --hunk-bg:#12242e; --hunk-text:#46B8D9;
-      --annot:#0b1116; --ai-bg:#102630; --user-bg:#2b2013;
-      --hl-comment:#7a86a3; --hl-kw:#c792ea; --hl-str:#c3e88d; --hl-num:#f78c6c; --hl-fn:#82aaff; --hl-type:#ffcb6b; --hl-attr:#82aaff;
+      --annot:#101a22; --ai-bg:#102934; --user-bg:#1d252d;
+      --hl-comment:#9aa8b3; --hl-kw:#d6a2ff; --hl-str:#9bd58a; --hl-num:#ffbf82; --hl-fn:#7cc7ff; --hl-type:#ebcf8b; --hl-attr:#7ed4fa;
     }
   }
   /* explicit manual override (session only) */
@@ -36,6 +36,8 @@
     --border:#243038; --header:#0b2b38; --header-text:#daeff8;
     --add-bg:#0f2a17; --add-word:#1f6f38; --del-bg:#3a1418; --del-word:#8a2a33;
     --ctx:#c8d2d8; --ln:#111a20; --ln-text:#5a6b73; --hunk-bg:#12242e; --hunk-text:#46B8D9;
+    --annot:#101a22; --ai-bg:#102934; --user-bg:#1d252d;
+    --hl-comment:#9aa8b3; --hl-kw:#d6a2ff; --hl-str:#9bd58a; --hl-num:#ffbf82; --hl-fn:#7cc7ff; --hl-type:#ebcf8b; --hl-attr:#7ed4fa;
   }
 
   * { box-sizing:border-box; }
@@ -230,8 +232,9 @@
 
   figure.diagram { margin:0; height:100%; border:1px solid var(--border); border-radius:6px; padding:12px; background:var(--panel); overflow:auto; }
   figure.diagram figcaption { font-family:var(--font-heading); color:var(--secondary); font-size:.85rem; margin-bottom:8px; }
-  .diagram-body { text-align:center; }
-  .diagram-body svg { max-width:100%; height:auto; }
+  .diagram-body { --diagram-surface:#ffffff; --diagram-ink:#18232d; text-align:center; padding:10px; border:1px solid #d7e1e7; border-radius:5px; background:var(--diagram-surface); color:var(--diagram-ink); color-scheme:light; }
+  .diagram-surface-dark .diagram-body { --diagram-surface:#161e27; --diagram-ink:#edf4f7; border-color:#31404c; color-scheme:dark; }
+  .diagram-body svg { display:block; max-width:100%; height:auto; margin:auto; background:var(--diagram-surface); }
   .mermaid { text-align:center; }
 
   .general { margin-top:16px; }
@@ -296,7 +299,7 @@
   .file-note .comment-actions button { font-size:.76rem; background:none; border:none; color:var(--red); cursor:pointer; }
 
   /* syntax highlighting (highlight.js tokens, theme-aware) */
-  .hljs-comment,.hljs-quote { color:var(--hl-comment); font-style:italic; }
+  .hljs-comment,.hljs-quote { color:var(--hl-comment); }
   .hljs-keyword,.hljs-selector-tag,.hljs-section,.hljs-doctag,.hljs-name,.hljs-tag,.hljs-meta-keyword { color:var(--hl-kw); }
   .hljs-string,.hljs-regexp,.hljs-addition,.hljs-meta .hljs-string,.hljs-symbol,.hljs-bullet { color:var(--hl-str); }
   .hljs-number,.hljs-literal,.hljs-link { color:var(--hl-num); }
@@ -427,7 +430,7 @@
   <div class="modal-card">
     <div class="modal-head"><h3>Review comments</h3><button class="icon-btn" id="closeModal">✕</button></div>
     <div class="modal-body">
-      <p class="hint">Copy this into the Claude Code conversation, or download it and ask Claude to read the file.</p>
+      <p class="hint">Copy this report into the pull request discussion, or download it as Markdown to share with the author.</p>
       <textarea id="exportText" readonly></textarea>
     </div>
     <div class="modal-foot">
