@@ -66,6 +66,29 @@ In Claude Code:
 Or ask in words: *"make an HTML review of this branch"*, *"review PR 123 and add
 your findings"*.
 
+Collection is deterministic and happens before review generation:
+
+```bash
+# Detect the current branch's PR; fall back to a local diff
+node scripts/collect-pr-context.mjs
+
+# Select a PR by number or URL
+node scripts/collect-pr-context.mjs --pr 123
+node scripts/collect-pr-context.mjs --pr https://github.com/org/repo/pull/123
+
+# Intentionally avoid GitHub and compare against a chosen local base
+node scripts/collect-pr-context.mjs --no-remote --base main
+```
+
+The command writes `.review/context.json` and `.review/context.patch`. The JSON
+contains validated repository/PR facts plus a deterministic preflight
+inventory; see [CONTEXT-SCHEMA.md](CONTEXT-SCHEMA.md). Run preflight directly
+for any existing patch with:
+
+```bash
+node scripts/review-preflight.mjs --diff changes.patch
+```
+
 ### Under the hood
 
 The agent dumps diffs to `.patch` files, writes a small `spec.json`, and runs:
@@ -82,6 +105,8 @@ See [SKILL.md](SKILL.md) for the full spec reference and workflow, and
 ```
 SKILL.md                     agent-facing instructions + spec reference
 scripts/build-review.mjs     the build script (spec + diffs -> review.html)
+scripts/collect-pr-context.mjs  PR detection + validated local fact pack
+scripts/review-preflight.mjs deterministic patch inventory and checks
 templates/review.template.html  the static, interactive HTML template
 examples/                    example spec + screenshot
 ```

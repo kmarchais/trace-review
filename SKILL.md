@@ -46,22 +46,47 @@ absolute paths for `--spec`/`--out` when in doubt.
 
 ## Workflow (the agent path)
 
-### 1. Dump the diff(s) to files — never into chat
+### 1. Collect facts and the diff — never dump the diff into chat
 
-Pick what matches the request. Redirect to `.patch` files in a work dir:
+Run the context collector first. It writes a validated, compact fact pack to
+`.review/context.json` and the heavy patch to `.review/context.patch`.
 
 ```bash
-mkdir -p .review
-git diff > .review/local.patch                 # uncommitted work
-git diff main...HEAD > .review/branch.patch     # a branch vs main
-gh pr diff 123 --patch > .review/pr-123.patch   # a specific PR
+# Default: detect the current branch's PR, then fall back to a local diff
+node <skill-dir>/scripts/collect-pr-context.mjs
+
+# Explicit PR selection by number or URL
+node <skill-dir>/scripts/collect-pr-context.mjs --pr 123
+node <skill-dir>/scripts/collect-pr-context.mjs --pr https://github.com/org/repo/pull/123
+
+# Intentionally disable remote context
+node <skill-dir>/scripts/collect-pr-context.mjs --no-remote --base main
 ```
 
-Multiple PRs → one `.patch` per PR.
+Use `--repo <path>` when the command is not run inside the target repository,
+and `--out` / `--diff-out` to choose other output locations. In automatic mode,
+an unavailable `gh` command or a branch with no PR falls back to a local diff.
+Explicit PR selection fails instead of silently reviewing something else.
+
+For an already-created patch, run the standalone deterministic inventory:
+
+```bash
+node <skill-dir>/scripts/review-preflight.mjs --diff .review/context.patch \
+  --out .review/preflight.json
+```
+
+Preflight reports patch validity, byte and line counts, file types, whitespace
+errors, binaries, and likely generated files. Read `context.json` before the
+patch: it already contains the title, description, branches, labels, checks,
+reviews, conversation comments, and inline GitHub review comments.
+
+Multiple PRs → run the collector once per explicit PR with distinct output
+paths.
 
 ### 2. Read the diffs and write a short spec
 
-Read the patches to understand the change, then write `.review/spec.json`.
+Read the collected context and patches to understand the change, then write
+`.review/spec.json`.
 Keep the summary tight — say *what changed and why*, not a line-by-line
 retelling. Copy the shape from [examples/review-spec.json](examples/review-spec.json).
 
@@ -308,9 +333,10 @@ Viewer controls:
 
 ## Build & test the driver itself
 
-To re-verify the script/template after editing them, reproduce the smoke test:
+Run the dependency-free test suite, then reproduce the generator smoke test:
 
 ```bash
+npm test
 node scripts/build-review.mjs --spec examples/review-spec.json --out review-smoke.html
 ```
 

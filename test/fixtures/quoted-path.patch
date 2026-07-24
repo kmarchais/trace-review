@@ -1,0 +1,7 @@
+diff --git "a/caf\303\251.js" "b/caf\303\251.js"
+index 1111111..2222222 100644
+--- "a/caf\303\251.js"
++++ "b/caf\303\251.js"
+@@ -1 +1 @@
+-const drink = "tea";
++const drink = "coffee";
