@@ -1,4 +1,6 @@
 {
+  "schemaVersion": 1,
+  "mode": "ai-analysis",
   "title": "Review: <short description>",
   "reviewId": "keep-me-stable-to-retain-comments",
   "reviewer": "AI",
@@ -20,7 +22,7 @@
       ],
       "review": {
         "verdict": "comment",
-        "global": "Overall assessment. Add this only in **review mode** (user asked for Claude's review); omit it for a plain diff.",
+        "global": "Overall assessment. Add this only in **AI-analysis or deep-audit mode**; omit it from a workspace spec.",
         "comments": [
           { "file": "src/auth.js", "line": 42, "severity": "concern", "body": "Handle the null case before dereferencing." },
           { "file": "src/auth.js", "line": "o58", "severity": "question", "body": "Why remove this guard? (comment on a removed line via `o<oldline>`)" }
@@ -45,7 +47,12 @@
           ["utils.js", "new helper", "low"]
         ]}
       ],
-      "diff": "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n"
+      "diff": "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n",
+      "review": {
+        "verdict": "approve",
+        "global": "No actionable findings in this small example.",
+        "comments": []
+      }
     }
   ]
 }

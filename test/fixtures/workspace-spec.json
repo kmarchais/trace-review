@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "mode": "workspace",
+  "title": "Widget API review",
+  "reviewId": "fixture-widget-api",
+  "generated": "2026-07-24",
+  "prs": [
+    {
+      "id": "widget-api",
+      "title": "Return the widget name",
+      "summary": "Moves the public API from a numeric value to a name and updates the build requirement.",
+      "diffFile": "comprehensive.patch",
+      "groups": [
+        {
+          "id": "api",
+          "kind": "feature",
+          "title": "Public API and implementation",
+          "files": ["src/widget.hpp", "src/widget.cpp"]
+        },
+        {
+          "id": "build",
+          "kind": "other",
+          "title": "C++ standard integration",
+          "files": ["CMakeLists.txt"]
+        }
+      ]
+    }
+  ]
+}

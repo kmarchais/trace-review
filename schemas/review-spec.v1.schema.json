@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trace-review.dev/schema/review-spec.v1.json",
+  "title": "Trace Review specification v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "mode", "prs"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "mode": { "enum": ["workspace", "ai-analysis", "deep-audit"] },
+    "title": { "type": "string", "minLength": 1 },
+    "reviewId": { "type": "string", "minLength": 1 },
+    "reviewer": { "type": "string", "minLength": 1 },
+    "generated": { "type": "string", "minLength": 1 },
+    "prs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/pr" }
+    }
+  },
+  "$defs": {
+    "pr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" },
+        "diff": { "type": "string" },
+        "diffFile": { "type": "string", "minLength": 1 },
+        "diagrams": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagram" }
+        },
+        "blocks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/block" }
+        },
+        "groups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/group" }
+        },
+        "review": { "$ref": "#/$defs/review" }
+      },
+      "oneOf": [
+        { "required": ["diff"], "not": { "required": ["diffFile"] } },
+        { "required": ["diffFile"], "not": { "required": ["diff"] } }
+      ]
+    },
+    "diagram": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "surface": { "enum": ["light", "dark"] },
+        "svg": { "type": "string", "minLength": 1 },
+        "svgFile": { "type": "string", "minLength": 1 },
+        "mermaid": { "type": "string", "minLength": 1 }
+      },
+      "oneOf": [
+        { "required": ["svg"], "not": { "anyOf": [{ "required": ["svgFile"] }, { "required": ["mermaid"] }] } },
+        { "required": ["svgFile"], "not": { "anyOf": [{ "required": ["svg"] }, { "required": ["mermaid"] }] } },
+        { "required": ["mermaid"], "not": { "anyOf": [{ "required": ["svg"] }, { "required": ["svgFile"] }] } }
+      ]
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["prose", "diagram", "stats", "table", "callout", "heading"] },
+        "width": { "enum": ["full", "two-thirds", "half", "third"] },
+        "md": { "type": "string" },
+        "text": { "type": "string" },
+        "level": { "type": "integer", "minimum": 2, "maximum": 5 },
+        "title": { "type": "string" },
+        "variant": { "enum": ["info", "warn", "success"] },
+        "surface": { "enum": ["light", "dark"] },
+        "svg": { "type": "string", "minLength": 1 },
+        "svgFile": { "type": "string", "minLength": 1 },
+        "mermaid": { "type": "string", "minLength": 1 },
+        "items": { "type": "array", "items": { "type": "object" } },
+        "headers": { "type": "array" },
+        "rows": { "type": "array", "items": { "type": "array" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "diagram" } }, "required": ["type"] },
+          "then": {
+            "oneOf": [
+              { "required": ["svg"], "not": { "anyOf": [{ "required": ["svgFile"] }, { "required": ["mermaid"] }] } },
+              { "required": ["svgFile"], "not": { "anyOf": [{ "required": ["svg"] }, { "required": ["mermaid"] }] } },
+              { "required": ["mermaid"], "not": { "anyOf": [{ "required": ["svg"] }, { "required": ["svgFile"] }] } }
+            ]
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "stats" } }, "required": ["type"] },
+          "then": { "required": ["items"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "table" } }, "required": ["type"] },
+          "then": { "required": ["rows"] }
+        }
+      ]
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "files"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["mechanical", "refactor", "feature", "fix", "test", "docs", "other"] },
+        "title": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" },
+        "collapsed": { "type": "boolean" },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["comments"],
+      "properties": {
+        "verdict": { "enum": ["approve", "comment", "request-changes"] },
+        "global": { "type": "string" },
+        "comments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/finding" }
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "line", "body"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "line": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "pattern": "^o[1-9][0-9]*$" }
+          ]
+        },
+        "severity": { "enum": ["nit", "suggestion", "concern", "question", "praise", "comment"] },
+        "body": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "mode": { "const": "workspace" } }, "required": ["mode"] },
+      "then": {
+        "properties": {
+          "prs": {
+            "items": { "not": { "required": ["review"] } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "mode": { "enum": ["ai-analysis", "deep-audit"] } }, "required": ["mode"] },
+      "then": {
+        "properties": {
+          "prs": {
+            "items": { "required": ["review"] }
+          }
+        }
+      }
+    }
+  ]
+}
