@@ -1,0 +1,18 @@
+diff --git a/src/app.js b/src/app.js
+index 1111111..2222222 100644
+--- a/src/app.js
++++ b/src/app.js
+@@ -1 +1,2 @@
+ console.log("hello");
++console.log("world");
+diff --git a/package-lock.json b/package-lock.json
+index 3333333..4444444 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1 +1 @@
+-{"lockfileVersion": 2}
++{"lockfileVersion": 3}
+diff --git a/assets/logo.png b/assets/logo.png
+new file mode 100644
+index 0000000..5555555
+Binary files /dev/null and b/assets/logo.png differ

@@ -53,8 +53,14 @@ Both agents discover the skill as `trace-review`; Claude Code exposes it as
 
 ## Requirements
 
-- **Node 18+** (zero npm dependencies)
-- **git** and/or the **GitHub CLI (`gh`)** to produce diffs
+- **Node 18+** — required by the dependency-free collection and build scripts.
+- **Git** — required for repository facts and local diffs.
+- **GitHub CLI (`gh`)** — optional. Automatic mode warns and falls back to a
+  local diff when GitHub context is unavailable. Explicit PR numbers/URLs
+  require `gh`.
+- **Claude Code or Codex** — needed only to invoke the skill workflow and
+  generate AI analysis. The scripts can be run manually without either agent,
+  and a generated review works as a standalone HTML file in a modern browser.
 
 ## Usage
 
@@ -65,6 +71,34 @@ In Claude Code:
 
 Or ask in words: *"make an HTML review of this branch"*, *"review PR 123 and add
 your findings"*.
+
+Collection is deterministic and happens before review generation:
+
+```bash
+# Detect the current branch's PR; fall back to a local diff
+node scripts/collect-pr-context.mjs
+
+# Select a PR by number or URL
+node scripts/collect-pr-context.mjs --pr 123
+node scripts/collect-pr-context.mjs --pr https://github.com/org/repo/pull/123
+
+# Intentionally avoid GitHub and compare against a chosen local base
+node scripts/collect-pr-context.mjs --no-remote --base main
+```
+
+The command writes `.review/context.json` and `.review/context.patch`. The JSON
+contains validated repository/PR facts plus a deterministic preflight
+inventory; see [CONTEXT-SCHEMA.md](CONTEXT-SCHEMA.md). Run preflight directly
+for any existing patch with:
+
+```bash
+node scripts/review-preflight.mjs --diff changes.patch
+```
+
+When automatic GitHub collection fails because `gh` is missing, unauthenticated,
+or unavailable, the command prints a warning and records
+`remote-context-unavailable` in the JSON before continuing locally. It does not
+silently claim that the branch has no pull request.
 
 ### Under the hood
 
@@ -82,6 +116,8 @@ See [SKILL.md](SKILL.md) for the full spec reference and workflow, and
 ```
 SKILL.md                     agent-facing instructions + spec reference
 scripts/build-review.mjs     the build script (spec + diffs -> review.html)
+scripts/collect-pr-context.mjs  PR detection + validated local fact pack
+scripts/review-preflight.mjs deterministic patch inventory and checks
 templates/review.template.html  the static, interactive HTML template
 examples/                    example spec + screenshot
 ```
