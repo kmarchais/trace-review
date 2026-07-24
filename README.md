@@ -66,8 +66,10 @@ Both agents discover the skill as `trace-review`; Claude Code exposes it as
 
 In Claude Code:
 
-- `/trace-review` — render the diff with empty comment fields (diff-only).
-- `/trace-review review` — also generate an AI review (global + line findings).
+- `/trace-review` — open the default review workspace without AI findings.
+- `/trace-review review` — add explicit AI analysis (global + line findings).
+- Ask for a **deep audit** when a high-risk change warrants broader dependency,
+  failure-mode, and test analysis.
 
 Or ask in words: *"make an HTML review of this branch"*, *"review PR 123 and add
 your findings"*.
@@ -105,11 +107,26 @@ silently claim that the branch has no pull request.
 The agent dumps diffs to `.patch` files, writes a small `spec.json`, and runs:
 
 ```bash
+node scripts/validate-review-spec.mjs --spec spec.json
 node scripts/build-review.mjs --spec spec.json --out review.html --open
 ```
 
-See [SKILL.md](SKILL.md) for the full spec reference and workflow, and
+Every spec declares `schemaVersion: 1` and one of `workspace`, `ai-analysis`,
+or `deep-audit`. Generation reports invalid fields with JSON paths and
+corrective hints before writing HTML. See [REVIEW-SPEC.md](REVIEW-SPEC.md),
+[SKILL.md](SKILL.md), and
 [examples/review-spec.json](examples/review-spec.json) for a starting template.
+
+## Quality checks
+
+```bash
+npm test
+```
+
+The dependency-free suite covers collection and preflight, review-spec
+validation, small and large generation, HTML landmarks, the checked-in visual
+contract, C++, CMake, renames, binaries, generated files, groups, and AI
+comments.
 
 ## Layout
 
@@ -118,6 +135,8 @@ SKILL.md                     agent-facing instructions + spec reference
 scripts/build-review.mjs     the build script (spec + diffs -> review.html)
 scripts/collect-pr-context.mjs  PR detection + validated local fact pack
 scripts/review-preflight.mjs deterministic patch inventory and checks
+scripts/validate-review-spec.mjs  versioned review-spec validation
 templates/review.template.html  the static, interactive HTML template
 examples/                    example spec + screenshot
+test/fixtures/               patch, spec, and visual-contract fixtures
 ```

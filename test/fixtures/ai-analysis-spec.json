@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "mode": "ai-analysis",
+  "title": "Widget API analysis",
+  "reviewId": "fixture-widget-ai",
+  "reviewer": "AI",
+  "generated": "2026-07-24",
+  "prs": [
+    {
+      "id": "widget-api",
+      "title": "Return the widget name",
+      "diffFile": "comprehensive.patch",
+      "review": {
+        "verdict": "comment",
+        "global": "The implementation and build changes agree.",
+        "comments": [
+          {
+            "file": "src/widget.cpp",
+            "line": 5,
+            "severity": "question",
+            "body": "Should the returned name be part of the public compatibility contract?",
+            "confidence": 0.8
+          }
+        ]
+      }
+    }
+  ]
+}

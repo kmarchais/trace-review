@@ -242,15 +242,16 @@
   textarea { width:100%; font-family:var(--font-body); font-size:.9rem; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:9px 11px; resize:vertical; min-height:46px; }
   textarea:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 2px rgba(70,184,217,.25); }
 
-  /* change groups — theme the diff (mechanical / feature / …); one "Reviewed" clears the whole group */
-  .group { margin-bottom:18px; }
-  .group-head { display:flex; align-items:center; gap:10px; padding:9px 14px; cursor:pointer; user-select:none; background:var(--panel); border:1px solid var(--border); border-left:4px solid var(--secondary); border-radius:8px; }
-  .group.gk-mechanical > .group-head { border-left-color:var(--muted); }
-  .group.gk-refactor > .group-head { border-left-color:#8a63d2; }
-  .group.gk-feature > .group-head { border-left-color:var(--primary); }
-  .group.gk-fix > .group-head { border-left-color:var(--red); }
-  .group.gk-test > .group-head { border-left-color:var(--green); }
-  .group.gk-docs > .group-head { border-left-color:var(--orange); }
+  /* change groups — a visible container keeps the header and all member files
+     legible as one review decision, even when every file is collapsed */
+  .group { --group-accent:var(--secondary); margin-bottom:22px; border:1px solid var(--border); border-top:3px solid var(--group-accent); border-radius:10px; padding:8px; background:var(--panel); box-shadow:0 3px 12px rgba(0,0,0,.08); }
+  .group-head { display:flex; align-items:center; gap:10px; padding:9px 14px; cursor:pointer; user-select:none; background:var(--card); border:0; border-radius:7px; box-shadow:inset 4px 0 0 var(--group-accent); }
+  .group.gk-mechanical { --group-accent:var(--muted); }
+  .group.gk-refactor { --group-accent:#8a63d2; }
+  .group.gk-feature { --group-accent:var(--primary); }
+  .group.gk-fix { --group-accent:var(--red); }
+  .group.gk-test { --group-accent:var(--green); }
+  .group.gk-docs { --group-accent:var(--orange); }
   .group .chevron { color:var(--muted); font-size:.8rem; transition:transform .15s; }
   .group.collapsed .chevron { transform:rotate(-90deg); }
   .group.collapsed .group-note, .group.collapsed .group-files { display:none; }
@@ -263,7 +264,7 @@
   .group-viewed input { accent-color:var(--green); width:15px; height:15px; cursor:pointer; }
   .group-note { font-size:.9rem; line-height:1.5; color:var(--text); padding:10px 14px 2px; }
   .group-note > :first-child { margin-top:0; } .group-note > :last-child { margin-bottom:0; }
-  .group-files { padding-top:12px; display:flex; flex-direction:column; gap:12px; }
+  .group-files { padding:12px 2px 2px; display:flex; flex-direction:column; gap:12px; }
   .group-files .file { margin-bottom:0; }
 
   .file { border:1px solid var(--border); border-radius:8px; margin-bottom:14px; overflow:clip; background:var(--card); }
@@ -407,7 +408,7 @@
   .lb-inner img { width:100% !important; height:100% !important; object-fit:contain; }
 </style>
 </head>
-<body>
+<body data-review-mode="{{MODE}}">
 <header class="app-header">
   <div class="title-block">
     <h1>{{TITLE}}</h1>
@@ -856,7 +857,12 @@
     if(!cb) return;
     cb.addEventListener("change", ()=>{
       const want = cb.checked;   // capture before setViewed→syncGroupCb mutates cb mid-loop
-      group.querySelectorAll(".file").forEach(f=> setViewed(f, want, true));
+      const files = [...group.querySelectorAll(".file")];
+      const title = group.querySelector(".group-title")?.textContent.trim() || "this group";
+      const paths = files.map(f=> "• " + f.dataset.file).join("\n");
+      const prompt = "Mark all " + files.length + " files in “" + title + "” as viewed?\n\n" + paths;
+      if(want && !window.confirm(prompt)){ syncGroupCb(group); return; }
+      files.forEach(f=> setViewed(f, want, true));
       syncGroupCb(group);
     });
     syncGroupCb(group);

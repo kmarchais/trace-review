@@ -1,0 +1,46 @@
+diff --git a/src/widget.hpp b/src/widget.hpp
+index 1111111..2222222 100644
+--- a/src/widget.hpp
++++ b/src/widget.hpp
+@@ -1 +1,2 @@
+ #pragma once
++#include <string>
+@@ -3 +4 @@
+-int widget_value();
++std::string widget_name();
+diff --git a/src/widget.cpp b/src/widget.cpp
+index 3333333..4444444 100644
+--- a/src/widget.cpp
++++ b/src/widget.cpp
+@@ -1 +1,2 @@
+ #include "widget.hpp"
++#include <string>
+@@ -3,3 +4,3 @@
+-int widget_value() {
+-  return 7;
++std::string widget_name() {
++  return "trace";
+ }
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5555555..6666666 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,2 +1,3 @@
+ add_library(widget src/widget.cpp)
++target_compile_features(widget PUBLIC cxx_std_17)
+ target_include_directories(widget PUBLIC src)
+diff --git a/docs/old-name.md b/docs/widget-name.md
+similarity index 100%
+rename from docs/old-name.md
+rename to docs/widget-name.md
+diff --git a/generated/api.generated.js b/generated/api.generated.js
+index 7777777..8888888 100644
+--- a/generated/api.generated.js
++++ b/generated/api.generated.js
+@@ -1 +1 @@
+-export const widget = 7;
++export const widget = "trace";
+diff --git a/assets/widget.png b/assets/widget.png
+new file mode 100644
+index 0000000..9999999
+Binary files /dev/null and b/assets/widget.png differ
