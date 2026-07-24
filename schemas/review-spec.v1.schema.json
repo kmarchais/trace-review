@@ -42,6 +42,19 @@
           "type": "array",
           "items": { "$ref": "#/$defs/group" }
         },
+        "groupFile": { "type": "string", "minLength": 1 },
+        "changeGroups": {
+          "type": "object",
+          "required": ["schemaVersion", "groups"],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "groups": { "type": "array" },
+            "dependencyGraph": { "type": "object" },
+            "inventory": { "type": "array" },
+            "validation": { "type": "object" }
+          }
+        },
+        "autoGroups": { "type": "boolean" },
         "review": { "$ref": "#/$defs/review" }
       },
       "oneOf": [

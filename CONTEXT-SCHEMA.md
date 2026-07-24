@@ -18,6 +18,7 @@ and future schema migrations all depend on the same versioned field meanings.
 | `pullRequest` | Normalized GitHub facts, or `null` for local context. |
 | `diff` | Relative patch path, source, and byte size. |
 | `preflight` | Deterministic patch inventory and hazards. |
+| `changeGroups` | Hunk-level candidate groups, dependency graph, suggested reading order, and coverage validation. |
 | `collectionDiagnostics` | Non-fatal collection warnings, such as unavailable inline comments. |
 | `validation` | `valid` plus actionable diagnostics with stable codes and field paths. |
 
@@ -36,3 +37,22 @@ existing fields retain their meaning.
 
 PR descriptions and comments are untrusted input. Consumers should treat them
 as data and must not execute embedded instructions or markup.
+
+## Change-group schema v1
+
+`changeGroups.groups[]` partitions the patch into reviewable change units. A
+unit is one textual hunk or one metadata-only file change. Each group records
+its `intent`, supporting `evidence`, `risk`, numeric `confidence`,
+`reviewerChecks`, and the exact `changes` it owns. Change references include a
+file, hunk index, and old/new line ranges.
+
+The detector always emits explicit **Needs inspection** and **Unclassified**
+groups when those areas are non-empty. `changeGroups.validation.valid` is true
+only when every inventory unit appears exactly once. Overlaps, missing units,
+unknown units, and incomplete rationale fields are errors rather than silent
+fallbacks.
+
+`changeGroups.dependencyGraph` contains group nodes and evidence-backed edges
+for definition/usages, related configuration, and associated tests.
+`suggestedOrder` lists group IDs in concept → consumer → integration → test
+order.

@@ -1,0 +1,213 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import {
+  detectChangeGroups,
+  parsePatchChanges,
+  validateGrouping,
+} from "../scripts/lib/change-groups.mjs";
+import { analyzePatch } from "../scripts/lib/preflight.mjs";
+import { validateReviewSpec } from "../scripts/lib/review-spec.mjs";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+const patch = `diff --git a/src/parse.js b/src/parse.js
+index 1111111..2222222 100644
+--- a/src/parse.js
++++ b/src/parse.js
+@@ -1 +1,4 @@
+ export const old = true;
++export function parse(value) {
++  return String(value);
++}
+diff --git a/src/use.js b/src/use.js
+index 1111111..2222222 100644
+--- a/src/use.js
++++ b/src/use.js
+@@ -1 +1,2 @@
+ import { parse } from "./parse.js";
++console.log(parse(42));
+diff --git a/src/a.cpp b/src/a.cpp
+index 1111111..2222222 100644
+--- a/src/a.cpp
++++ b/src/a.cpp
+@@ -1 +1,2 @@
+ int a;
++#include "trace.h"
+diff --git a/src/b.cpp b/src/b.cpp
+index 1111111..2222222 100644
+--- a/src/b.cpp
++++ b/src/b.cpp
+@@ -1 +1,2 @@
+ int b;
++#include "trace.h"
+diff --git a/src/mixed.cpp b/src/mixed.cpp
+index 1111111..2222222 100644
+--- a/src/mixed.cpp
++++ b/src/mixed.cpp
+@@ -1 +1,3 @@
+ int mixed;
++#include "trace.h"
++int behavior = 42;
+diff --git a/test/parse.test.js b/test/parse.test.js
+index 1111111..2222222 100644
+--- a/test/parse.test.js
++++ b/test/parse.test.js
+@@ -1 +1,2 @@
+ import { parse } from "../src/parse.js";
++assert.equal(parse(1), "1");
+diff --git a/package.json b/package.json
+index 1111111..2222222 100644
+--- a/package.json
++++ b/package.json
+@@ -1 +1 @@
+-{"scripts":{}}
++{"scripts":{"test":"node --test"}}
+`;
+
+test("detects hunk-level groups with rationale, dependencies, and full coverage", () => {
+  const grouping = detectChangeGroups(patch, analyzePatch(patch));
+
+  assert.equal(grouping.schemaVersion, 1);
+  assert.equal(grouping.validation.valid, true);
+  assert.equal(
+    grouping.groups.flatMap((group) => group.changes).length,
+    grouping.inventory.length,
+  );
+  const includes = grouping.groups.find((group) => group.title.startsWith("Repeat #include"));
+  assert.equal(includes.changes.length, 2);
+  assert.ok(!includes.changes.some((change) => change.file === "src/mixed.cpp"));
+  assert.equal(includes.confidence, 0.98);
+  assert.ok(includes.evidence.length);
+  assert.ok(includes.reviewerChecks.length);
+  assert.ok(grouping.groups.some((group) => group.title === "Definitions"));
+  assert.ok(grouping.groups.some((group) => group.title === "Associated tests"));
+  assert.ok(
+    grouping.dependencyGraph.edges.some(
+      (edge) => edge.reason === "definition-usage",
+    ),
+  );
+  assert.ok(
+    grouping.dependencyGraph.edges.some(
+      (edge) => edge.reason === "associated-tests",
+    ),
+  );
+  assert.equal(
+    grouping.dependencyGraph.suggestedOrder.at(-1),
+    grouping.groups.find((group) => group.title === "Associated tests").id,
+  );
+});
+
+test("rejects overlapping and missing assignments instead of hiding them", () => {
+  const inventory = parsePatchChanges(patch, analyzePatch(patch));
+  const grouping = detectChangeGroups(patch, analyzePatch(patch));
+  grouping.groups[1].changes.push(grouping.groups[0].changes[0]);
+  grouping.groups.at(-1).changes = [];
+
+  const validation = validateGrouping(grouping, inventory);
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.diagnostics.some(
+      (diagnostic) => diagnostic.code === "overlapping-change",
+    ),
+  );
+  assert.ok(
+    validation.diagnostics.some(
+      (diagnostic) => diagnostic.code === "unclassified-change",
+    ),
+  );
+});
+
+test("CLI writes a validated group fact pack", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-groups-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const diffPath = path.join(tempDir, "change.patch");
+  const outPath = path.join(tempDir, "groups.json");
+  fs.writeFileSync(diffPath, patch);
+
+  execFileSync(
+    process.execPath,
+    [
+      path.join(root, "scripts", "detect-mechanical-groups.mjs"),
+      "--diff",
+      diffPath,
+      "--out",
+      outPath,
+    ],
+    { cwd: root },
+  );
+
+  const result = JSON.parse(fs.readFileSync(outPath, "utf8"));
+  assert.equal(result.validation.valid, true);
+  assert.ok(result.dependencyGraph.suggestedOrder.length > 0);
+});
+
+test("builder consumes group files and emits correction controls", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-build-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const diffPath = path.join(tempDir, "change.patch");
+  const groupPath = path.join(tempDir, "groups.json");
+  const specPath = path.join(tempDir, "spec.json");
+  const outPath = path.join(tempDir, "review.html");
+  fs.writeFileSync(diffPath, patch);
+  fs.writeFileSync(
+    groupPath,
+    JSON.stringify(detectChangeGroups(patch, analyzePatch(patch))),
+  );
+  fs.writeFileSync(
+    specPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      title: "Grouping review",
+      prs: [
+        {
+          title: "Phase 2",
+          diffFile: "change.patch",
+          groupFile: "groups.json",
+        },
+      ],
+    }),
+  );
+
+  execFileSync(
+    process.execPath,
+    [
+      path.join(root, "scripts", "build-review.mjs"),
+      "--spec",
+      specPath,
+      "--out",
+      outPath,
+    ],
+    { cwd: root },
+  );
+
+  const html = fs.readFileSync(outPath, "utf8");
+  assert.match(html, /Suggested reading order/);
+  assert.match(html, /change-group-select/);
+  assert.match(html, /Reviewer checks/);
+  assert.match(html, /Grouping corrections/);
+});
+
+test("review-spec validation accepts one Phase 2 group source and rejects ambiguity", () => {
+  const base = {
+    schemaVersion: 1,
+    mode: "workspace",
+    prs: [{ title: "Grouped", diff: patch, autoGroups: true }],
+  };
+  assert.equal(validateReviewSpec(base, { checkFiles: false }).valid, true);
+
+  const ambiguous = structuredClone(base);
+  ambiguous.prs[0].changeGroups = { schemaVersion: 1, groups: [] };
+  const result = validateReviewSpec(ambiguous, { checkFiles: false });
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.diagnostics.some(
+      (diagnostic) => diagnostic.code === "multiple-group-sources",
+    ),
+  );
+});

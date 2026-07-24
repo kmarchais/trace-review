@@ -18,6 +18,12 @@ import {
   formatReviewSpecDiagnostics,
   validateReviewSpec,
 } from "./lib/review-spec.mjs";
+import { analyzePatch } from "./lib/preflight.mjs";
+import {
+  detectChangeGroups,
+  parsePatchChanges,
+  validateGrouping,
+} from "./lib/change-groups.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.resolve(__dirname, "..");
@@ -394,11 +400,39 @@ function normalizeReview(pr) {
   return { verdict: r.verdict || "", global: r.global || "", comments };
 }
 
+function resolveChangeGroups(pr, text) {
+  let grouping = pr.changeGroups || null;
+  if (pr.groupFile) {
+    const groupPath = path.isAbsolute(pr.groupFile)
+      ? pr.groupFile
+      : path.resolve(specDir, pr.groupFile);
+    grouping = JSON.parse(fs.readFileSync(groupPath, "utf8"));
+  } else if (pr.autoGroups) {
+    grouping = detectChangeGroups(text, analyzePatch(text));
+  }
+  if (!grouping) return null;
+  if (grouping.schemaVersion !== 1) {
+    throw new Error(
+      `Unsupported change-group schema '${grouping.schemaVersion}' for '${pr.title || pr.id}'.`,
+    );
+  }
+  const inventory = parsePatchChanges(text, analyzePatch(text));
+  const validation = validateGrouping(grouping, inventory);
+  if (!validation.valid) {
+    const detail = validation.diagnostics
+      .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+      .join("; ");
+    throw new Error(`Invalid change groups for '${pr.title || pr.id}': ${detail}`);
+  }
+  return { ...grouping, validation };
+}
+
 // ---------- render a PR section (diff mounts filled client-side) ----------
 function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   const prId = pr.id || `pr-${idx + 1}`;
   const { text, warning } = readDiff(pr);
   const files = parseDiff(text);
+  const changeGroups = resolveChangeGroups(pr, text);
   const warnHtml = warning ? `<div class="warn">⚠ ${esc(warning)}</div>` : "";
   const totals = files.reduce((t, f) => ({ add: t.add + f.add, del: t.del + f.del }), { add: 0, del: 0 });
 
@@ -408,17 +442,18 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     dataBag[fid] = fileData(f);
     return { fid, d: dataBag[fid] };
   });
-  const renderFileBlock = ({ fid, d }, collapsed) => {
+  const renderFileBlock = ({ fid, d, changeId, changeLabel }, collapsed, groupOptions = "") => {
     const pathLabel = d.renamed ? `${esc(d.oldPath)} → ${esc(d.path)}` : esc(d.path);
     const tag = d.isNew ? '<span class="ftag ftag-new">new</span>' : d.isDeleted ? '<span class="ftag ftag-del">deleted</span>' : d.renamed ? '<span class="ftag">renamed</span>' : "";
     return `
-      <div class="file${collapsed ? " collapsed" : ""}" id="file-${fid}" data-file="${esc(d.path)}">
+      <div class="file${collapsed ? " collapsed" : ""}" id="file-${fid}" data-file="${esc(d.path)}"${changeId ? ` data-change="${esc(changeId)}"` : ""}>
         <div class="file-header" data-toggle="file-${fid}">
           <span class="chevron">▾</span>
-          <span class="file-path">${pathLabel}</span>${tag}
+          <span class="file-path">${pathLabel}</span>${tag}${changeLabel ? `<span class="change-range">${esc(changeLabel)}</span>` : ""}
           <span class="file-badge" data-file-count="${esc(d.path)}" hidden></span>
           <span class="stats"><span class="stat-add">+${d.add}</span> <span class="stat-del">-${d.del}</span></span>
           <span class="file-actions">
+            ${groupOptions ? `<span class="group-correction"><select class="change-group-select" title="Move or split this change unit">${groupOptions}<option value="__out">Out of scope</option></select></span>` : ""}
             <button type="button" class="file-note-btn" title="Comment on this file">💬</button>
             <label class="viewed-label"><input type="checkbox" class="viewed-cb"> Viewed</label>
           </span>
@@ -426,7 +461,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         <div class="file-body"><div class="file-note-slot"></div><div class="diff-mount" data-fid="${fid}"></div></div>
       </div>`;
   };
-  const renderGroup = (g, gblocks) => {
+  const renderGroup = (g, gblocks, options = "") => {
     const kind = g.kind || "other";
     const collapsedFiles = g.collapsed != null ? !!g.collapsed : kind === "mechanical";
     const gadd = gblocks.reduce((s, b) => s + b.d.add, 0);
@@ -437,12 +472,15 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           <span class="chevron">▾</span>
           <span class="group-kind gk-${esc(kind)}">${esc(kind)}</span>
           <span class="group-title">${esc(g.title || g.id || "Changes")}</span>
-          <span class="group-count">${gblocks.length} file${gblocks.length === 1 ? "" : "s"}</span>
+          <span class="group-count">${gblocks.length} ${g.changes ? `change unit${gblocks.length === 1 ? "" : "s"}` : `file${gblocks.length === 1 ? "" : "s"}`}</span>
+          ${g.risk ? `<span class="group-risk risk-${esc(g.risk)}">${esc(g.risk)} risk</span>` : ""}
+          ${g.confidence != null ? `<span class="group-confidence">${Math.round(Number(g.confidence) * 100)}% confidence</span>` : ""}
+          ${options ? `<span class="group-merge"><select class="group-merge-select" title="Merge this group into another">${options}</select><button type="button" class="group-merge-btn">Merge</button></span>` : ""}
           <span class="stats"><span class="stat-add">+${gadd}</span> <span class="stat-del">-${gdel}</span></span>
           <label class="group-viewed" title="Mark every file in this group reviewed"><input type="checkbox" class="gv-cb"> Reviewed</label>
         </div>
-        ${g.note ? `<div class="group-note">${md(g.note)}</div>` : ""}
-        <div class="group-files">${gblocks.map((b) => renderFileBlock(b, collapsedFiles)).join("\n")}</div>
+        ${g.intent || g.note ? `<div class="group-note">${g.intent ? `<p><strong>Intent:</strong> ${esc(g.intent)}</p>` : ""}${g.note ? md(g.note) : ""}${g.evidence?.length ? `<details><summary>Evidence</summary><ul>${g.evidence.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}${g.reviewerChecks?.length ? `<details><summary>Reviewer checks</summary><ul>${g.reviewerChecks.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}${g.readAfter?.length ? `<p class="read-after"><strong>Read after:</strong> ${g.readAfter.map(esc).join(", ")}</p>` : ""}</div>` : ""}
+        <div class="group-files">${gblocks.map((b) => renderFileBlock(b, collapsedFiles, options)).join("\n")}</div>
       </div>`;
   };
 
@@ -452,7 +490,56 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   const RENAME_GROUP = { id: "__renames", title: "Renamed (no content change)", kind: "mechanical", startCollapsed: true };
 
   let filesHtml;
-  if (Array.isArray(pr.groups) && pr.groups.length) {
+  if (changeGroups) {
+    const parsedByPath = new Map(files.map((file) => [file.path, file]));
+    const order = changeGroups.dependencyGraph?.suggestedOrder || changeGroups.groups.map((group) => group.id);
+    const orderIndex = new Map(order.map((id, index) => [id, index]));
+    const orderedGroups = changeGroups.groups
+      .slice()
+      .sort((a, b) => (orderIndex.get(a.id) ?? 999) - (orderIndex.get(b.id) ?? 999));
+    const titleById = new Map(orderedGroups.map((group) => [group.id, group.title]));
+    const groupOptions = orderedGroups
+      .map((group) => `<option value="${esc(group.id)}">${esc(group.title)}</option>`)
+      .join("");
+    const incoming = new Map();
+    for (const edge of changeGroups.dependencyGraph?.edges || []) {
+      if (!incoming.has(edge.to)) incoming.set(edge.to, []);
+      const sourceTitle = titleById.get(edge.from) || edge.from;
+      if (!incoming.get(edge.to).includes(sourceTitle)) {
+        incoming.get(edge.to).push(sourceTitle);
+      }
+    }
+    const parts = [];
+    for (const group of orderedGroups) {
+      const blocks = [];
+      for (const [changeIndex, change] of (group.changes || []).entries()) {
+        const parsed = parsedByPath.get(change.file);
+        if (!parsed) continue;
+        const d = fileData(parsed);
+        if (Number.isInteger(change.hunk)) {
+          const selected = d.hunks[change.hunk];
+          d.hunks = selected ? [selected] : [];
+          const rows = d.hunks.flatMap((hunk) => hunk.rows);
+          d.add = rows.filter((row) => row.t === "a").length;
+          d.del = rows.filter((row) => row.t === "d").length;
+        }
+        const fid = `${prId}__cg${orderIndex.get(group.id) ?? 0}__${changeIndex}`;
+        dataBag[fid] = d;
+        blocks.push({
+          fid,
+          d,
+          changeId: change.id,
+          changeLabel: change.label || (change.newRange ? `lines ${change.newRange.start}-${change.newRange.end}` : "metadata"),
+        });
+      }
+      const options = groupOptions.replace(
+        `value="${esc(group.id)}"`,
+        `value="${esc(group.id)}" selected`,
+      );
+      parts.push(renderGroup({ ...group, readAfter: incoming.get(group.id) || [] }, blocks, options));
+    }
+    filesHtml = `<div class="reading-order"><strong>Suggested reading order:</strong> ${orderedGroups.map((group, index) => `${index + 1}. ${esc(group.title)}`).join(" → ")}</div>${parts.join("\n")}<div class="out-of-scope-group" data-out-of-scope hidden><div class="group-head"><span class="group-kind gk-other">out of scope</span><span class="group-title">Reviewer-excluded changes</span></div><div class="group-files"></div></div>`;
+  } else if (Array.isArray(pr.groups) && pr.groups.length) {
     const byPath = new Map(fileBlocks.map((b) => [b.d.path, b]));
     const assigned = new Set();
     const parts = [];

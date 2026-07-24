@@ -88,12 +88,35 @@ node <skill-dir>/scripts/review-preflight.mjs --diff .review/context.patch \
 Preflight reports patch validity, byte and line counts, file types, whitespace
 errors, binaries, and likely generated files. Read `context.json` before the
 patch: it already contains the title, description, branches, labels, checks,
-reviews, conversation comments, and inline GitHub review comments.
+reviews, conversation comments, inline GitHub review comments, and candidate
+change groups.
 
 Multiple PRs → run the collector once per explicit PR with distinct output
 paths.
 
-### 2. Read the diffs and write a short spec
+### 2. Detect and validate change groups
+
+The collector includes `changeGroups` in its context. For an existing patch,
+write the same fact pack separately:
+
+```bash
+node <skill-dir>/scripts/detect-mechanical-groups.mjs \
+  --diff .review/context.patch --out .review/groups.json
+```
+
+The detector classifies at hunk/line-range granularity. It recognizes pure
+renames, formatting-only changes, lockfiles, import/include changes, and
+repeated includes. Every group carries intent, evidence, risk, confidence, and
+reviewer checks. Binary/generated uncertainty is placed in **Needs inspection**;
+anything unmatched stays visible in **Unclassified**.
+
+Treat `validation.valid: false` as a hard stop. A change unit must be assigned
+exactly once; missing and overlapping units are never silently rendered. The
+fact pack also links definitions to usages, configuration/build integration,
+and tests, then computes a suggested concept → consumer → integration → test
+reading order.
+
+### 3. Read the facts and write a short spec
 
 Read the collected context and patches to understand the change, then write
 `.review/spec.json`.
@@ -109,7 +132,7 @@ Minimum viable spec:
   "title": "Review: harden auth flow",
   "reviewId": "harden-auth",
   "prs": [
-    { "title": "Add credential validation", "summary": "Rejects empty creds; timestamps tokens.", "diffFile": "local.patch" }
+    { "title": "Add credential validation", "summary": "Rejects empty creds; timestamps tokens.", "diffFile": "context.patch", "groupFile": "groups.json" }
   ]
 }
 ```
@@ -119,6 +142,9 @@ Minimum viable spec:
 - Run `node <skill-dir>/scripts/validate-review-spec.mjs --spec
   .review/spec.json` to inspect contract diagnostics without generating HTML.
   The build command runs the same validation and refuses invalid specs.
+- `groupFile` is resolved relative to the spec and revalidated against the
+  current patch at build time. Use `autoGroups: true` to detect in-process, or
+  `changeGroups` to embed an already-collected fact pack.
 - `reviewId` keys the reviewer's saved comments — **keep it stable** across
   rebuilds so comments survive a regenerate.
 
@@ -191,7 +217,15 @@ deserve a small handful of findings; a clean change deserves **none** — return
 an empty `comments` array (the global card still summarises). Signal over volume:
 a reviewer should be able to act on every finding you leave.
 
-### Change groups (optional)
+### Change groups
+
+Prefer `groupFile`, `changeGroups`, or `autoGroups: true`. Generated groups work
+at hunk granularity, display their rationale and dependencies, and follow the
+suggested reading order. Reviewers can move/split individual units, merge
+groups, or mark units out of scope; those decisions persist and are included in
+the Markdown export.
+
+The legacy file-level `groups` array remains available for hand-authored specs:
 
 For a PR that touches many files, group them by theme so the reviewer isn't
 slogging file-by-file — especially when **the same change repeats across many
@@ -227,7 +261,7 @@ files** (a rename, an added `#include`, a signature tweak). Add a `groups` array
   changes. A rename that *also* edits the file is a normal reviewable file (and
   you can put it in a group). You rarely need to list renames in `groups`.
 
-### 3. Build and open
+### 4. Build and open
 
 ```bash
 node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --open
@@ -236,7 +270,7 @@ node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.js
 `--open` launches the default browser (Windows `start` / macOS `open` /
 Linux `xdg-open`). Drop it and just tell the user the path if you prefer.
 
-### 4. Re-import the reviewer's comments
+### 5. Re-import the reviewer's comments
 
 In the doc the reviewer hovers a line and clicks the **+** in its gutter to
 comment (works in both unified and split view — comments follow the line, not
@@ -274,7 +308,10 @@ accepted findings and their own comments; leave dismissed ones alone.
 | `prs[].blocks[]` | per PR | Free-form summary blocks (see *Summary blocks*). Replaces `summary`/`diagrams`. |
 | `prs[].diffFile` | per PR | Path to a unified-diff file (relative to spec). |
 | `prs[].diff` | per PR | Inline unified-diff string (alternative to `diffFile`). |
-| `prs[].groups` | per PR | Optional: organise files into themed groups — `[{ id, title, kind?, note?, collapsed?, files[] }]` (see *Change groups*). |
+| `prs[].groupFile` | per PR | Validated Phase 2 grouping fact pack (relative to the spec). |
+| `prs[].changeGroups` | per PR | Inline Phase 2 grouping fact pack. |
+| `prs[].autoGroups` | per PR | Detect and validate Phase 2 groups while building. |
+| `prs[].groups` | per PR | Legacy file-level groups — `[{ id, title, kind?, note?, collapsed?, files[] }]`. |
 | `prs[].review` | per PR | Required in `ai-analysis` and `deep-audit`: `{ verdict?, global?, comments[] }`. Forbidden in `workspace`. |
 
 One PR → no tabs, section shown directly. Two+ → a tab bar with per-PR comment

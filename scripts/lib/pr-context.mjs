@@ -1,4 +1,5 @@
 import { preflightPatch } from "./preflight.mjs";
+import { detectChangeGroups } from "./change-groups.mjs";
 
 export const PR_FIELDS =
   "number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments";
@@ -268,6 +269,7 @@ function collectLocalContext(
   const diff = run("git", ["diff", "--binary", "--no-ext-diff", baseRef], {
     cwd: facts.repository.root,
   });
+  const preflight = preflightPatch(diff, run, facts.repository.root);
   const context = {
     schemaVersion: 1,
     source: "local",
@@ -280,7 +282,8 @@ function collectLocalContext(
     git: { ...facts.git, baseRef },
     pullRequest: null,
     diff,
-    preflight: preflightPatch(diff, run, facts.repository.root),
+    preflight,
+    changeGroups: detectChangeGroups(diff, preflight),
     collectionDiagnostics,
   };
   context.validation = validateContext(context);
@@ -364,6 +367,7 @@ export function collectPrContext(options, run) {
   const diff = run("gh", ["pr", "diff", diffSelector, "--patch"], {
     cwd: facts.repository.root,
   });
+  const preflight = preflightPatch(diff, run, facts.repository.root);
   const context = {
     schemaVersion: 1,
     source: "github",
@@ -372,7 +376,8 @@ export function collectPrContext(options, run) {
     git: facts.git,
     pullRequest,
     diff,
-    preflight: preflightPatch(diff, run, facts.repository.root),
+    preflight,
+    changeGroups: detectChangeGroups(diff, preflight),
     collectionDiagnostics,
   };
   context.validation = validateContext(context);

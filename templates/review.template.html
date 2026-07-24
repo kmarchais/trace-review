@@ -260,6 +260,17 @@
   .group-kind.gk-mechanical { background:var(--muted); } .group-kind.gk-refactor { background:#8a63d2; } .group-kind.gk-feature { background:var(--primary); }
   .group-kind.gk-fix { background:var(--red); } .group-kind.gk-test { background:var(--green); } .group-kind.gk-docs { background:var(--orange); } .group-kind.gk-other { background:var(--secondary-light,#5894AC); }
   .group-count { font-size:.78rem; color:var(--muted); white-space:nowrap; }
+  .group-risk, .group-confidence, .change-range { font-family:var(--font-heading); font-size:.68rem; color:var(--muted); white-space:nowrap; }
+  .group-risk { border:1px solid var(--border); border-radius:10px; padding:2px 7px; }
+  .risk-high { color:var(--red); border-color:var(--red); } .risk-medium { color:var(--orange); border-color:var(--orange); }
+  .reading-order { margin:0 0 14px; padding:10px 12px; border:1px solid var(--border); border-radius:7px; background:var(--panel); color:var(--muted); font-size:.82rem; line-height:1.45; }
+  .group-note details { margin:7px 0; } .group-note summary { cursor:pointer; color:var(--secondary); font-family:var(--font-heading); font-weight:600; }
+  .group-note ul { margin:5px 0 0; } .read-after { color:var(--muted); font-size:.82rem; }
+  .group-correction, .group-merge { display:flex; align-items:center; gap:4px; }
+  .group-correction select, .group-merge select, .group-merge button { max-width:150px; font-family:var(--font-heading); font-size:.68rem; color:var(--muted); background:var(--card); border:1px solid var(--border); border-radius:4px; padding:3px 5px; }
+  .group-merge button { cursor:pointer; } .group-merge button:hover { border-color:var(--primary); color:var(--primary); }
+  .out-of-scope-group { margin:18px 0; opacity:.8; } .out-of-scope-group > .group-head { border-left-color:var(--muted); cursor:default; }
+  .out-of-scope-group .file { border-style:dashed; }
   .group-viewed { display:flex; align-items:center; gap:5px; font-family:var(--font-heading); font-size:.74rem; color:var(--muted); cursor:pointer; white-space:nowrap; }
   .group-viewed input { accent-color:var(--green); width:15px; height:15px; cursor:pointer; }
   .group-note { font-size:.9rem; line-height:1.5; color:var(--text); padding:10px 14px 2px; }
@@ -472,10 +483,10 @@
   const HAS_REVIEW = Object.keys(REVIEW).length > 0;
 
   // ---- state ----
-  let state = { general:{}, lines:{}, aiState:{}, files:{}, viewed:{} };
+  let state = { general:{}, lines:{}, aiState:{}, files:{}, viewed:{}, grouping:{} };
   try { const raw = localStorage.getItem(STORE_KEY); if (raw) state = JSON.parse(raw); } catch(e){}
   state.general = state.general || {}; state.lines = state.lines || {}; state.aiState = state.aiState || {};
-  state.files = state.files || {}; state.viewed = state.viewed || {};
+  state.files = state.files || {}; state.viewed = state.viewed || {}; state.grouping = state.grouping || {};
 
   // ---- syntax highlighting (highlight.js, loaded above; degrades offline) ----
   // Highlight a whole block and split into per-line HTML, keeping <span>s
@@ -806,7 +817,7 @@
     return ta;
   }
   function setViewed(fileEl, viewed, persist){
-    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.change || fileEl.dataset.file, id = pr + " " + file;
     fileEl.classList.toggle("viewed", viewed);
     fileEl.classList.toggle("collapsed", viewed);
     const cb = fileEl.querySelector(".viewed-cb"); if(cb) cb.checked = viewed;
@@ -839,7 +850,7 @@
     cb.indeterminate = n>0 && n<files.length;
   }
   document.querySelectorAll(".file").forEach(fileEl=>{
-    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.change || fileEl.dataset.file, id = pr + " " + file;
     const btn = fileEl.querySelector(".file-note-btn");
     if(btn) btn.addEventListener("click", (e)=>{ e.stopPropagation(); fileNoteBox(fileEl, "", true); });
     const cb = fileEl.querySelector(".viewed-cb");
@@ -850,7 +861,7 @@
 
   // ---- change groups: collapse + one "Reviewed" that clears the whole group ----
   document.querySelectorAll(".group-head").forEach(h=>{
-    h.addEventListener("click", (e)=>{ if(e.target.closest(".group-viewed")) return; h.closest(".group").classList.toggle("collapsed"); });
+    h.addEventListener("click", (e)=>{ if(e.target.closest(".group-viewed, .group-merge")) return; const group=h.closest(".group"); if(group) group.classList.toggle("collapsed"); });
   });
   document.querySelectorAll(".group").forEach(group=>{
     const cb = group.querySelector(".gv-cb");
@@ -866,6 +877,51 @@
       syncGroupCb(group);
     });
     syncGroupCb(group);
+  });
+
+  // ---- reviewer corrections: move/split hunk units, merge groups, or mark out of scope ----
+  function groupingKey(fileEl){
+    const sec=fileEl.closest("section.pr");
+    return sec.dataset.pr + " " + (fileEl.dataset.change || fileEl.dataset.file);
+  }
+  function refreshGroupMeta(sec){
+    sec.querySelectorAll(".group").forEach(group=>{
+      const files=[...group.querySelectorAll(":scope > .group-files > .file")];
+      const count=group.querySelector(".group-count");
+      if(count) count.textContent=files.length+" change unit"+(files.length===1?"":"s");
+      syncGroupCb(group);
+    });
+    const out=sec.querySelector("[data-out-of-scope]");
+    if(out) out.hidden=!out.querySelector(".file");
+    updateProgress();
+    refreshTree();
+  }
+  function moveChange(fileEl, target, persist){
+    const sec=fileEl.closest("section.pr");
+    const destination=target==="__out"
+      ? sec.querySelector("[data-out-of-scope] .group-files")
+      : sec.querySelector('.group[data-group="'+cssEsc(target)+'"] > .group-files');
+    if(!destination) return;
+    destination.appendChild(fileEl);
+    const select=fileEl.querySelector(".change-group-select");
+    if(select) select.value=target;
+    if(persist){ state.grouping[groupingKey(fileEl)]=target; save(); }
+    refreshGroupMeta(sec);
+  }
+  document.querySelectorAll(".file[data-change]").forEach(fileEl=>{
+    const select=fileEl.querySelector(".change-group-select");
+    if(select) select.addEventListener("change", e=>{ e.stopPropagation(); moveChange(fileEl, select.value, true); });
+    const saved=state.grouping[groupingKey(fileEl)];
+    if(saved) moveChange(fileEl, saved, false);
+  });
+  document.querySelectorAll(".group-merge-btn").forEach(button=>{
+    button.addEventListener("click", e=>{
+      e.stopPropagation();
+      const source=button.closest(".group");
+      const target=source.querySelector(".group-merge-select").value;
+      if(!target || target===source.dataset.group) return;
+      [...source.querySelectorAll(":scope > .group-files > .file")].forEach(file=>moveChange(file,target,true));
+    });
   });
 
   // ---- file tree drawer (navigate a big diff by path) ----
@@ -983,6 +1039,11 @@
       }
       const gen=(state.general[pr]||"").trim();
       if(gen) block += "\n**My overall:** " + gen + "\n";
+      const corrections=Object.entries(state.grouping).filter(([key])=>key.startsWith(pr+" "));
+      if(corrections.length){
+        block += "\n**Grouping corrections:**\n";
+        for(const [key,target] of corrections) block += "- `" + key.slice(pr.length+1) + "` → " + (target==="__out" ? "out of scope" : target) + "\n";
+      }
       const byFile = {};
       const F = (f)=> byFile[f] = byFile[f] || { note:"", lines:[] };
       for(const k in state.files){ const c=state.files[k]; if(!c||c.pr!==pr||!c.text||!c.text.trim()) continue; F(c.file).note = c.text; }
