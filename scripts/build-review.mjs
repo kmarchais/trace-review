@@ -21,9 +21,11 @@ import {
 import { analyzePatch } from "./lib/preflight.mjs";
 import {
   detectChangeGroups,
+  extractDefinedSymbols,
   parsePatchChanges,
   validateGrouping,
 } from "./lib/change-groups.mjs";
+import { validateLmGroupingResult } from "./lib/lm-groups.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.resolve(__dirname, "..");
@@ -426,7 +428,18 @@ function resolveChangeGroups(pr, text) {
     );
   }
   const inventory = parsePatchChanges(text, analyzePatch(text));
-  const validation = validateGrouping(grouping, inventory);
+  const structuralValidation = validateGrouping(grouping, inventory);
+  const semanticValidation =
+    grouping.provenance === "lm"
+      ? validateLmGroupingResult(grouping, { inventory })
+      : { valid: true, diagnostics: [] };
+  const validation = {
+    valid: structuralValidation.valid && semanticValidation.valid,
+    diagnostics: [
+      ...structuralValidation.diagnostics,
+      ...semanticValidation.diagnostics,
+    ],
+  };
   if (!validation.valid) {
     const detail = validation.diagnostics
       .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
@@ -451,18 +464,17 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     dataBag[fid] = fileData(f);
     return { fid, d: dataBag[fid] };
   });
-  const renderFileBlock = ({ fid, d, changeId, changeLabel }, collapsed, groupOptions = "") => {
+  const renderFileBlock = ({ fid, d, changeId, changeLabel, viewKey }, collapsed) => {
     const pathLabel = d.renamed ? `${esc(d.oldPath)} → ${esc(d.path)}` : esc(d.path);
     const tag = d.isNew ? '<span class="ftag ftag-new">new</span>' : d.isDeleted ? '<span class="ftag ftag-del">deleted</span>' : d.renamed ? '<span class="ftag">renamed</span>' : "";
     return `
-      <div class="file${collapsed ? " collapsed" : ""}" id="file-${fid}" data-file="${esc(d.path)}"${changeId ? ` data-change="${esc(changeId)}"` : ""}>
+      <div class="file${collapsed ? " collapsed" : ""}" id="file-${fid}" data-file="${esc(d.path)}"${changeId ? ` data-change="${esc(changeId)}"` : ""}${viewKey ? ` data-view-key="${esc(viewKey)}"` : ""}>
         <div class="file-header" data-toggle="file-${fid}">
           <span class="chevron">▾</span>
           <span class="file-path">${pathLabel}</span>${tag}${changeLabel ? `<span class="change-range" title="${esc(changeLabel)}">${esc(changeLabel)}</span>` : ""}
           <span class="file-badge" data-file-count="${esc(d.path)}" hidden></span>
           <span class="stats"><span class="stat-add">+${d.add}</span> <span class="stat-del">-${d.del}</span></span>
           <span class="file-actions">
-            ${groupOptions ? `<span class="group-correction"><select class="change-group-select" title="Move or split this change unit">${groupOptions}<option value="__out">Out of scope</option></select></span>` : ""}
             <button type="button" class="file-note-btn" title="Comment on this file">💬</button>
             <label class="viewed-label"><input type="checkbox" class="viewed-cb"> Viewed</label>
           </span>
@@ -470,29 +482,54 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         <div class="file-body"><div class="file-note-slot"></div><div class="diff-mount" data-fid="${fid}"></div></div>
       </div>`;
   };
-  const renderGroup = (g, gblocks, options = "") => {
+  const renderGroup = (g, gblocks) => {
     const kind = g.kind || "other";
-    const collapsedFiles = g.collapsed != null ? !!g.collapsed : kind === "mechanical";
+    const collapsedFiles = g.collapsed != null ? !!g.collapsed : false;
     const gadd = gblocks.reduce((s, b) => s + b.d.add, 0);
     const gdel = gblocks.reduce((s, b) => s + b.d.del, 0);
+    const readFirst = g.readFirst?.length ? g.readFirst : ["No prerequisite group"];
+    const dependents = g.dependents?.length ? g.dependents : ["No dependent group detected"];
+    const definitions = g.definitions?.length ? g.definitions : [];
+    const relationship = `
+      <div class="group-relationships">
+        <div><span>Read first</span><strong>${readFirst.map(esc).join(" · ")}</strong></div>
+        <div><span>Dependent changes</span><strong>${dependents.map(esc).join(" · ")}</strong></div>
+      </div>`;
+    const definitionPreview = definitions.length
+      ? `<details class="definition-preview"><summary>Definition preview</summary>${definitions
+          .map((definition) => `<code>${esc(definition.symbol)}</code><pre>${esc(definition.preview)}</pre>`)
+          .join("")}</details>`
+      : `<div class="definition-preview empty"><span>Definition preview</span><p>No relevant symbol definitions detected in this group.</p></div>`;
     return `
       <div class="group gk-${esc(kind)}${g.startCollapsed ? " collapsed" : ""}" data-group="${esc(g.id || kind)}">
         <div class="group-head" data-gtoggle>
           <span class="chevron">▾</span>
           <span class="group-kind gk-${esc(kind)}">${esc(kind)}</span>
           <span class="group-title">${esc(g.title || g.id || "Changes")}</span>
-          <span class="group-count">${gblocks.length} ${g.changes ? `change unit${gblocks.length === 1 ? "" : "s"}` : `file${gblocks.length === 1 ? "" : "s"}`}</span>
+          <span class="group-count">${gblocks.length} file${gblocks.length === 1 ? "" : "s"}</span>
           ${g.risk ? `<span class="group-risk risk-${esc(g.risk)}">${esc(g.risk)} risk</span>` : ""}
           ${g.confidence != null ? `<span class="group-confidence">${Math.round(Number(g.confidence) * 100)}% confidence</span>` : ""}
-          ${options ? `<span class="group-merge"><select class="group-merge-select" title="Merge this group into another">${options}</select><button type="button" class="group-merge-btn">Merge</button></span>` : ""}
           <span class="stats"><span class="stat-add">+${gadd}</span> <span class="stat-del">-${gdel}</span></span>
           <label class="group-viewed" title="Mark every file in this group reviewed"><input type="checkbox" class="gv-cb"> Reviewed</label>
         </div>
-        ${g.intent || g.note ? `<div class="group-note">${g.intent ? `<p><strong>Intent:</strong> ${esc(g.intent)}</p>` : ""}${g.note ? md(g.note) : ""}${g.evidence?.length ? `<details><summary>Evidence</summary><ul>${g.evidence.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}${g.reviewerChecks?.length ? `<details><summary>Reviewer checks</summary><ul>${g.reviewerChecks.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}${g.readAfter?.length ? `<p class="read-after"><strong>Read after:</strong> ${g.readAfter.map(esc).join(", ")}</p>` : ""}</div>` : ""}
-        <div class="group-files">${gblocks.map((b) => renderFileBlock(b, collapsedFiles, options)).join("\n")}</div>
+        <div class="group-intent-card">
+          ${g.intent ? `<p><span>Intent</span>${esc(g.intent)}</p>` : g.note ? md(g.note) : `<p><span>Intent</span>Review these changes as one decision.</p>`}
+          ${relationship}
+          ${definitionPreview}
+          ${g.evidence?.length || g.reviewerChecks?.length ? `<details class="group-evidence"><summary>Inspect evidence and reviewer checks</summary>${g.evidence?.length ? `<h4>Evidence</h4><ul>${g.evidence.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}${g.reviewerChecks?.length ? `<h4>Reviewer checks</h4><ul>${g.reviewerChecks.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}</details>` : ""}
+        </div>
+        <div class="group-files">${gblocks.map((b) => renderFileBlock(b, collapsedFiles)).join("\n")}</div>
       </div>`;
   };
-
+  const renderRawOrder = () =>
+    files
+      .map((file, index) => {
+        const fid = `${prId}__raw__${index}`;
+        const d = fileData(file);
+        dataBag[fid] = d;
+        return renderFileBlock({ fid, d, viewKey: `raw::${d.path}` }, false);
+      })
+      .join("\n");
   // pure renames (moved, no textual change) are noise to review one-by-one —
   // auto-collect them into a collapsed group once there are a few of them.
   const isPureRename = (b) => b.d.renamed && b.d.add === 0 && b.d.del === 0;
@@ -501,61 +538,122 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   let filesHtml;
   if (changeGroups) {
     const parsedByPath = new Map(files.map((file) => [file.path, file]));
+    const previewDefinitionFromGroup = (symbol, sourceGroupId) => {
+      const sourceGroup = changeGroups.groups.find((candidate) => candidate.id === sourceGroupId);
+      for (const change of sourceGroup?.changes || []) {
+        const parsed = parsedByPath.get(change.file);
+        if (!parsed) continue;
+        const d = fileData(parsed);
+        const hunks = Number.isInteger(change.hunk) ? [d.hunks[change.hunk]].filter(Boolean) : d.hunks;
+        const row = hunks
+          .flatMap((hunk) => hunk.rows || [])
+          .find(
+            (candidate) =>
+              candidate.t === "a" &&
+              extractDefinedSymbols([candidate.c]).includes(symbol),
+          );
+        if (row) return row.c;
+      }
+      return symbol;
+    };
     const order = changeGroups.dependencyGraph?.suggestedOrder || changeGroups.groups.map((group) => group.id);
     const orderIndex = new Map(order.map((id, index) => [id, index]));
     const orderedGroups = changeGroups.groups
       .slice()
       .sort((a, b) => (orderIndex.get(a.id) ?? 999) - (orderIndex.get(b.id) ?? 999));
     const titleById = new Map(orderedGroups.map((group) => [group.id, group.title]));
-    const groupOptions = orderedGroups
-      .map((group) => `<option value="${esc(group.id)}">${esc(group.title)}</option>`)
-      .join("");
     const incoming = new Map();
+    const outgoing = new Map();
+    const incomingSymbols = new Map();
     for (const edge of changeGroups.dependencyGraph?.edges || []) {
       if (!incoming.has(edge.to)) incoming.set(edge.to, []);
+      if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
       const sourceTitle = titleById.get(edge.from) || edge.from;
+      const targetTitle = titleById.get(edge.to) || edge.to;
       if (!incoming.get(edge.to).includes(sourceTitle)) {
         incoming.get(edge.to).push(sourceTitle);
       }
+      if (!outgoing.get(edge.from).includes(targetTitle)) {
+        outgoing.get(edge.from).push(targetTitle);
+      }
+      if (edge.reason === "definition-usage" && edge.evidence) {
+        if (!incomingSymbols.has(edge.to)) incomingSymbols.set(edge.to, []);
+        if (!incomingSymbols.get(edge.to).some((item) => item.symbol === edge.evidence)) {
+          incomingSymbols.get(edge.to).push({ symbol: edge.evidence, sourceGroupId: edge.from });
+        }
+      }
     }
+    const nodesById = new Map(
+      (changeGroups.dependencyGraph?.nodes || []).map((node) => [node.id, node]),
+    );
     const parts = [];
     for (const group of orderedGroups) {
       const blocks = [];
-      for (const [changeIndex, change] of (group.changes || []).entries()) {
-        const parsed = parsedByPath.get(change.file);
+      const changesByFile = new Map();
+      for (const change of group.changes || []) {
+        if (!changesByFile.has(change.file)) changesByFile.set(change.file, []);
+        changesByFile.get(change.file).push(change);
+      }
+      for (const [fileIndex, [file, fileChanges]] of [...changesByFile].entries()) {
+        const parsed = parsedByPath.get(file);
         if (!parsed) continue;
         const d = fileData(parsed);
-        if (Number.isInteger(change.hunk)) {
-          const selected = d.hunks[change.hunk];
-          d.hunks = selected ? [selected] : [];
+        const selectedHunks = [
+          ...new Set(
+            fileChanges
+              .map((change) => change.hunk)
+              .filter((hunk) => Number.isInteger(hunk)),
+          ),
+        ];
+        if (selectedHunks.length) {
+          d.hunks = selectedHunks.map((hunk) => d.hunks[hunk]).filter(Boolean);
           const rows = d.hunks.flatMap((hunk) => hunk.rows);
           d.add = rows.filter((row) => row.t === "a").length;
           d.del = rows.filter((row) => row.t === "d").length;
         }
-        const fid = `${prId}__cg${orderIndex.get(group.id) ?? 0}__${changeIndex}`;
+        const fid = `${prId}__cg${orderIndex.get(group.id) ?? 0}__${fileIndex}`;
         dataBag[fid] = d;
         blocks.push({
           fid,
           d,
-          changeId: change.id,
-          changeLabel: [
-            change.topic,
-            change.label ||
-              (change.newRange
-                ? `lines ${change.newRange.start}-${change.newRange.end}`
-                : "metadata"),
-          ]
-            .filter(Boolean)
-            .join(" · "),
+          changeId: fileChanges.map((change) => change.id).join(","),
+          changeLabel: `${fileChanges.length} change unit${fileChanges.length === 1 ? "" : "s"}`,
+          viewKey: `${group.id}::${file}`,
         });
       }
-      const options = groupOptions.replace(
-        `value="${esc(group.id)}"`,
-        `value="${esc(group.id)}" selected`,
+      const previewSources = new Map(
+        (nodesById.get(group.id)?.definitions || []).map((symbol) => [
+          symbol,
+          group.id,
+        ]),
       );
-      parts.push(renderGroup({ ...group, readAfter: incoming.get(group.id) || [] }, blocks, options));
+      for (const item of incomingSymbols.get(group.id) || []) {
+        if (!previewSources.has(item.symbol)) {
+          previewSources.set(item.symbol, item.sourceGroupId);
+        }
+      }
+      const definitions = [...previewSources].map(([symbol, sourceGroupId]) => ({
+        symbol,
+        preview: previewDefinitionFromGroup(symbol, sourceGroupId),
+      }));
+      parts.push(
+        renderGroup(
+          {
+            ...group,
+            readFirst: incoming.get(group.id) || [],
+            dependents: outgoing.get(group.id) || [],
+            definitions,
+          },
+          blocks,
+        ),
+      );
     }
-    filesHtml = `<div class="reading-order"><strong>Suggested reading order:</strong> ${orderedGroups.map((group, index) => `${index + 1}. ${esc(group.title)}`).join(" → ")}</div>${parts.join("\n")}<div class="out-of-scope-group" data-out-of-scope hidden><div class="group-head"><span class="group-kind gk-other">out of scope</span><span class="group-title">Reviewer-excluded changes</span></div><div class="group-files"></div></div>`;
+    filesHtml = `
+      <div class="group-workspace" data-review-stage="validate">
+        <div class="reading-order"><strong>Suggested reading order:</strong> ${orderedGroups.map((group, index) => `${index + 1}. ${esc(group.title)}`).join(" → ")}</div>
+        <div class="order-views" data-order-view="grouped">${parts.join("\n")}</div>
+        <div class="order-views" data-order-view="raw" hidden>${renderRawOrder()}</div>
+      </div>`;
   } else if (Array.isArray(pr.groups) && pr.groups.length) {
     const byPath = new Map(fileBlocks.map((b) => [b.d.path, b]));
     const assigned = new Set();
@@ -571,7 +669,12 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     const restOther = groupRenames ? rest.filter((b) => !isPureRename(b)) : rest;
     if (restOther.length) parts.push(renderGroup({ id: "__other", title: "Other changes", kind: "other" }, restOther));
     if (groupRenames) parts.push(renderGroup(RENAME_GROUP, restRenames));
-    filesHtml = parts.join("\n");
+    filesHtml = `
+      <div class="group-workspace" data-review-stage="validate">
+        <div class="reading-order"><strong>Group reading order:</strong> ${parts.length} decision group${parts.length === 1 ? "" : "s"}</div>
+        <div class="order-views" data-order-view="grouped">${parts.join("\n")}</div>
+        <div class="order-views" data-order-view="raw" hidden>${renderRawOrder()}</div>
+      </div>`;
   } else {
     const renames = fileBlocks.filter(isPureRename);
     if (renames.length >= 3) {
@@ -592,7 +695,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   const hasContext = hasBlocks || !!pr.url;
   const contextPanel = hasContext
     ? `
-      <aside class="pr-context">
+      <aside class="pr-context" data-review-stage="understand">
         <div class="summary-head">
           <h2>${esc(pr.title || prId)}</h2>
           <div class="pr-meta">${stat} · ${filesLabel}${link}</div>
@@ -612,19 +715,24 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       : "";
   const findingsList =
     review && review.comments.length
-      ? `<div class="cl-wrap"><div class="cl-head">${esc(reviewer)} findings <span class="cl-count">${review.comments.length}</span></div><div class="finding-list" data-finding-list="${esc(prId)}"></div></div>`
+      ? `<details class="findings-panel"><summary>${esc(reviewer)} findings <span class="cl-count">${review.comments.length}</span><small>Review when relevant</small></summary><div class="finding-list" data-finding-list="${esc(prId)}"></div></details>`
       : "";
   const overallPlaceholder = review
     ? `Your verdict after reading the summary, the ${reviewer} review, and the diff…`
     : "Your overall verdict after reading the summary and the diff…";
 
   return `
-  <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}"${single ? "" : " hidden"}>
+  <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}" data-active-stage="inspect"${single ? "" : " hidden"}>
+    <nav class="review-journey" aria-label="Review stages">
+      <button type="button" data-review-stage="understand"><span>1</span><strong>Understand</strong><small>Pull request context</small></button>
+      <button type="button" data-review-stage="validate"><span>2</span><strong>Validate groups</strong><small>Intent and dependencies</small></button>
+      <button type="button" data-review-stage="inspect" aria-current="step"><span>3</span><strong>Inspect evidence</strong><small>Diff and comments</small></button>
+    </nav>
     <div class="pr-cols${hasContext ? "" : " no-context"}">
       ${contextPanel}
-      ${hasContext ? '<div class="col-resizer" title="Drag to resize · double-click for 50/50"></div>' : ""}
+      ${hasContext ? '<div class="col-resizer" title="Drag to resize · double-click for 34/66"></div>' : ""}
       <div class="review-col">
-        <div class="review-top">
+        <div class="review-top" data-review-stage="understand">
           ${aiGlobal}
           ${findingsList}
           <div class="cl-wrap">
@@ -632,14 +740,14 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
             <div class="comment-list" data-comment-list="${esc(prId)}"></div>
           </div>
         </div>
-        <div class="diff-block">
-          <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span><button type="button" class="dbh-tree" title="File tree (list of changed files)">🗂 Files</button><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
+        <div class="diff-block" data-review-stage="inspect">
+          <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span>${hasContext ? '<button type="button" class="context-toggle" aria-pressed="false" title="Collapse pull request context">Context</button>' : ""}<button type="button" class="focus-mode-toggle" aria-pressed="false" title="Show only the evidence surface">Focus</button>${changeGroups || (Array.isArray(pr.groups) && pr.groups.length) ? '<button type="button" class="raw-order-toggle" aria-pressed="false" title="Switch between grouped reading order and raw Git order">Git order</button>' : ""}<button type="button" class="dbh-tree" title="File tree (list of changed files)">🗂 Files</button><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
           ${warnHtml}
           <div class="files">${filesHtml}</div>
         </div>
       </div>
     </div>
-    <div class="overall-bar">
+    <div class="overall-bar collapsed">
       <div class="ob-head"><span class="review-label">📝 Your overall review</span><button type="button" class="ob-toggle" title="Collapse / expand">▾</button></div>
       <textarea class="general-input" data-general="${esc(prId)}" placeholder="${esc(overallPlaceholder)}"></textarea>
     </div>

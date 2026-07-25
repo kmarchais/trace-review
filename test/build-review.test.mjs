@@ -69,6 +69,7 @@ test("LM-analysis fixture renders its global assessment and line finding", (t) =
   assert.match(html, /Should the returned name be part of the public compatibility contract/);
   assert.match(html, /Math\.round\(c\.confidence\*100\).*% confidence/);
   assert.match(html, /The return value is exposed by a public header/);
+  assert.match(html, /class="findings-panel"/);
 });
 
 test("generator reports malformed JSON without a stack trace", (t) => {
@@ -99,7 +100,10 @@ test("visual contract matches the checked-in baseline", (t) => {
   }
   for (const [selector, declaration] of Object.entries(baseline.layout)) {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    assert.match(html, new RegExp(`\\.${escaped}\\s*\\{[^}]*${declaration.replace(":", "\\s*:\\s*")}`), `layout contract ${selector}`);
+    const [property, ...valueParts] = declaration.split(":");
+    const escapePattern = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const declarationPattern = `${escapePattern(property)}\\s*:\\s*${escapePattern(valueParts.join(":"))}`;
+    assert.match(html, new RegExp(`\\.${escaped}\\s*\\{[^}]*${declarationPattern}`), `layout contract ${selector}`);
   }
   let cursor = -1;
   for (const className of baseline.landmarks) {
@@ -124,6 +128,44 @@ test("change groups visually contain their files and confirm bulk review", (t) =
   assert.match(html, /if\(want && !window\.confirm\(/);
   assert.match(html, /Mark all .* files in .* as viewed/);
   assert.match(html, /files\.map\(f=> "• " \+ f\.dataset\.file\)/);
+});
+
+test("Phase 4 renders a staged, adaptive review experience", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-phase-4-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const result = build(path.join(fixtures, "workspace-spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+
+  for (const token of [
+    "surface-canvas",
+    "surface-raised",
+    "text-strong",
+    "semantic-info",
+    "space-3",
+    "radius-lg",
+    "shadow-sm",
+  ]) {
+    assert.match(html, new RegExp(`--${token}:`), `design token ${token}`);
+  }
+  assert.match(html, /class="review-journey"/);
+  assert.match(html, /data-review-stage="understand"/);
+  assert.match(html, /data-review-stage="validate"/);
+  assert.match(html, /data-review-stage="inspect"/);
+  assert.match(html, /data-active-stage="inspect"/);
+  assert.match(html, /data-review-stage="inspect" aria-current="step"/);
+  assert.match(html, /aria-current="step"/);
+  assert.match(html, /class="context-toggle"/);
+  assert.match(html, /class="focus-mode-toggle"/);
+  assert.match(html, /class="raw-order-toggle"/);
+  assert.match(html, /aria-pressed="false"/);
+  assert.match(html, /:focus-visible/);
+  assert.match(html, /class="overall-bar collapsed"/);
+  assert.match(html, /function visibleEvidenceFiles/);
+  assert.match(html, /file=fileEl\.dataset\.file/);
+  assert.match(html, /visibleEvidenceFiles\(sec\)[\s\S]*?file=>file\.querySelector/);
+  assert.match(html, /--surface-canvas:#0e1418/);
 });
 
 test("large-diff generation stays within the Phase 0 performance budget", (t) => {

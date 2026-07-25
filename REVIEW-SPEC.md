@@ -33,7 +33,8 @@ Choosing it changes the analysis workflow, not the meaning of a finding.
   "prs": [
     {
       "title": "Reject incomplete credentials",
-      "diffFile": "changes.patch"
+      "diffFile": "changes.patch",
+      "groupFile": "groups.json"
     }
   ]
 }
@@ -41,10 +42,13 @@ Choosing it changes the analysis workflow, not the meaning of a finding.
 
 `prs` must be non-empty. Each entry requires `title` and exactly one of
 `diffFile` or `diff`. Relative files are resolved from the specification file.
-Phase 2 grouping uses at most one of `groupFile`, embedded `changeGroups`,
-`autoGroups: true`, or the legacy file-level `groups` array. Group files are
-resolved relative to the specification and revalidated against the patch when
-the review is built.
+Reviewer-facing skill output uses one finalized LM-generated `groupFile` (or
+embedded `changeGroups`) whose `provenance` is `"lm"`. Group files are resolved
+relative to the specification and revalidated against the patch when the
+review is built. `autoGroups: true` and the legacy file-level `groups` array
+remain low-level compatibility inputs for direct builder users; they are not
+the skill's review-generation workflow and may expose deterministic or
+hand-authored labels.
 PR ids and group ids must be unique.
 
 Workspace specs cannot contain `review`. LM-analysis and deep-audit specs

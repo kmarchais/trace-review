@@ -197,13 +197,14 @@ function makeGroup(id, title, kind, intent, risk, confidence, reviewerChecks, ch
       newRange: change.newRange,
       label: rangeLabel(change),
       topic: topicOf(change),
+      definitions: extractDefinitions(change),
     })),
   };
 }
 
-function extractDefinitions(change) {
+export function extractDefinedSymbols(lines) {
   const definitions = new Set();
-  for (const line of change.added) {
+  for (const line of lines) {
     const patterns = [
       /\b(?:class|interface|enum|struct|def|function)\s+([A-Za-z_$][\w$]*)/,
       /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/,
@@ -215,6 +216,10 @@ function extractDefinitions(change) {
     }
   }
   return [...definitions];
+}
+
+function extractDefinitions(change) {
+  return extractDefinedSymbols(change.added);
 }
 
 function buildDependencyGraph(groups, changesById) {
