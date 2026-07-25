@@ -41,6 +41,11 @@ publish from the `main` branch and `/docs` folder.
   configurable via `reviewer`.
 - **Export**: all comments and review decisions export as clean Markdown to
   paste back into the conversation (or download and have the agent read).
+- **Real-PR robustness**: comments follow stable diff fingerprints and remain
+  visible as orphans when their source line changes; untrusted links and SVG
+  are sanitized before rendering.
+- **Large-review controls**: bounded word-level comparison and progressive
+  client rendering keep very large pull requests responsive.
 - Light/dark (follows the OS), fully offline except diagrams,
   fonts, and highlighting which load from a CDN (all degrade gracefully).
 
@@ -157,6 +162,11 @@ node scripts/validate-review-spec.mjs --spec spec.json
 node scripts/build-review.mjs --spec spec.json --out review.html --open
 ```
 
+Add `--metrics-out .review/metrics.json` to record patch size, estimated spec
+and avoided-patch tokens, generation time, word-diff limits, and manual model
+usage and review-quality fields.
+See [real pull request measurement](docs/REAL-PR-METRICS.md).
+
 Every spec declares `schemaVersion: 1` and one of `workspace`, `lm-analysis`,
 or `deep-audit`. Generation reports invalid fields with JSON paths and
 corrective hints before writing HTML. See [REVIEW-SPEC.md](REVIEW-SPEC.md),
@@ -170,9 +180,10 @@ npm test
 ```
 
 The dependency-free suite covers collection and preflight, review-spec
-validation, small and large generation, HTML landmarks, the checked-in visual
-contract, C++, CMake, renames, binaries, generated files, groups, and LM
-comments.
+validation, small and very large generation, malicious pull-request content,
+comment fingerprints and orphan recovery, progressive rendering, HTML
+landmarks, the checked-in visual contract, C++, CMake, renames, binaries,
+generated files, groups, and LM comments.
 
 ## Layout
 
