@@ -852,7 +852,7 @@
     const grouped = !!scope.querySelector('[data-order-view="grouped"]:not([hidden])');
     const filesTotal = evidenceFiles.length;
     const filesViewed = evidenceFiles.filter(file=>file.classList.contains("viewed")).length;
-    let html = filesTotal ? ring(filesViewed, filesTotal, grouped ? "Decisions" : "Files") : "";
+    let html = filesTotal ? ring(filesViewed, filesTotal, grouped ? "Items" : "Files") : "";
     if(HAS_REVIEW){
       const pr = scope.dataset ? scope.dataset.pr : null;
       const prs = pr ? [pr] : Object.keys(REVIEW);
@@ -1012,9 +1012,25 @@
     cb.checked = files.length>0 && n===files.length;
     cb.indeterminate = n>0 && n<files.length;
   }
+  let migratedViewedState=false;
+  document.querySelectorAll("section.pr").forEach(sec=>{
+    const pr=sec.dataset.pr;
+    const files=new Set(
+      [...sec.querySelectorAll('[data-order-view="grouped"] .file')]
+        .map(file=>file.dataset.file),
+    );
+    files.forEach(file=>{
+      const legacyId=pr+" "+file;
+      if(!state.viewed[legacyId]) return;
+      groupedOccurrences(sec,file).forEach(candidate=>storeViewed(candidate,true));
+      rawOccurrences(sec,file).forEach(candidate=>storeViewed(candidate,true));
+      delete state.viewed[legacyId];
+      migratedViewedState=true;
+    });
+  });
+  if(migratedViewedState) save();
   document.querySelectorAll(".file").forEach(fileEl=>{
     const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = viewedId(fileEl);
-    const legacyId = pr + " " + file;
     const fileNoteId = pr + " " + fileEl.dataset.file;
     const fileAttachId = attachmentId("file",pr,fileEl.dataset.file,"");
     const btn = fileEl.querySelector(".file-note-btn");
@@ -1022,7 +1038,7 @@
     const cb = fileEl.querySelector(".viewed-cb");
     if(cb) cb.addEventListener("change", ()=>{ setViewed(fileEl, cb.checked, true); if(cb.checked) scrollFileToTop(fileEl); });
     if(state.files[fileNoteId] && hasCommentContent(state.files[fileNoteId].text,fileAttachId)){ fileNoteBox(fileEl, state.files[fileNoteId].text, false); if(btn) btn.classList.add("has-note"); }
-    if(state.viewed[id] || state.viewed[legacyId]) setViewed(fileEl, true, false);
+    if(state.viewed[id]) setViewed(fileEl, true, false);
   });
   document.querySelectorAll("section.pr").forEach(sec=>{
     new Set([...sec.querySelectorAll(".file")].map(file=>file.dataset.file)).forEach(file=>syncRawViewed(sec,file,false));

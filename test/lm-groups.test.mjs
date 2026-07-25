@@ -286,7 +286,9 @@ test("grouped rendering shows a multi-hunk file once per semantic group", (t) =>
   assert.match(grouped, /data-view-key="g2::src\/session\.js"/);
   assert.match(html, /data-view-key="raw::src\/session\.js"/);
   assert.match(html, /function viewedId\(fileEl\)/);
-  assert.match(html, /grouped \? "Decisions" : "Files"/);
+  assert.match(html, /grouped \? "Items" : "Files"/);
+  assert.match(html, /delete state\.viewed\[legacyId\]/);
+  assert.doesNotMatch(html, /state\.viewed\[id\] \|\| state\.viewed\[legacyId\]/);
   assert.doesNotMatch(
     grouped,
     /class="file collapsed"[^>]*data-file="src\/session\.js"/,

@@ -439,10 +439,11 @@ Viewer controls:
   tree of the changed files (directory chains compacted, per-file `+/-`, viewed
   files struck through). Click a file to jump to it — it expands its group if
   needed and scrolls it under the sticky header. Built for big diffs.
-- **Progress dock** (right edge) — two rings, `files viewed` and (in review
-  mode) `findings reviewed`, scoped to the **active PR** so they match its
-  header. The centre shows a compact **%** (a ✓ when complete) with the exact
-  count below, so it stays legible even at hundreds of files.
+- **Progress dock** (right edge) — two rings, review items viewed and (in
+  review mode) findings reviewed, scoped to the **active PR** so they match its
+  header. Grouped mode counts file-within-decision items; raw Git order counts
+  files. The centre shows a compact **%** (a ✓ when complete) with the exact
+  count below, so it stays legible even at hundreds of items.
 - **Unified / Split** toggle — lives on the **"Changes"** bar; switches inline
   vs side-by-side (persists; comments follow the line in both).
 - **Git order / Grouped order** — every grouped review can return to the raw
