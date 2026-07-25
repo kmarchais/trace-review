@@ -95,27 +95,64 @@ change groups.
 Multiple PRs → run the collector once per explicit PR with distinct output
 paths.
 
-### 2. Detect and validate change groups
+### 2. Generate and validate semantic change groups
 
-The collector includes `changeGroups` in its context. For an existing patch,
-write the same fact pack separately:
+The collector includes deterministic **candidate facts** in its context. For an
+existing patch, write those candidates separately:
 
 ```bash
 node <skill-dir>/scripts/detect-mechanical-groups.mjs \
-  --diff .review/context.patch --out .review/groups.json
+  --diff .review/context.patch --out .review/candidates.json
 ```
 
-The detector classifies at hunk/line-range granularity. It recognizes pure
+The detector inventories changes at hunk/line-range granularity. It recognizes pure
 renames, formatting-only changes, lockfiles, import/include changes, and
 repeated includes. Every group carries intent, evidence, risk, confidence, and
 reviewer checks. Binary/generated uncertainty is placed in **Needs inspection**;
 anything unmatched stays visible in **Unclassified**.
 
-Treat `validation.valid: false` as a hard stop. A change unit must be assigned
-exactly once; missing and overlapping units are never silently rendered. The
-fact pack also links definitions to usages, configuration/build integration,
-and tests, then computes a suggested concept → consumer → integration → test
-reading order.
+Those fixed classifier labels are evidence for the LM, never the final group
+names shown to a reviewer. In every mode, read the candidate facts and patch,
+then produce `.review/grouping-result.json`:
+
+```json
+{
+  "groups": [
+    {
+      "title": "Session lifecycle contract",
+      "intent": "Review opening and timeout behavior as one source-file decision.",
+      "risk": "medium",
+      "confidence": 0.91,
+      "evidence": ["The source file owns both lifecycle hunks."],
+      "reviewerChecks": ["Check lifecycle compatibility and timeout behavior."],
+      "changeIds": ["src/session.js#h0", "src/session.js#h1"],
+      "readAfter": []
+    }
+  ]
+}
+```
+
+Group titles must be generated from the actual change. Do not expose recurring
+classifier names such as **Definitions**, **Consumers**, or **Associated
+tests**. Assign every change unit exactly once, and keep every hunk from a file
+in one top-level group. When a file contains multiple related concerns,
+describe those as subtopics in the group's intent/checks instead of rendering
+the file repeatedly.
+
+Finalize and validate the LM result:
+
+```bash
+node <skill-dir>/scripts/finalize-lm-groups.mjs \
+  --candidates .review/candidates.json \
+  --result .review/grouping-result.json \
+  --out .review/groups.json
+```
+
+Treat any validation failure as a hard stop. The finalizer rejects generic
+titles, unknown/missing/overlapping change units, split files, incomplete
+rationales, and invalid dependency references. Group generation is required
+even in workspace mode; workspace mode omits LM *findings*, not LM-organized
+review structure.
 
 ### 3. Prepare focused LM input when requested
 
@@ -175,8 +212,9 @@ Minimum viable spec:
   .review/spec.json` to inspect contract diagnostics without generating HTML.
   The build command runs the same validation and refuses invalid specs.
 - `groupFile` is resolved relative to the spec and revalidated against the
-  current patch at build time. Use `autoGroups: true` to detect in-process, or
-  `changeGroups` to embed an already-collected fact pack.
+  current patch at build time. It should point to the finalized LM grouping.
+  `autoGroups: true` remains a low-level deterministic fallback for tests and
+  diagnostics; do not use it for a reviewer-facing document.
 - `reviewId` keys the reviewer's saved comments — **keep it stable** across
   rebuilds so comments survive a regenerate.
 
@@ -252,11 +290,12 @@ a reviewer should be able to act on every finding you leave.
 
 ### Change groups
 
-Prefer `groupFile`, `changeGroups`, or `autoGroups: true`. Generated groups work
-at hunk granularity, display their rationale and dependencies, and follow the
-suggested reading order. Reviewers can move/split individual units, merge
-groups, or mark units out of scope; those decisions persist and are included in
-the Markdown export.
+Prefer a finalized LM-generated `groupFile` (or embed it as `changeGroups`).
+Generated groups work at hunk granularity, display their rationale and
+dependencies, and follow the suggested reading order. Each file appears once
+in grouped order even when several of its hunks are assigned. The groups are
+read-only review context: the reviewer evaluates the proposed decisions rather
+than defining or repairing the grouping model.
 
 The legacy file-level `groups` array remains available for hand-authored specs:
 
@@ -354,8 +393,9 @@ counts.
 
 See [examples/screenshot.png](examples/screenshot.png). The workspace follows
 three explicit stages: **Understand** the pull request, **Validate groups** and
-their relationships, then **Inspect evidence** in the diff. The stage controls
-change the visible level of detail rather than acting as decorative anchors.
+their relationships, then **Inspect evidence** in the diff. It opens on
+**Inspect evidence**, so the reviewer sees the code immediately; the other
+stages remain available for focused context and group rationale.
 
 - **Left — the PR** (only when there's context: `url`, `summary`, `diagrams`,
   or `blocks`): a sticky panel with the title, `+/-` stats, PR link, and your

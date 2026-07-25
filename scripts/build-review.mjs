@@ -25,6 +25,7 @@ import {
   parsePatchChanges,
   validateGrouping,
 } from "./lib/change-groups.mjs";
+import { validateLmGroupingResult } from "./lib/lm-groups.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.resolve(__dirname, "..");
@@ -427,7 +428,18 @@ function resolveChangeGroups(pr, text) {
     );
   }
   const inventory = parsePatchChanges(text, analyzePatch(text));
-  const validation = validateGrouping(grouping, inventory);
+  const structuralValidation = validateGrouping(grouping, inventory);
+  const semanticValidation =
+    grouping.provenance === "lm"
+      ? validateLmGroupingResult(grouping, { inventory })
+      : { valid: true, diagnostics: [] };
+  const validation = {
+    valid: structuralValidation.valid && semanticValidation.valid,
+    diagnostics: [
+      ...structuralValidation.diagnostics,
+      ...semanticValidation.diagnostics,
+    ],
+  };
   if (!validation.valid) {
     const detail = validation.diagnostics
       .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
@@ -452,7 +464,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     dataBag[fid] = fileData(f);
     return { fid, d: dataBag[fid] };
   });
-  const renderFileBlock = ({ fid, d, changeId, changeLabel }, collapsed, groupOptions = "") => {
+  const renderFileBlock = ({ fid, d, changeId, changeLabel }, collapsed) => {
     const pathLabel = d.renamed ? `${esc(d.oldPath)} → ${esc(d.path)}` : esc(d.path);
     const tag = d.isNew ? '<span class="ftag ftag-new">new</span>' : d.isDeleted ? '<span class="ftag ftag-del">deleted</span>' : d.renamed ? '<span class="ftag">renamed</span>' : "";
     return `
@@ -463,7 +475,6 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           <span class="file-badge" data-file-count="${esc(d.path)}" hidden></span>
           <span class="stats"><span class="stat-add">+${d.add}</span> <span class="stat-del">-${d.del}</span></span>
           <span class="file-actions">
-            ${groupOptions ? `<span class="group-correction"><select class="change-group-select" title="Move or split this change unit">${groupOptions}<option value="__out">Out of scope</option></select></span>` : ""}
             <button type="button" class="file-note-btn" title="Comment on this file">💬</button>
             <label class="viewed-label"><input type="checkbox" class="viewed-cb"> Viewed</label>
           </span>
@@ -471,7 +482,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         <div class="file-body"><div class="file-note-slot"></div><div class="diff-mount" data-fid="${fid}"></div></div>
       </div>`;
   };
-  const renderGroup = (g, gblocks, options = "") => {
+  const renderGroup = (g, gblocks) => {
     const kind = g.kind || "other";
     const collapsedFiles = g.collapsed != null ? !!g.collapsed : kind === "mechanical";
     const gadd = gblocks.reduce((s, b) => s + b.d.add, 0);
@@ -495,10 +506,9 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           <span class="chevron">▾</span>
           <span class="group-kind gk-${esc(kind)}">${esc(kind)}</span>
           <span class="group-title">${esc(g.title || g.id || "Changes")}</span>
-          <span class="group-count">${gblocks.length} ${g.changes ? `change unit${gblocks.length === 1 ? "" : "s"}` : `file${gblocks.length === 1 ? "" : "s"}`}</span>
+          <span class="group-count">${gblocks.length} file${gblocks.length === 1 ? "" : "s"}</span>
           ${g.risk ? `<span class="group-risk risk-${esc(g.risk)}">${esc(g.risk)} risk</span>` : ""}
           ${g.confidence != null ? `<span class="group-confidence">${Math.round(Number(g.confidence) * 100)}% confidence</span>` : ""}
-          ${options ? `<span class="group-merge"><select class="group-merge-select" title="Merge this group into another">${options}</select><button type="button" class="group-merge-btn">Merge</button></span>` : ""}
           <span class="stats"><span class="stat-add">+${gadd}</span> <span class="stat-del">-${gdel}</span></span>
           <label class="group-viewed" title="Mark every file in this group reviewed"><input type="checkbox" class="gv-cb"> Reviewed</label>
         </div>
@@ -508,7 +518,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           ${definitionPreview}
           ${g.evidence?.length || g.reviewerChecks?.length ? `<details class="group-evidence"><summary>Inspect evidence and reviewer checks</summary>${g.evidence?.length ? `<h4>Evidence</h4><ul>${g.evidence.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}${g.reviewerChecks?.length ? `<h4>Reviewer checks</h4><ul>${g.reviewerChecks.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}</details>` : ""}
         </div>
-        <div class="group-files">${gblocks.map((b) => renderFileBlock(b, collapsedFiles, options)).join("\n")}</div>
+        <div class="group-files">${gblocks.map((b) => renderFileBlock(b, collapsedFiles)).join("\n")}</div>
       </div>`;
   };
   const renderRawOrder = () =>
@@ -552,9 +562,6 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       .slice()
       .sort((a, b) => (orderIndex.get(a.id) ?? 999) - (orderIndex.get(b.id) ?? 999));
     const titleById = new Map(orderedGroups.map((group) => [group.id, group.title]));
-    const groupOptions = orderedGroups
-      .map((group) => `<option value="${esc(group.id)}">${esc(group.title)}</option>`)
-      .join("");
     const incoming = new Map();
     const outgoing = new Map();
     const incomingSymbols = new Map();
@@ -582,38 +589,37 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     const parts = [];
     for (const group of orderedGroups) {
       const blocks = [];
-      for (const [changeIndex, change] of (group.changes || []).entries()) {
-        const parsed = parsedByPath.get(change.file);
+      const changesByFile = new Map();
+      for (const change of group.changes || []) {
+        if (!changesByFile.has(change.file)) changesByFile.set(change.file, []);
+        changesByFile.get(change.file).push(change);
+      }
+      for (const [fileIndex, [file, fileChanges]] of [...changesByFile].entries()) {
+        const parsed = parsedByPath.get(file);
         if (!parsed) continue;
         const d = fileData(parsed);
-        if (Number.isInteger(change.hunk)) {
-          const selected = d.hunks[change.hunk];
-          d.hunks = selected ? [selected] : [];
+        const selectedHunks = [
+          ...new Set(
+            fileChanges
+              .map((change) => change.hunk)
+              .filter((hunk) => Number.isInteger(hunk)),
+          ),
+        ];
+        if (selectedHunks.length) {
+          d.hunks = selectedHunks.map((hunk) => d.hunks[hunk]).filter(Boolean);
           const rows = d.hunks.flatMap((hunk) => hunk.rows);
           d.add = rows.filter((row) => row.t === "a").length;
           d.del = rows.filter((row) => row.t === "d").length;
         }
-        const fid = `${prId}__cg${orderIndex.get(group.id) ?? 0}__${changeIndex}`;
+        const fid = `${prId}__cg${orderIndex.get(group.id) ?? 0}__${fileIndex}`;
         dataBag[fid] = d;
         blocks.push({
           fid,
           d,
-          changeId: change.id,
-          changeLabel: [
-            change.topic,
-            change.label ||
-              (change.newRange
-                ? `lines ${change.newRange.start}-${change.newRange.end}`
-                : "metadata"),
-          ]
-            .filter(Boolean)
-            .join(" · "),
+          changeId: fileChanges.map((change) => change.id).join(","),
+          changeLabel: `${fileChanges.length} change unit${fileChanges.length === 1 ? "" : "s"}`,
         });
       }
-      const options = groupOptions.replace(
-        `value="${esc(group.id)}"`,
-        `value="${esc(group.id)}" selected`,
-      );
       const previewSources = new Map(
         (nodesById.get(group.id)?.definitions || []).map((symbol) => [
           symbol,
@@ -638,14 +644,13 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
             definitions,
           },
           blocks,
-          options,
         ),
       );
     }
     filesHtml = `
       <div class="group-workspace" data-review-stage="validate">
         <div class="reading-order"><strong>Suggested reading order:</strong> ${orderedGroups.map((group, index) => `${index + 1}. ${esc(group.title)}`).join(" → ")}</div>
-        <div class="order-views" data-order-view="grouped">${parts.join("\n")}<div class="out-of-scope-group" data-out-of-scope hidden><div class="group-head"><span class="group-kind gk-other">out of scope</span><span class="group-title">Reviewer-excluded changes</span></div><div class="group-files"></div></div></div>
+        <div class="order-views" data-order-view="grouped">${parts.join("\n")}</div>
         <div class="order-views" data-order-view="raw" hidden>${renderRawOrder()}</div>
       </div>`;
   } else if (Array.isArray(pr.groups) && pr.groups.length) {
@@ -716,11 +721,11 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     : "Your overall verdict after reading the summary and the diff…";
 
   return `
-  <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}" data-active-stage="understand"${single ? "" : " hidden"}>
+  <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}" data-active-stage="inspect"${single ? "" : " hidden"}>
     <nav class="review-journey" aria-label="Review stages">
-      <button type="button" data-review-stage="understand" aria-current="step"><span>1</span><strong>Understand</strong><small>Pull request context</small></button>
+      <button type="button" data-review-stage="understand"><span>1</span><strong>Understand</strong><small>Pull request context</small></button>
       <button type="button" data-review-stage="validate"><span>2</span><strong>Validate groups</strong><small>Intent and dependencies</small></button>
-      <button type="button" data-review-stage="inspect"><span>3</span><strong>Inspect evidence</strong><small>Diff and comments</small></button>
+      <button type="button" data-review-stage="inspect" aria-current="step"><span>3</span><strong>Inspect evidence</strong><small>Diff and comments</small></button>
     </nav>
     <div class="pr-cols${hasContext ? "" : " no-context"}">
       ${contextPanel}

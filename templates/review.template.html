@@ -308,11 +308,6 @@
   .reading-order { margin:0 0 14px; padding:10px 12px; border:1px solid var(--border); border-radius:7px; background:var(--panel); color:var(--muted); font-size:.82rem; line-height:1.45; }
   .group-note details { margin:7px 0; } .group-note summary { cursor:pointer; color:var(--secondary); font-family:var(--font-heading); font-weight:600; }
   .group-note ul { margin:5px 0 0; } .read-after { color:var(--muted); font-size:.82rem; }
-  .group-correction, .group-merge { display:flex; align-items:center; gap:4px; }
-  .group-correction select, .group-merge select, .group-merge button { max-width:150px; font-family:var(--font-heading); font-size:.68rem; color:var(--muted); background:var(--card); border:1px solid var(--border); border-radius:4px; padding:3px 5px; }
-  .group-merge button { cursor:pointer; } .group-merge button:hover { border-color:var(--primary); color:var(--primary); }
-  .out-of-scope-group { margin:18px 0; opacity:.8; } .out-of-scope-group > .group-head { border-left-color:var(--muted); cursor:default; }
-  .out-of-scope-group .file { border-style:dashed; }
   .group-viewed { display:flex; align-items:center; gap:5px; font-family:var(--font-heading); font-size:.74rem; color:var(--muted); cursor:pointer; white-space:nowrap; }
   .group-viewed input { accent-color:var(--green); width:15px; height:15px; cursor:pointer; }
   .group-note { font-size:.9rem; line-height:1.5; color:var(--text); padding:10px 14px 2px; }
@@ -1033,34 +1028,6 @@
     updateProgress();
     refreshTree();
   }
-  function moveChange(fileEl, target, persist){
-    const sec=fileEl.closest("section.pr");
-    const destination=target==="__out"
-      ? sec.querySelector("[data-out-of-scope] .group-files")
-      : sec.querySelector('.group[data-group="'+cssEsc(target)+'"] > .group-files');
-    if(!destination) return;
-    destination.appendChild(fileEl);
-    const select=fileEl.querySelector(".change-group-select");
-    if(select) select.value=target;
-    if(persist){ state.grouping[groupingKey(fileEl)]=target; save(); }
-    refreshGroupMeta(sec);
-  }
-  document.querySelectorAll(".file[data-change]").forEach(fileEl=>{
-    const select=fileEl.querySelector(".change-group-select");
-    if(select) select.addEventListener("change", e=>{ e.stopPropagation(); moveChange(fileEl, select.value, true); });
-    const saved=state.grouping[groupingKey(fileEl)];
-    if(saved) moveChange(fileEl, saved, false);
-  });
-  document.querySelectorAll(".group-merge-btn").forEach(button=>{
-    button.addEventListener("click", e=>{
-      e.stopPropagation();
-      const source=button.closest(".group");
-      const target=source.querySelector(".group-merge-select").value;
-      if(!target || target===source.dataset.group) return;
-      [...source.querySelectorAll(":scope > .group-files > .file")].forEach(file=>moveChange(file,target,true));
-    });
-  });
-
   // ---- file tree drawer (navigate a big diff by path) ----
   function collectTreeFiles(sec){
     return visibleEvidenceFiles(sec).map(el=>{
@@ -1186,11 +1153,6 @@
       if(gen||generalAttachments){
         block += "\n**My overall:**" + (gen ? " " + gen : "") + "\n";
         if(generalAttachments) block += generalAttachments + "\n";
-      }
-      const corrections=Object.entries(state.grouping).filter(([key])=>key.startsWith(pr+" "));
-      if(corrections.length){
-        block += "\n**Grouping corrections:**\n";
-        for(const [key,target] of corrections) block += "- `" + key.slice(pr.length+1) + "` → " + (target==="__out" ? "out of scope" : target) + "\n";
       }
       const byFile = {};
       const F = (f)=> byFile[f] = byFile[f] || { note:"", lines:[] };

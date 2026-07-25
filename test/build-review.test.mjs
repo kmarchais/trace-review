@@ -153,7 +153,8 @@ test("Phase 4 renders a staged, adaptive review experience", (t) => {
   assert.match(html, /data-review-stage="understand"/);
   assert.match(html, /data-review-stage="validate"/);
   assert.match(html, /data-review-stage="inspect"/);
-  assert.match(html, /data-active-stage="understand"/);
+  assert.match(html, /data-active-stage="inspect"/);
+  assert.match(html, /data-review-stage="inspect" aria-current="step"/);
   assert.match(html, /aria-current="step"/);
   assert.match(html, /class="context-toggle"/);
   assert.match(html, /class="focus-mode-toggle"/);

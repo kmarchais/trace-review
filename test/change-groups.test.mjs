@@ -205,7 +205,7 @@ test("CLI writes a validated group fact pack", (t) => {
   );
 });
 
-test("builder consumes group files and emits correction controls", (t) => {
+test("builder consumes group files as reviewer-visible, read-only decisions", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-build-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const diffPath = path.join(tempDir, "change.patch");
@@ -247,9 +247,9 @@ test("builder consumes group files and emits correction controls", (t) => {
 
   const html = fs.readFileSync(outPath, "utf8");
   assert.match(html, /Suggested reading order/);
-  assert.match(html, /change-group-select/);
+  assert.doesNotMatch(html, /change-group-select/);
   assert.match(html, /Reviewer checks/);
-  assert.match(html, /Grouping corrections/);
+  assert.doesNotMatch(html, /Grouping corrections/);
   assert.match(html, /class="change-range"[^>]*title=/);
   assert.match(html, /data-change=/);
   assert.match(html, /class="ft-topic"/);
