@@ -12,8 +12,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import {
   formatReviewSpecDiagnostics,
   validateReviewSpec,
@@ -39,6 +41,7 @@ function parseArgs(argv) {
     if (a === "--spec") out.spec = argv[++i];
     else if (a === "--out") out.out = argv[++i];
     else if (a === "--open") out.open = true;
+    else if (a === "--metrics-out") out.metricsOut = argv[++i];
     else if (a === "--help" || a === "-h") out.help = true;
   }
   return out;
@@ -58,18 +61,97 @@ const slug = (s) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "review";
 
+const fingerprint = (value) =>
+  createHash("sha256").update(String(value)).digest("hex").slice(0, 20);
+
+function safeUrl(value, { fragment = true } = {}) {
+  const source = String(value || "").trim();
+  if (fragment && /^#[A-Za-z0-9_.:-]+$/.test(source)) return source;
+  try {
+    const parsed = new URL(source);
+    if (parsed.protocol === "https:" || parsed.protocol === "http:" || parsed.protocol === "mailto:") {
+      return source;
+    }
+  } catch {}
+  return "";
+}
+
+const SVG_TAGS = new Set([
+  "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline",
+  "polygon", "text", "tspan", "defs", "clippath", "mask", "lineargradient",
+  "radialgradient", "stop", "title", "desc", "marker", "pattern", "use",
+]);
+const SVG_ATTRS = new Set([
+  "id", "class", "viewbox", "width", "height", "x", "y", "x1", "y1", "x2",
+  "y2", "cx", "cy", "r", "rx", "ry", "d", "points", "fill", "stroke",
+  "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray",
+  "stroke-dashoffset", "opacity", "fill-opacity", "stroke-opacity", "transform",
+  "font-family", "font-size", "font-weight", "text-anchor", "dominant-baseline",
+  "role", "xmlns", "preserveaspectratio", "gradientunits", "gradienttransform",
+  "offset", "stop-color", "stop-opacity", "clip-path", "mask", "marker-start",
+  "marker-mid", "marker-end", "patternunits", "patterntransform", "href",
+  "xlink:href", "style",
+]);
+
+function sanitizeStyle(value) {
+  if (/url\s*\(|expression\s*\(|@import|javascript:/i.test(value)) return "";
+  return String(value)
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => /^(?:fill|stroke|stroke-width|opacity|fill-opacity|stroke-opacity|font-family|font-size|font-weight|text-anchor)\s*:/i.test(part))
+    .join("; ");
+}
+
+function sanitizeSvg(source) {
+  const input = String(source || "")
+    .replace(/<\?xml[\s\S]*?\?>/gi, "")
+    .replace(/<!doctype[\s\S]*?>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<(script|foreignObject|iframe|object|embed|style|link|image|audio|video)\b[\s\S]*?<\/\1\s*>/gi, "")
+    .replace(/<(script|foreignObject|iframe|object|embed|style|link|image|audio|video)\b[^>]*\/?>/gi, "");
+  return input.replace(/<\/?([A-Za-z][\w:-]*)([^>]*)>/g, (whole, rawName, rawAttrs) => {
+    const name = rawName.toLowerCase();
+    if (!SVG_TAGS.has(name)) return "";
+    if (whole.startsWith("</")) return `</${rawName}>`;
+    const attrs = [];
+    const attrPattern = /([A-Za-z_:][\w:.-]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
+    let match;
+    while ((match = attrPattern.exec(rawAttrs))) {
+      const attrName = match[1];
+      const lower = attrName.toLowerCase();
+      if (lower.startsWith("on") || (!SVG_ATTRS.has(lower) && !lower.startsWith("aria-"))) continue;
+      let value = match[3] ?? match[4] ?? "";
+      if (lower === "href" || lower === "xlink:href") {
+        value = safeUrl(value);
+        if (!value || !value.startsWith("#")) continue;
+      } else if (lower === "style") {
+        value = sanitizeStyle(value);
+        if (!value) continue;
+      } else if (/javascript:|data:text\/html|url\s*\(\s*['"]?\s*(?:https?:|data:|javascript:)/i.test(value)) {
+        continue;
+      }
+      attrs.push(`${attrName}="${esc(value)}"`);
+    }
+    return `<${rawName}${attrs.length ? " " + attrs.join(" ") : ""}${/\/\s*>$/.test(whole) ? "/" : ""}>`;
+  });
+}
+
 // ---------- minimal markdown (summaries only) ----------
 function md(src) {
   if (!src) return "";
   const lines = String(src).replace(/\r\n?/g, "\n").split("\n");
   let html = "";
   let i = 0;
-  const inline = (t) =>
-    esc(t)
+  const inline = (t) => {
+    const escaped = esc(t)
       .replace(/`([^`]+)`/g, "<code>$1</code>")
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+    return escaped.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) => {
+      const safe = safeUrl(href.replace(/&amp;/g, "&"));
+      return safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
+    });
+  };
   while (i < lines.length) {
     const line = lines[i];
     if (/^```/.test(line)) {
@@ -154,6 +236,12 @@ function wordDiff(oldText, newText) {
       .join("");
   return { oldHtml: render(a, aKeep), newHtml: render(b, bKeep) };
 }
+
+const WORD_DIFF_MAX_TOKENS = 240;
+const WORD_DIFF_MAX_CELLS = 24_000;
+const WORD_DIFF_MAX_LINE_LENGTH = 4_000;
+const WORD_DIFF_MAX_PAIRS_PER_RUN = 120;
+const wordDiffStats = { applied: 0, skipped: 0 };
 
 // ---------- unified diff parser ----------
 function parseDiff(text) {
@@ -242,9 +330,25 @@ function annotateWordDiffs(rows) {
       adds = rows.slice(d, a);
     const pairs = Math.min(dels.length, adds.length);
     for (let k = 0; k < pairs; k++) {
+      const oldText = dels[k].text;
+      const newText = adds[k].text;
+      const oldTokens = tokenize(oldText);
+      const newTokens = tokenize(newText);
+      if (
+        k >= WORD_DIFF_MAX_PAIRS_PER_RUN ||
+        oldText.length > WORD_DIFF_MAX_LINE_LENGTH ||
+        newText.length > WORD_DIFF_MAX_LINE_LENGTH ||
+        oldTokens.length > WORD_DIFF_MAX_TOKENS ||
+        newTokens.length > WORD_DIFF_MAX_TOKENS ||
+        oldTokens.length * newTokens.length > WORD_DIFF_MAX_CELLS
+      ) {
+        wordDiffStats.skipped++;
+        continue;
+      }
       const { oldHtml, newHtml } = wordDiff(dels[k].text, adds[k].text);
       dels[k].html = oldHtml;
       adds[k].html = newHtml;
+      wordDiffStats.applied++;
     }
     i = a - 1;
   }
@@ -276,7 +380,7 @@ function langOf(p) {
 }
 
 // ---------- structured file data (rendered client-side) ----------
-function fileData(file) {
+function fileData(file, reviewTarget = "") {
   const renamed = file.oldPath && file.oldPath !== file.path && !file.isNew && !file.isDeleted;
   const d = {
     path: file.path,
@@ -289,7 +393,16 @@ function fileData(file) {
     del: file.del,
     lang: langOf(file.path),
     hunks: [],
+    reviewTarget,
   };
+  d.fingerprint = fingerprint([
+    file.path,
+    file.oldPath,
+    ...file.hunks.flatMap((hunk) => [
+      hunk.header,
+      ...hunk.rows.map((row) => `${row.type}:${row.oldNo ?? ""}:${row.newNo ?? ""}:${row.text}`),
+    ]),
+  ].join("\n"));
   if (file.binary) {
     d.note = "Binary file not shown";
     return d;
@@ -300,10 +413,13 @@ function fileData(file) {
   }
   for (const h of file.hunks) {
     annotateWordDiffs(h.rows);
-    const rows = h.rows.map((r) => {
+    const rows = h.rows.map((r, rowIndex) => {
       const o = { t: r.type === "add" ? "a" : r.type === "del" ? "d" : "c", h: r.html != null ? r.html : esc(r.text), c: r.text };
       if (r.oldNo != null && r.type !== "add") o.o = r.oldNo;
       if (r.newNo != null && r.type !== "del") o.n = r.newNo;
+      const before = h.rows[rowIndex - 1]?.text || "";
+      const after = h.rows[rowIndex + 1]?.text || "";
+      o.f = fingerprint(`${file.path}\0${r.type}\0${before}\0${r.text}\0${after}`);
       return o;
     });
     d.hunks.push({ header: h.header, rows });
@@ -315,11 +431,11 @@ function fileData(file) {
 let anyMermaid = false;
 
 function inlineSvg(b) {
-  if (b.svg) return b.svg;
+  if (b.svg) return sanitizeSvg(b.svg);
   if (b.svgFile) {
     const p = path.isAbsolute(b.svgFile) ? b.svgFile : path.resolve(specDir, b.svgFile);
     try {
-      return fs.readFileSync(p, "utf8");
+      return sanitizeSvg(fs.readFileSync(p, "utf8"));
     } catch {
       console.warn(`WARN: could not read svgFile "${b.svgFile}" (${p})`);
       return `<div class="warn">SVG not found: ${esc(b.svgFile)}</div>`;
@@ -461,7 +577,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   // one block per file (diff filled client-side); optionally arranged into groups
   const fileBlocks = files.map((f, i) => {
     const fid = `${prId}__${i}`;
-    dataBag[fid] = fileData(f);
+    dataBag[fid] = fileData(f, prId);
     return { fid, d: dataBag[fid] };
   });
   const renderFileBlock = ({ fid, d, changeId, changeLabel, viewKey }, collapsed) => {
@@ -525,7 +641,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     files
       .map((file, index) => {
         const fid = `${prId}__raw__${index}`;
-        const d = fileData(file);
+        const d = fileData(file, prId);
         dataBag[fid] = d;
         return renderFileBlock({ fid, d, viewKey: `raw::${d.path}` }, false);
       })
@@ -543,7 +659,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       for (const change of sourceGroup?.changes || []) {
         const parsed = parsedByPath.get(change.file);
         if (!parsed) continue;
-        const d = fileData(parsed);
+        const d = fileData(parsed, prId);
         const hunks = Number.isInteger(change.hunk) ? [d.hunks[change.hunk]].filter(Boolean) : d.hunks;
         const row = hunks
           .flatMap((hunk) => hunk.rows || [])
@@ -597,7 +713,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       for (const [fileIndex, [file, fileChanges]] of [...changesByFile].entries()) {
         const parsed = parsedByPath.get(file);
         if (!parsed) continue;
-        const d = fileData(parsed);
+        const d = fileData(parsed, prId);
         const selectedHunks = [
           ...new Set(
             fileChanges
@@ -686,7 +802,8 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   }
 
   const blocksHtml = renderBlocks(pr);
-  const link = pr.url ? ` · <a class="pr-link" href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.url)}</a>` : "";
+  const prUrl = safeUrl(pr.url);
+  const link = prUrl ? ` · <a class="pr-link" href="${esc(prUrl)}" target="_blank" rel="noopener noreferrer">${esc(prUrl)}</a>` : "";
   const filesLabel = `${files.length} file${files.length === 1 ? "" : "s"}`;
   const stat = `<span class="stat-add">+${totals.add}</span> <span class="stat-del">-${totals.del}</span>`;
 
@@ -743,6 +860,10 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         <div class="diff-block" data-review-stage="inspect">
           <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span>${hasContext ? '<button type="button" class="context-toggle" aria-pressed="false" title="Collapse pull request context">Context</button>' : ""}<button type="button" class="focus-mode-toggle" aria-pressed="false" title="Show only the evidence surface">Focus</button>${changeGroups || (Array.isArray(pr.groups) && pr.groups.length) ? '<button type="button" class="raw-order-toggle" aria-pressed="false" title="Switch between grouped reading order and raw Git order">Git order</button>' : ""}<button type="button" class="dbh-tree" title="File tree (list of changed files)">🗂 Files</button><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
           ${warnHtml}
+          <details class="orphan-panel" hidden>
+            <summary>Orphaned comments <span class="orphan-count">0</span></summary>
+            <div class="orphan-list" data-orphan-list="${esc(prId)}"></div>
+          </details>
           <div class="files">${filesHtml}</div>
         </div>
       </div>
@@ -771,16 +892,19 @@ function readDiff(pr) {
 // ---------- main ----------
 let specDir = process.cwd();
 function main() {
+  const startedAt = performance.now();
   const args = parseArgs(process.argv.slice(2));
   if (args.help || !args.spec) {
-    console.log("Usage: node build-review.mjs --spec review-spec.json --out review.html [--open]");
+    console.log("Usage: node build-review.mjs --spec review-spec.json --out review.html [--metrics-out metrics.json] [--open]");
     process.exit(args.help ? 0 : 1);
   }
   const specPath = path.resolve(args.spec);
   specDir = path.dirname(specPath);
   let spec;
+  let specSource = "";
   try {
-    spec = JSON.parse(fs.readFileSync(specPath, "utf8"));
+    specSource = fs.readFileSync(specPath, "utf8");
+    spec = JSON.parse(specSource);
   } catch (error) {
     console.error(`Invalid review specification:\nERROR $ [invalid-json]: ${error.message}`);
     process.exit(2);
@@ -817,7 +941,7 @@ function main() {
     ? `<script type="module">
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
 const dark = matchMedia('(prefers-color-scheme: dark)').matches && !document.documentElement.getAttribute('data-theme') || document.documentElement.getAttribute('data-theme') === 'dark';
-mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', securityLevel: 'loose' });
+mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', securityLevel: 'strict' });
 <\/script>`
     : "";
 
@@ -842,6 +966,39 @@ mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', securi
   const outPath = path.resolve(args.out || "review.html");
   fs.writeFileSync(outPath, tpl, "utf8");
   console.log(`Wrote ${outPath} (${prs.length} PR(s), ${(tpl.length / 1024).toFixed(0)} KB)`);
+
+  if (args.metricsOut) {
+    const patchTexts = prs.map((pr) => readDiff(pr).text);
+    const patchBytes = patchTexts.reduce((sum, text) => sum + Buffer.byteLength(text), 0);
+    const files = patchTexts.flatMap(parseDiff);
+    const metrics = {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      reviewId,
+      mode,
+      pullRequests: prs.length,
+      files: files.length,
+      changedLines: files.reduce((sum, file) => sum + file.add + file.del, 0),
+      patchBytes,
+      estimatedSpecTokens: Math.ceil(specSource.length / 4),
+      estimatedPatchTokensAvoided: Math.ceil(patchTexts.reduce((sum, text) => sum + text.length, 0) / 4),
+      htmlBytes: Buffer.byteLength(tpl),
+      generationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+      wordDiff: { ...wordDiffStats },
+      manual: {
+        lmInputTokens: null,
+        lmOutputTokens: null,
+        reviewMinutes: null,
+        groupingQuality: null,
+        findingRelevance: null,
+        notes: "",
+      },
+    };
+    const metricsPath = path.resolve(args.metricsOut);
+    fs.mkdirSync(path.dirname(metricsPath), { recursive: true });
+    fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2) + "\n", "utf8");
+    console.log(`Wrote ${metricsPath} (review measurement)`);
+  }
 
   if (args.open) {
     try {

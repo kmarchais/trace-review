@@ -60,12 +60,16 @@
 
 ## Phase 5 — Robustness on Real Pull Requests
 
-- [ ] Anchor comments to a diff fingerprint and display orphaned comments.
-- [ ] Sanitize links and SVG, then test untrusted pull-request content.
-- [ ] Add progressive rendering, word-level-diff limits, and tests on very large pull requests.
-- [ ] Measure on real pull requests: tokens, generation time, review time, grouping quality, and finding relevance.
+- [x] Anchor comments to a diff fingerprint and display orphaned comments.
+- [x] Sanitize links and SVG, then test untrusted pull-request content.
+- [x] Add progressive rendering, word-level-diff limits, and tests on very large pull requests.
+- [x] Measure on real pull requests: tokens, generation time, review time, grouping quality, and finding relevance.
 
 **Expected outcome:** a secure tool that remains trustworthy on large repositories.
+
+**Delivered:** fingerprint-backed comments with explicit orphan recovery,
+allowlisted links and SVG, strict Mermaid rendering, bounded word-level
+comparison, progressive diff mounting, and privacy-preserving real-PR metrics.
 
 ## Phase 6 — Finish and Distribution
 

@@ -10,8 +10,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixtures = path.join(root, "test", "fixtures");
 const builder = path.join(root, "scripts", "build-review.mjs");
 
-function build(specPath, outPath) {
-  return spawnSync(process.execPath, [builder, "--spec", specPath, "--out", outPath], {
+function build(specPath, outPath, extraArgs = []) {
+  return spawnSync(process.execPath, [builder, "--spec", specPath, "--out", outPath, ...extraArgs], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
@@ -197,4 +197,102 @@ test("large-diff generation stays within the Phase 0 performance budget", (t) =>
   assert.equal(result.status, 0, result.stderr);
   assert.ok(elapsed < 5000, `generation took ${elapsed.toFixed(0)}ms; budget is 5000ms`);
   assert.ok(fs.statSync(out).size > 200_000, "large fixture should exercise a substantial HTML payload");
+});
+
+test("Phase 5 fingerprints comments and exposes orphan recovery", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-fingerprint-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const result = build(path.join(fixtures, "workspace-spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+
+  assert.match(html, /"fingerprint":"[a-f0-9]{20}"/);
+  assert.match(html, /"f":"[a-f0-9]{20}"/);
+  assert.match(html, /data-diff-fingerprint=/);
+  assert.match(html, /function orphanedComments\(\)/);
+  assert.match(html, /class="orphan-panel"/);
+  assert.match(html, /### Orphaned comments/);
+});
+
+test("Phase 5 sanitizes untrusted links and inline SVG", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-untrusted-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const specPath = path.join(tempDir, "untrusted.json");
+  const out = path.join(tempDir, "review.html");
+  fs.writeFileSync(specPath, JSON.stringify({
+    schemaVersion: 1,
+    mode: "workspace",
+    title: "Untrusted content",
+    prs: [{
+      title: "<img src=x onerror=alert(1)>",
+      url: "javascript:alert(1)",
+      summary: "[unsafe](javascript:alert(2)) [safe](https://example.com/review)",
+      diagrams: [{
+        title: "Hostile SVG",
+        svg: '<svg viewBox="0 0 10 10" onload="alert(3)"><script>alert(4)</script><a href="https://evil.example"><rect width="10" height="10" style="fill:red;background:url(https://evil.example/x)"/></a><use href="#safe"/></svg>',
+      }],
+      diff: "diff --git a/a.js b/a.js\n--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n-old\n+new\n",
+    }],
+  }));
+  const result = build(specPath, out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+
+  assert.doesNotMatch(html, /href="javascript:/i);
+  assert.doesNotMatch(html, /onload="alert\(3\)"/i);
+  assert.doesNotMatch(html, /<script>alert\(4\)<\/script>/i);
+  assert.doesNotMatch(html, /href="https:\/\/evil\.example"/i);
+  assert.doesNotMatch(html, /background:url/i);
+  assert.match(html, /href="https:\/\/example\.com\/review"/);
+  assert.match(html, /<use href="#safe"\/>/);
+});
+
+test("Phase 5 bounds word diff work, renders progressively, and writes real-PR metrics", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-robust-large-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const longOld = Array.from({ length: 400 }, (_, index) => `old${index}`).join(" ");
+  const longNew = Array.from({ length: 400 }, (_, index) => `new${index}`).join(" ");
+  const patch = Array.from({ length: 800 }, (_, index) => [
+    `diff --git a/src/file-${index}.js b/src/file-${index}.js`,
+    "index 1111111..2222222 100644",
+    `--- a/src/file-${index}.js`,
+    `+++ b/src/file-${index}.js`,
+    "@@ -1 +1 @@",
+    `-${index === 0 ? longOld : `export const value = ${index};`}`,
+    `+${index === 0 ? longNew : `export const value = ${index + 1};`}`,
+  ].join("\n")).join("\n") + "\n";
+  const patchPath = path.join(tempDir, "huge.patch");
+  const specPath = path.join(tempDir, "huge.json");
+  const out = path.join(tempDir, "huge.html");
+  const metricsPath = path.join(tempDir, "metrics.json");
+  fs.writeFileSync(patchPath, patch);
+  fs.writeFileSync(specPath, JSON.stringify({
+    schemaVersion: 1,
+    mode: "workspace",
+    title: "Very large fixture",
+    prs: [{ title: "Eight hundred files", diffFile: "huge.patch" }],
+  }));
+
+  const result = build(specPath, out, ["--metrics-out", metricsPath]);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  const metrics = JSON.parse(fs.readFileSync(metricsPath, "utf8"));
+
+  assert.match(html, /requestIdleCallback/);
+  assert.match(html, /classList\.add\("pending"\)/);
+  assert.equal(metrics.files, 800);
+  assert.equal(metrics.wordDiff.skipped, 1);
+  assert.ok(metrics.wordDiff.applied >= 799);
+  assert.ok(metrics.generationMs < 5000, `generation took ${metrics.generationMs}ms`);
+  assert.ok(metrics.estimatedSpecTokens > 0);
+  assert.ok(metrics.estimatedPatchTokensAvoided > metrics.estimatedSpecTokens);
+  assert.deepEqual(metrics.manual, {
+    lmInputTokens: null,
+    lmOutputTokens: null,
+    reviewMinutes: null,
+    groupingQuality: null,
+    findingRelevance: null,
+    notes: "",
+  });
 });

@@ -403,6 +403,14 @@
   .comment-box textarea { font-family:var(--font-body); min-height:40px; }
   .comment-actions { margin-top:6px; }
   .comment-actions button { font-size:.76rem; background:none; border:none; color:var(--red); cursor:pointer; }
+  .orphan-panel { margin-top:12px; border:1px solid var(--orange); border-radius:8px; background:color-mix(in srgb,var(--orange) 9%,var(--card)); }
+  .orphan-panel[hidden] { display:none; }
+  .orphan-panel summary { cursor:pointer; padding:9px 11px; color:var(--orange); font-family:var(--font-heading); font-weight:700; }
+  .orphan-list { display:grid; gap:8px; padding:0 11px 11px; }
+  .orphan-item { border-left:3px solid var(--orange); padding:7px 9px; background:var(--panel); border-radius:4px; }
+  .orphan-loc { display:block; font-family:var(--mono); font-size:.72rem; color:var(--muted); }
+  .orphan-text { display:block; margin-top:3px; white-space:pre-wrap; }
+  .diff-mount.pending::before { content:"Preparing diff…"; display:block; padding:18px; color:var(--muted); font:italic .8rem var(--font-body); }
   .attachment-tray { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
   .comment-attachment { position:relative; width:132px; margin:0; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--panel); }
   .comment-attachment img { display:block; width:100%; height:92px; object-fit:cover; cursor:zoom-in; }
@@ -631,8 +639,8 @@
   }
 
   // ---- diff table builders (client-side, per mode) ----
-  function gutter(file,key,lineno,c){
-    return `<td class="gutter" data-file="${escAttr(file)}" data-key="${escAttr(key)}" data-lineno="${lineno}" data-code="${escAttr(c)}" title="Comment">+</td>`;
+  function gutter(file,key,lineno,c,lineFingerprint,diffFingerprint){
+    return `<td class="gutter" data-file="${escAttr(file)}" data-key="${escAttr(key)}" data-lineno="${lineno}" data-code="${escAttr(c)}" data-fingerprint="${escAttr(lineFingerprint||"")}" data-diff-fingerprint="${escAttr(diffFingerprint||"")}" title="Comment">+</td>`;
   }
   function unifiedTable(fd){
     let b="";
@@ -649,7 +657,7 @@
         b += `<tr class="line ${cls}">`
           + `<td class="ln ln-old">${r.t!=="a"&&r.o!=null?r.o:""}</td>`
           + `<td class="ln ln-new">${r.t!=="d"&&r.n!=null?r.n:""}</td>`
-          + gutter(fd.path,key,lineno,r.c)
+          + gutter(fd.path,key,lineno,r.c,r.f,fd.fingerprint)
           + `<td class="code"><span class="marker">${marker}</span>${r._hl}</td>`
           + `</tr>`;
       }
@@ -675,15 +683,15 @@
         if(p.ctx){
           b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td><td class="gutter empty"></td><td class="code line-ctx">${p.l._hl}</td>`;
         } else if(p.l){
-          b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td>` + gutter(fd.path,"o"+p.l.o,p.l.o,p.l.c) + `<td class="code line-del">${p.l._hl}</td>`;
+          b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td>` + gutter(fd.path,"o"+p.l.o,p.l.o,p.l.c,p.l.f,fd.fingerprint) + `<td class="code line-del">${p.l._hl}</td>`;
         } else {
           b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
         }
         // right (new side)
         if(p.ctx){
-          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c) + `<td class="code line-ctx">${p.r._hl}</td>`;
+          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c,p.r.f,fd.fingerprint) + `<td class="code line-ctx">${p.r._hl}</td>`;
         } else if(p.r){
-          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c) + `<td class="code line-add">${p.r._hl}</td>`;
+          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c,p.r.f,fd.fingerprint) + `<td class="code line-add">${p.r._hl}</td>`;
         } else {
           b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
         }
@@ -714,21 +722,95 @@
     const del = document.createElement("button"); del.textContent="Delete"; actions.appendChild(del);
     box.append(meta, ta, actions); td.appendChild(box); crow.appendChild(td);
     tr.after(crow);
-    const store = () => { state.lines[id] = { pr, file, key, lineno:g.dataset.lineno, code:g.dataset.code, text:ta.value }; save(); updateCounts(); };
+    const store = () => {
+      state.lines[id] = {
+        pr, file, key, lineno:g.dataset.lineno, code:g.dataset.code, text:ta.value,
+        fingerprint:g.dataset.fingerprint||"", diffFingerprint:g.dataset.diffFingerprint||"",
+      };
+      save(); updateCounts(); renderOrphans();
+    };
     bindImagePaste(ta,box,attachId,store);
     ta.addEventListener("input", store);
     ta.addEventListener("blur", () => { if(!hasCommentContent(ta.value,attachId)){ delete state.lines[id]; save(); updateCounts(); crow.remove(); } });
-    del.addEventListener("click", () => { delete state.lines[id]; delete state.attachments[attachId]; save(); updateCounts(); crow.remove(); });
+    del.addEventListener("click", () => { delete state.lines[id]; delete state.attachments[attachId]; save(); updateCounts(); renderOrphans(); crow.remove(); });
     return ta;
   }
   function applyComments(mount){
     const pr = mount.closest("section.pr").dataset.pr;
     for(const id in state.lines){
       const c = state.lines[id]; if(!c || c.pr!==pr) continue;
-      const g = mount.querySelector('.gutter[data-key="'+cssEsc(c.key)+'"][data-file="'+cssEsc(c.file)+'"]');
-      if(g) createCommentRow(g, c.text);
+      const fingerprintSelector = c.fingerprint
+        ? '.gutter[data-fingerprint="'+cssEsc(c.fingerprint)+'"][data-file="'+cssEsc(c.file)+'"]'
+        : "";
+      const g = (fingerprintSelector && mount.querySelector(fingerprintSelector))
+        || (!c.fingerprint && mount.querySelector('.gutter[data-key="'+cssEsc(c.key)+'"][data-file="'+cssEsc(c.file)+'"]'));
+      if(g){
+        const currentId=uid(pr,c.file,g.dataset.key);
+        if(c.fingerprint && id!==currentId){
+          const oldAttachmentId=attachmentId("line",c.pr,c.file,c.key);
+          const newAttachmentId=attachmentId("line",pr,c.file,g.dataset.key);
+          if(state.attachments[oldAttachmentId]){
+            state.attachments[newAttachmentId]=state.attachments[oldAttachmentId];
+            delete state.attachments[oldAttachmentId];
+          }
+          delete state.lines[id];
+          c.key=g.dataset.key;
+          c.lineno=g.dataset.lineno;
+          c.code=g.dataset.code;
+          c.diffFingerprint=g.dataset.diffFingerprint||"";
+          state.lines[currentId]=c;
+          save();
+        }
+        if(!c.fingerprint){
+          c.fingerprint=g.dataset.fingerprint||"";
+          c.diffFingerprint=g.dataset.diffFingerprint||"";
+          save();
+        }
+        createCommentRow(g, c.text);
+      }
     }
   }
+
+  function currentLineFingerprints(){
+    const found=new Set();
+    Object.values(DATA).forEach(file=>{
+      (file.hunks||[]).forEach(hunk=>(hunk.rows||[]).forEach(row=>{
+        if(row.f) found.add(file.reviewTarget+"\0"+file.path+"\0"+row.f);
+      }));
+    });
+    return found;
+  }
+  function orphanedComments(){
+    const current=currentLineFingerprints();
+    return Object.entries(state.lines).filter(([,comment])=>
+      comment && comment.fingerprint && !current.has(comment.pr+"\0"+comment.file+"\0"+comment.fingerprint)
+    );
+  }
+  function renderOrphans(){
+    const byPr={};
+    orphanedComments().forEach(([id,comment])=>{
+      (byPr[comment.pr]=byPr[comment.pr]||[]).push([id,comment]);
+    });
+    document.querySelectorAll("[data-orphan-list]").forEach(list=>{
+      const items=byPr[list.dataset.orphanList]||[];
+      const panel=list.closest(".orphan-panel");
+      panel.hidden=!items.length;
+      panel.querySelector(".orphan-count").textContent=items.length;
+      list.innerHTML=items.map(([id,c])=>
+        `<div class="orphan-item" data-orphan-id="${encodeURIComponent(id)}"><span class="orphan-loc">${escAttr(c.file)}:${escAttr(c.lineno||c.key)} · previous diff ${escAttr((c.diffFingerprint||"unknown").slice(0,8))}</span><span class="orphan-text">${escAttr(c.text||"Pasted image")}</span><div class="comment-actions"><button type="button" data-delete-orphan>Delete</button></div></div>`
+      ).join("");
+    });
+  }
+  document.addEventListener("click",event=>{
+    const button=event.target.closest("[data-delete-orphan]"); if(!button) return;
+    const item=button.closest("[data-orphan-id]"); const id=item ? decodeURIComponent(item.dataset.orphanId) : "";
+    if(id){
+      const comment=state.lines[id];
+      delete state.lines[id];
+      if(comment) delete state.attachments[attachmentId("line",comment.pr||"",comment.file||"",comment.key||"")];
+      save(); updateCounts(); renderOrphans();
+    }
+  });
 
   // ---- Claude's automatic review (inline rows + findings list) ----
   function miniMd(s){
@@ -786,13 +868,45 @@
   }
 
   // ---- render all mounts in a mode ----
+  let renderGeneration=0;
+  function renderMount(mnt,mode){
+    const fd=DATA[mnt.dataset.fid]; if(!fd) return;
+    mnt.innerHTML=mode==="split" ? splitTable(fd) : unifiedTable(fd);
+    mnt.classList.remove("pending");
+    mnt.dataset.rendered=mode;
+    applyComments(mnt);
+    applyReview(mnt);
+  }
   function renderAll(mode){
-    document.querySelectorAll(".diff-mount").forEach(mnt=>{
-      const fd = DATA[mnt.dataset.fid]; if(!fd) return;
-      mnt.innerHTML = mode==="split" ? splitTable(fd) : unifiedTable(fd);
-      applyComments(mnt);
-      applyReview(mnt);
+    const generation=++renderGeneration;
+    const mounts=[...document.querySelectorAll(".diff-mount")];
+    mounts.forEach(mnt=>{
+      if(mnt.dataset.rendered){
+        renderMount(mnt,mode);
+      }else{
+        mnt.classList.add("pending");
+      }
     });
+    const pending=mounts.filter(mnt=>!mnt.dataset.rendered);
+    pending.slice(0,4).forEach(mnt=>renderMount(mnt,mode));
+    let cursor=4;
+    const pump=deadline=>{
+      if(generation!==renderGeneration) return;
+      let count=0;
+      while(cursor<pending.length && count<8 && (!deadline || deadline.timeRemaining()>2)){
+        renderMount(pending[cursor++],mode); count++;
+      }
+      if(cursor<pending.length){
+        if(window.requestIdleCallback) requestIdleCallback(pump,{timeout:120});
+        else setTimeout(()=>pump(null),16);
+      }else{
+        renderOrphans();
+      }
+    };
+    if(cursor<pending.length){
+      if(window.requestIdleCallback) requestIdleCallback(pump,{timeout:120});
+      else setTimeout(()=>pump(null),16);
+    }else renderOrphans();
   }
 
   // ---- counts ----
@@ -1230,6 +1344,13 @@
           if(lineAttachments) block += lineAttachments + "\n";
         }
       }
+      const orphans=orphanedComments().filter(([,comment])=>comment.pr===pr);
+      if(orphans.length){
+        block += "\n### Orphaned comments\n";
+        for(const [,comment] of orphans){
+          block += "- **" + comment.file + ":" + (comment.lineno||comment.key) + "** — " + (comment.text||"Pasted image").replace(/\n+/g," ").trim() + "\n";
+        }
+      }
       if(block.trim()){ any=true; out += "\n## " + title + "\n" + block; }
     });
     if(!any) out += "\n_No comments yet._\n";
@@ -1370,6 +1491,7 @@
   setMode(mode);
   renderFindingList();
   updateCounts();
+  renderOrphans();
 })();
 </script>
 {{MERMAID}}

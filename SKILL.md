@@ -342,8 +342,14 @@ files** (a rename, an added `#include`, a signature tweak). Add a `groups` array
 ### 5. Build and open
 
 ```bash
-node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --open
+node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --metrics-out .review/metrics.json --open
 ```
+
+`--metrics-out` is recommended for real pull requests. It records generation
+time, estimated spec and avoided-patch tokens, size, and word-diff limits
+without storing patch contents. After the review, fill in actual model usage,
+review time, grouping quality, and finding relevance using
+[docs/REAL-PR-METRICS.md](docs/REAL-PR-METRICS.md).
 
 `--open` launches the default browser (Windows `start` / macOS `open` /
 Linux `xdg-open`). Drop it and just tell the user the path if you prefer.
@@ -460,8 +466,15 @@ Viewer controls:
   file.** Sending someone the `.html` sends an empty doc — send it and let them
   export their comments back. Comments survive a page reload and a rebuild
   **only if `reviewId` is unchanged**.
-- **Rebuilding after the diff changed:** comments anchored to lines that no
-  longer exist stay in storage but silently won't re-attach. Expected.
+- **Rebuilding after the diff changed:** line comments follow a stable content
+  fingerprint when the line moves. Comments whose source changed are shown in
+  an **Orphaned comments** tray and included in export until deleted.
+- **Untrusted pull-request content:** Markdown links accept only HTTP(S),
+  `mailto:`, or local fragments. Inline SVG is reduced to a safe SVG allowlist,
+  and Mermaid runs in strict security mode.
+- **Very large diffs:** diff mounts render progressively. Word-level
+  highlighting is skipped for pathological line or token sizes; the ordinary
+  line diff remains complete.
 - **Mermaid needs internet; SVG does not.** Prefer `svg`/`svgFile` diagrams —
   they render offline and scale crisply. Each SVG is placed on an explicit light
   canvas by default, including in dark mode, so generated diagrams remain legible.
