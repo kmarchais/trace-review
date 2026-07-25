@@ -197,6 +197,7 @@ function makeGroup(id, title, kind, intent, risk, confidence, reviewerChecks, ch
       newRange: change.newRange,
       label: rangeLabel(change),
       topic: topicOf(change),
+      definitions: extractDefinitions(change),
     })),
   };
 }

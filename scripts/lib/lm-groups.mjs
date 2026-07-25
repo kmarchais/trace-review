@@ -226,9 +226,6 @@ export function finalizeLmGrouping(result, candidates) {
   const candidateGroups = new Map(
     (candidates.groups || []).map((group) => [group.id, group]),
   );
-  const candidateNodes = new Map(
-    (candidates.dependencyGraph?.nodes || []).map((node) => [node.id, node]),
-  );
   const finalGroupsForCandidate = (candidateGroupId) =>
     [
       ...new Set(
@@ -251,7 +248,7 @@ export function finalizeLmGrouping(result, candidates) {
   }
   const edges = [...edgeMap.values()];
   const dependencies = new Map(groups.map((group) => [group.id, new Set()]));
-  for (const edge of edges) dependencies.get(edge.to)?.add(edge.from);
+  for (const edge of explicitEdges) dependencies.get(edge.to)?.add(edge.from);
   const suggestedOrder = [];
   const remaining = new Set(groups.map((group) => group.id));
   while (remaining.size) {
@@ -278,24 +275,11 @@ export function finalizeLmGrouping(result, candidates) {
     groups,
     dependencyGraph: {
       nodes: groups.map((group) => {
-        const candidateIds = [
-          ...new Set(
-            group.changes.flatMap((change) =>
-              [...candidateGroups.values()]
-                .filter((candidate) =>
-                  (candidate.changes || []).some((item) => item.id === change.id),
-                )
-                .map((candidate) => candidate.id),
-            ),
-          ),
-        ];
         return {
           id: group.id,
           definitions: [
             ...new Set(
-              candidateIds.flatMap(
-                (candidateId) => candidateNodes.get(candidateId)?.definitions || [],
-              ),
+              group.changes.flatMap((change) => change.definitions || []),
             ),
           ],
           role: group.kind,
