@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "mode", "prs"],
   "properties": {
     "schemaVersion": { "const": 1 },
-    "mode": { "enum": ["workspace", "ai-analysis", "deep-audit"] },
+    "mode": { "enum": ["workspace", "lm-analysis", "deep-audit"] },
     "title": { "type": "string", "minLength": 1 },
     "reviewId": { "type": "string", "minLength": 1 },
     "reviewer": { "type": "string", "minLength": 1 },
@@ -153,7 +153,7 @@
     "finding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["file", "line", "body"],
+      "required": ["file", "line", "body", "confidence", "rationale"],
       "properties": {
         "file": { "type": "string", "minLength": 1 },
         "line": {
@@ -164,7 +164,8 @@
         },
         "severity": { "enum": ["nit", "suggestion", "concern", "question", "praise", "comment"] },
         "body": { "type": "string", "minLength": 1 },
-        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "rationale": { "type": "string", "minLength": 1 }
       }
     }
   },
@@ -180,7 +181,7 @@
       }
     },
     {
-      "if": { "properties": { "mode": { "enum": ["ai-analysis", "deep-audit"] } }, "required": ["mode"] },
+      "if": { "properties": { "mode": { "enum": ["lm-analysis", "deep-audit"] } }, "required": ["mode"] },
       "then": {
         "properties": {
           "prs": {

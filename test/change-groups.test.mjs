@@ -162,6 +162,20 @@ index 1111111..2222222 100644
   );
 });
 
+test("hunk ranges retain zero-count sides for anchor validation", () => {
+  const insertion = `diff --git a/src/new.js b/src/new.js
+index 1111111..2222222 100644
+--- a/src/new.js
++++ b/src/new.js
+@@ -4,0 +5 @@
++const added = true;
+`;
+  const [change] = parsePatchChanges(insertion, analyzePatch(insertion));
+
+  assert.deepEqual(change.oldRange, { start: 4, end: 4, count: 0 });
+  assert.deepEqual(change.newRange, { start: 5, end: 5, count: 1 });
+});
+
 test("CLI writes a validated group fact pack", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-groups-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));

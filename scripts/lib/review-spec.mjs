@@ -4,7 +4,7 @@ import path from "node:path";
 export const REVIEW_SPEC_VERSION = 1;
 export const REVIEW_MODES = Object.freeze([
   "workspace",
-  "ai-analysis",
+  "lm-analysis",
   "deep-audit",
 ]);
 
@@ -296,7 +296,7 @@ export function validateReviewSpec(spec, options = {}) {
               add("expected-object", commentPath, `${commentPath} must be an object.`);
               return;
             }
-            rejectUnknown(comment, new Set(["file", "line", "severity", "body", "confidence"]), commentPath);
+            rejectUnknown(comment, new Set(["file", "line", "severity", "body", "confidence", "rationale"]), commentPath);
             requireString(comment.file, `${commentPath}.file`);
             const validLine = Number.isInteger(comment.line) && comment.line > 0;
             const validOldLine = typeof comment.line === "string" && /^o[1-9]\d*$/.test(comment.line);
@@ -305,7 +305,8 @@ export function validateReviewSpec(spec, options = {}) {
             }
             if (comment.severity !== undefined) enumValue(comment.severity, SEVERITIES, `${commentPath}.severity`);
             requireString(comment.body, `${commentPath}.body`);
-            if (comment.confidence !== undefined && (typeof comment.confidence !== "number" || comment.confidence < 0 || comment.confidence > 1)) {
+            requireString(comment.rationale, `${commentPath}.rationale`);
+            if (typeof comment.confidence !== "number" || comment.confidence < 0 || comment.confidence > 1) {
               add("invalid-confidence", `${commentPath}.confidence`, "Finding confidence must be a number from 0 to 1.");
             }
           });
@@ -314,9 +315,9 @@ export function validateReviewSpec(spec, options = {}) {
     }
 
     if (spec.mode === "workspace" && pr.review !== undefined) {
-      add("review-not-allowed", `${root}.review`, "Workspace mode cannot contain AI findings.", "Use mode 'ai-analysis' or 'deep-audit', or remove the review object.");
+      add("review-not-allowed", `${root}.review`, "Workspace mode cannot contain LM findings.", "Use mode 'lm-analysis' or 'deep-audit', or remove the review object.");
     }
-    if ((spec.mode === "ai-analysis" || spec.mode === "deep-audit") && pr.review === undefined) {
+    if ((spec.mode === "lm-analysis" || spec.mode === "deep-audit") && pr.review === undefined) {
       add("review-required", `${root}.review`, `${spec.mode} mode requires a review object for every review target.`, "Use an empty comments array when there are no findings.");
     }
   });

@@ -22,7 +22,11 @@ function normalizePath(value) {
 
 function parseRange(start, count) {
   const length = count === undefined ? 1 : Number(count);
-  return { start: Number(start), end: length === 0 ? Number(start) : Number(start) + length - 1 };
+  return {
+    start: Number(start),
+    end: length === 0 ? Number(start) : Number(start) + length - 1,
+    count: length,
+  };
 }
 
 function changeKey(change) {

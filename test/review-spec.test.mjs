@@ -16,11 +16,27 @@ const fixtures = path.join(root, "test", "fixtures");
 
 test("review modes and schema version are stable public constants", () => {
   assert.equal(REVIEW_SPEC_VERSION, 1);
-  assert.deepEqual(REVIEW_MODES, ["workspace", "ai-analysis", "deep-audit"]);
+  assert.deepEqual(REVIEW_MODES, ["workspace", "lm-analysis", "deep-audit"]);
   const schema = JSON.parse(fs.readFileSync(path.join(root, "schemas", "review-spec.v1.schema.json"), "utf8"));
   assert.equal(schema.properties.schemaVersion.const, 1);
   assert.deepEqual(schema.properties.mode.enum, REVIEW_MODES);
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
+});
+
+test("legacy focused-analysis mode names are rejected", () => {
+  for (const mode of ["ai-analysis", "review"]) {
+    const result = validateReviewSpec({
+      schemaVersion: 1,
+      mode,
+      prs: [{
+        title: "Legacy mode",
+        diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+        review: { verdict: "approve", global: "Done.", comments: [] },
+      }],
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.diagnostics.some((item) => item.code === "invalid-mode"));
+  }
 });
 
 test("portable block and diagram schemas enforce the runtime contract", () => {
@@ -58,15 +74,15 @@ test("portable block and diagram schemas enforce the runtime contract", () => {
   }
 });
 
-test("workspace and AI-analysis fixtures satisfy the versioned contract", () => {
-  for (const name of ["workspace-spec.json", "ai-analysis-spec.json"]) {
+test("workspace and LM-analysis fixtures satisfy the versioned contract", () => {
+  for (const name of ["workspace-spec.json", "lm-analysis-spec.json"]) {
     const spec = JSON.parse(fs.readFileSync(path.join(fixtures, name), "utf8"));
     const result = validateReviewSpec(spec, { baseDir: fixtures, checkFiles: true });
     assert.deepEqual(result, { valid: true, schemaVersion: 1, diagnostics: [] });
   }
 });
 
-test("deep audit uses the explicit AI finding contract", () => {
+test("deep audit uses the explicit LM finding contract", () => {
   const spec = {
     schemaVersion: 1,
     mode: "deep-audit",
@@ -77,6 +93,26 @@ test("deep audit uses the explicit AI finding contract", () => {
     }],
   };
   assert.equal(validateReviewSpec(spec).valid, true);
+});
+
+test("LM findings require confidence and rationale in rendered review specs", () => {
+  const result = validateReviewSpec({
+    schemaVersion: 1,
+    mode: "lm-analysis",
+    prs: [{
+      title: "Focused analysis",
+      diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+      review: {
+        verdict: "comment",
+        global: "One finding.",
+        comments: [{ file: "a", line: 1, severity: "concern", body: "Issue." }],
+      },
+    }],
+  });
+
+  assert.equal(result.valid, false);
+  assert.ok(result.diagnostics.some((item) => item.path === "prs[0].review.comments[0].confidence"));
+  assert.ok(result.diagnostics.some((item) => item.path === "prs[0].review.comments[0].rationale"));
 });
 
 test("validator returns actionable paths and hints for contract violations", () => {
