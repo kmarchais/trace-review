@@ -446,6 +446,10 @@
   .pd-item.done .pd-count { color:var(--green); }
   .pd-label { font-size:.6rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-family:var(--font-heading); text-align:center; }
   .pd-frac { font-family:var(--mono); font-size:.6rem; color:var(--muted); text-align:center; line-height:1; }
+  .pd-find-nav { border-top:1px solid var(--border); padding-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  .pd-find-label { grid-column:1/-1; font:600 .62rem var(--font-heading); color:var(--muted); text-align:center; }
+  .pd-find-nav button { border:1px solid var(--border); border-radius:5px; background:var(--panel); color:var(--text); cursor:pointer; padding:4px 6px; font:600 .68rem var(--font-heading); }
+  .pd-find-nav button:hover { border-color:var(--primary); color:var(--primary); }
   @media (max-width:960px){ .progress-dock { display:none !important; } body.has-dock main { padding-right:22px; } }
 
   /* file-tree drawer — a slide-in list/tree of changed files for navigation */
@@ -550,6 +554,7 @@
   const DATA = JSON.parse(document.getElementById("review-data").textContent || "{}");
   const REVIEW = JSON.parse(document.getElementById("ai-review-data").textContent || "{}");
   const HAS_REVIEW = Object.keys(REVIEW).length > 0;
+  const findingCursor = {};
 
   // ---- state ----
   let state = { general:{}, lines:{}, aiState:{}, files:{}, viewed:{}, grouping:{}, attachments:{} };
@@ -640,8 +645,8 @@
   }
 
   // ---- diff table builders (client-side, per mode) ----
-  function gutter(file,key,lineno,c,lineFingerprint,diffFingerprint){
-    return `<td class="gutter" data-file="${escAttr(file)}" data-key="${escAttr(key)}" data-lineno="${lineno}" data-code="${escAttr(c)}" data-fingerprint="${escAttr(lineFingerprint||"")}" data-diff-fingerprint="${escAttr(diffFingerprint||"")}" title="Comment">+</td>`;
+  function gutter(file,key,lineno,c,lineFingerprint,contentFingerprint,diffFingerprint){
+    return `<td class="gutter" data-file="${escAttr(file)}" data-key="${escAttr(key)}" data-lineno="${lineno}" data-code="${escAttr(c)}" data-fingerprint="${escAttr(lineFingerprint||"")}" data-content-fingerprint="${escAttr(contentFingerprint||"")}" data-diff-fingerprint="${escAttr(diffFingerprint||"")}" title="Comment">+</td>`;
   }
   function unifiedTable(fd){
     let b="";
@@ -658,7 +663,7 @@
         b += `<tr class="line ${cls}">`
           + `<td class="ln ln-old">${r.t!=="a"&&r.o!=null?r.o:""}</td>`
           + `<td class="ln ln-new">${r.t!=="d"&&r.n!=null?r.n:""}</td>`
-          + gutter(fd.path,key,lineno,r.c,r.f,fd.fingerprint)
+          + gutter(fd.path,key,lineno,r.c,r.f,r.cf,fd.fingerprint)
           + `<td class="code"><span class="marker">${marker}</span>${r._hl}</td>`
           + `</tr>`;
       }
@@ -684,15 +689,15 @@
         if(p.ctx){
           b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td><td class="gutter empty"></td><td class="code line-ctx">${p.l._hl}</td>`;
         } else if(p.l){
-          b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td>` + gutter(fd.path,"o"+p.l.o,p.l.o,p.l.c,p.l.f,fd.fingerprint) + `<td class="code line-del">${p.l._hl}</td>`;
+          b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td>` + gutter(fd.path,"o"+p.l.o,p.l.o,p.l.c,p.l.f,p.l.cf,fd.fingerprint) + `<td class="code line-del">${p.l._hl}</td>`;
         } else {
           b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
         }
         // right (new side)
         if(p.ctx){
-          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c,p.r.f,fd.fingerprint) + `<td class="code line-ctx">${p.r._hl}</td>`;
+          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c,p.r.f,p.r.cf,fd.fingerprint) + `<td class="code line-ctx">${p.r._hl}</td>`;
         } else if(p.r){
-          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c,p.r.f,fd.fingerprint) + `<td class="code line-add">${p.r._hl}</td>`;
+          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c,p.r.f,p.r.cf,fd.fingerprint) + `<td class="code line-add">${p.r._hl}</td>`;
         } else {
           b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
         }
@@ -726,7 +731,8 @@
     const store = () => {
       state.lines[id] = {
         pr, file, key, lineno:g.dataset.lineno, code:g.dataset.code, text:ta.value,
-        fingerprint:g.dataset.fingerprint||"", diffFingerprint:g.dataset.diffFingerprint||"",
+        fingerprint:g.dataset.fingerprint||"", contentFingerprint:g.dataset.contentFingerprint||"",
+        diffFingerprint:g.dataset.diffFingerprint||"",
       };
       save(); updateCounts(); renderOrphans();
     };
@@ -743,11 +749,15 @@
       const fingerprintSelector = c.fingerprint
         ? '.gutter[data-fingerprint="'+cssEsc(c.fingerprint)+'"][data-file="'+cssEsc(c.file)+'"]'
         : "";
+      const contentSelector = c.contentFingerprint && uniqueContentFingerprint(c.pr,c.file,c.contentFingerprint)
+        ? '.gutter[data-content-fingerprint="'+cssEsc(c.contentFingerprint)+'"][data-file="'+cssEsc(c.file)+'"]'
+        : "";
       const g = (fingerprintSelector && mount.querySelector(fingerprintSelector))
+        || (contentSelector && mount.querySelector(contentSelector))
         || (!c.fingerprint && mount.querySelector('.gutter[data-key="'+cssEsc(c.key)+'"][data-file="'+cssEsc(c.file)+'"]'));
       if(g){
         const currentId=uid(pr,c.file,g.dataset.key);
-        if(c.fingerprint && id!==currentId){
+        if(id!==currentId){
           const oldAttachmentId=attachmentId("line",c.pr,c.file,c.key);
           const newAttachmentId=attachmentId("line",pr,c.file,g.dataset.key);
           if(state.attachments[oldAttachmentId]){
@@ -762,30 +772,53 @@
           state.lines[currentId]=c;
           save();
         }
-        if(!c.fingerprint){
-          c.fingerprint=g.dataset.fingerprint||"";
-          c.diffFingerprint=g.dataset.diffFingerprint||"";
-          save();
-        }
+        c.fingerprint=g.dataset.fingerprint||"";
+        c.contentFingerprint=g.dataset.contentFingerprint||"";
+        c.diffFingerprint=g.dataset.diffFingerprint||"";
+        save();
         createCommentRow(g, c.text);
       }
     }
   }
 
-  function currentLineFingerprints(){
-    const found=new Set();
+  let lineEvidenceCache=null;
+  function lineEvidence(){
+    if(lineEvidenceCache) return lineEvidenceCache;
+    const fingerprints=new Set(), anchors=new Set(), content=new Map();
     Object.values(DATA).forEach(file=>{
       (file.hunks||[]).forEach(hunk=>(hunk.rows||[]).forEach(row=>{
-        if(row.f) found.add(file.reviewTarget+"\0"+file.path+"\0"+row.f);
+        const prefix=file.reviewTarget+"\0"+file.path+"\0";
+        const key=row.t==="d" ? "o"+row.o : String(row.n);
+        if(row.f) fingerprints.add(prefix+row.f);
+        anchors.add(prefix+key);
+        if(row.cf){
+          const contentKey=prefix+row.cf;
+          if(!content.has(contentKey)) content.set(contentKey,new Set());
+          content.get(contentKey).add(row.f+"\0"+key);
+        }
       }));
     });
-    return found;
+    lineEvidenceCache={fingerprints,anchors,content};
+    return lineEvidenceCache;
+  }
+  function currentLineFingerprints(){
+    return lineEvidence().fingerprints;
+  }
+  function currentLineAnchors(){
+    return lineEvidence().anchors;
+  }
+  function uniqueContentFingerprint(pr,file,contentFingerprint){
+    return lineEvidence().content.get(pr+"\0"+file+"\0"+contentFingerprint)?.size===1;
   }
   function orphanedComments(){
-    const current=currentLineFingerprints();
-    return Object.entries(state.lines).filter(([,comment])=>
-      comment && comment.fingerprint && !current.has(comment.pr+"\0"+comment.file+"\0"+comment.fingerprint)
-    );
+    const current=currentLineFingerprints(), anchors=currentLineAnchors();
+    return Object.entries(state.lines).filter(([,comment])=>{
+      if(!comment) return false;
+      const prefix=comment.pr+"\0"+comment.file+"\0";
+      if(!comment.fingerprint) return !anchors.has(prefix+comment.key);
+      if(current.has(prefix+comment.fingerprint)) return false;
+      return !(comment.contentFingerprint && uniqueContentFingerprint(comment.pr,comment.file,comment.contentFingerprint));
+    });
   }
   function renderOrphans(){
     const byPr={};
@@ -863,7 +896,7 @@
       list.innerHTML = rev.comments.map(c=>{
         const s = state.aiState[pr+" "+c.aid] || "";
         const statusHtml = s ? `<span class="fi-status ${s}">${s}</span>` : "";
-        return `<button class="finding-item sv-${escAttr(c.severity)}${s?" done":""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span><span class="ai-confidence">${Math.round(c.confidence*100)}% confidence</span>${statusHtml}</span><span class="finding-text">${escAttr(c.body)}</span></button>`;
+        return `<button class="finding-item sv-${escAttr(c.severity)}${s?" done":""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}" data-aid="${escAttr(c.aid)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span><span class="ai-confidence">${Math.round(c.confidence*100)}% confidence</span>${statusHtml}</span><span class="finding-text">${escAttr(c.body)}</span></button>`;
       }).join("");
     });
   }
@@ -882,13 +915,11 @@
     const generation=++renderGeneration;
     const mounts=[...document.querySelectorAll(".diff-mount")];
     mounts.forEach(mnt=>{
-      if(mnt.dataset.rendered){
-        renderMount(mnt,mode);
-      }else{
-        mnt.classList.add("pending");
-      }
+      mnt.innerHTML="";
+      delete mnt.dataset.rendered;
+      mnt.classList.add("pending");
     });
-    const pending=mounts.filter(mnt=>!mnt.dataset.rendered);
+    const pending=mounts;
     pending.slice(0,4).forEach(mnt=>renderMount(mnt,mode));
     let cursor=4;
     const pump=deadline=>{
@@ -974,11 +1005,31 @@
       let ftotal=0, fdone=0;
       for(const p of prs){ const rv=REVIEW[p]; if(!rv) continue; for(const c of rv.comments){ ftotal++; if(state.aiState[p+" "+c.aid]) fdone++; } }
       if(ftotal) html += ring(fdone, ftotal, "Reviewed");
+      const rv=pr ? REVIEW[pr] : null;
+      if(rv?.comments?.length){
+        const cursor=Math.max(0,Math.min(findingCursor[pr]??0,rv.comments.length-1));
+        findingCursor[pr]=cursor;
+        html += `<div class="pd-find-nav"><div class="pd-find-label">Finding ${cursor+1}/${rv.comments.length}</div>`
+          + `<button type="button" data-finding-step="-1" title="Previous finding">← Prev</button>`
+          + `<button type="button" data-finding-step="1" title="Next finding">Next →</button></div>`;
+      }
     }
     dock.innerHTML = html;
     dock.hidden = !html;
     document.body.classList.toggle("has-dock", !!html);
   }
+  document.addEventListener("click",e=>{
+    const button=e.target.closest("[data-finding-step]"); if(!button) return;
+    const sec=activeSection(), pr=sec?.dataset.pr, rv=pr ? REVIEW[pr] : null;
+    if(!rv?.comments?.length) return;
+    const step=Number(button.dataset.findingStep);
+    const current=findingCursor[pr]??0;
+    const next=(current+step+rv.comments.length)%rv.comments.length;
+    findingCursor[pr]=next;
+    const item=sec.querySelector('.finding-item[data-aid="'+cssEsc(rv.comments[next].aid)+'"]');
+    if(item) item.click();
+    updateProgress();
+  });
 
   // ---- sidebar comment list (file notes + line comments) ----
   function renderCommentList(){
@@ -1002,6 +1053,11 @@
     const it = e.target.closest(".cl-item, .finding-item"); if(!it) return;
     const sec = document.querySelector('section.pr[data-pr="'+cssEsc(it.dataset.pr)+'"]');
     if(!sec) return;
+    if(it.classList.contains("finding-item")){
+      const comments=REVIEW[it.dataset.pr]?.comments||[];
+      const index=comments.findIndex(comment=>comment.aid===it.dataset.aid);
+      if(index>=0){ findingCursor[it.dataset.pr]=index; updateProgress(); }
+    }
     if(it.classList.contains("cl-file")){
       const fileEl = visibleEvidenceFiles(sec).find(f=>f.dataset.file===it.dataset.file);
       if(fileEl){ fileEl.classList.remove("collapsed"); fileEl.scrollIntoView({ block:"start", behavior:"smooth" }); fileNoteBox(fileEl, (state.files[it.dataset.pr+" "+it.dataset.file]||{}).text||"", true); }

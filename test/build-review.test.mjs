@@ -230,8 +230,12 @@ test("Phase 5 fingerprints comments and exposes orphan recovery", (t) => {
 
   assert.match(html, /"fingerprint":"[a-f0-9]{20}"/);
   assert.match(html, /"f":"[a-f0-9]{20}"/);
+  assert.match(html, /"cf":"[a-f0-9]{20}"/);
   assert.match(html, /data-diff-fingerprint=/);
+  assert.match(html, /data-content-fingerprint=/);
   assert.match(html, /function orphanedComments\(\)/);
+  assert.match(html, /currentLineAnchors/);
+  assert.match(html, /uniqueContentFingerprint/);
   assert.match(html, /class="orphan-panel"/);
   assert.match(html, /### Orphaned comments/);
 });
@@ -251,7 +255,7 @@ test("Phase 5 sanitizes untrusted links and inline SVG", (t) => {
       summary: "[unsafe](javascript:alert(2)) [safe](https://example.com/review)",
       diagrams: [{
         title: "Hostile SVG",
-        svg: '<svg viewBox="0 0 10 10" onload="alert(3)"><script>alert(4)</script><a href="https://evil.example"><rect width="10" height="10" style="fill:red;background:url(https://evil.example/x)"/></a><use href="#safe"/></svg>',
+        svg: '<svg viewBox="0 0 10 10" onload="alert(3)"><script>alert(4)</script><a href="https://evil.example"><rect width="10" height="10" style="fill:u\\72l(https://evil.example/x)"/></a><use href="#safe"/></svg>',
       }],
       diff: "diff --git a/a.js b/a.js\n--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n-old\n+new\n",
     }],
@@ -264,7 +268,8 @@ test("Phase 5 sanitizes untrusted links and inline SVG", (t) => {
   assert.doesNotMatch(html, /onload="alert\(3\)"/i);
   assert.doesNotMatch(html, /<script>alert\(4\)<\/script>/i);
   assert.doesNotMatch(html, /href="https:\/\/evil\.example"/i);
-  assert.doesNotMatch(html, /background:url/i);
+  assert.doesNotMatch(html, /<rect[^>]*style=/i);
+  assert.doesNotMatch(html, /u\\72l/i);
   assert.match(html, /href="https:\/\/example\.com\/review"/);
   assert.match(html, /<use href="#safe"\/>/);
 });
@@ -302,6 +307,11 @@ test("Phase 5 bounds word diff work, renders progressively, and writes real-PR m
 
   assert.match(html, /requestIdleCallback/);
   assert.match(html, /classList\.add\("pending"\)/);
+  assert.doesNotMatch(
+    html,
+    /if\(mnt\.dataset\.rendered\)\{\s*renderMount\(mnt,mode\)/,
+    "mode changes must not synchronously rerender every completed mount",
+  );
   assert.equal(metrics.files, 800);
   assert.equal(metrics.wordDiff.skipped, 1);
   assert.ok(metrics.wordDiff.applied >= 799);
@@ -316,4 +326,19 @@ test("Phase 5 bounds word diff work, renders progressively, and writes real-PR m
     findingRelevance: null,
     notes: "",
   });
+});
+
+test("LM finding navigation remains available beside review progress", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-finding-nav-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const result = build(path.join(fixtures, "lm-analysis-spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+
+  assert.match(html, /data-finding-step="-1"/);
+  assert.match(html, /data-finding-step="1"/);
+  assert.match(html, /Next finding/);
+  assert.match(html, /data-aid=/);
+  assert.match(html, /findingCursor/);
 });

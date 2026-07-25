@@ -415,8 +415,8 @@ stages remain available for focused context and group rationale.
 - **Right — the review:**
   - **Top** — in LM-analysis and deep-audit modes, a compact **"&lt;reviewer&gt; review"** card whose
     header is **coloured by verdict** (green approve / red request-changes /
-    blue comment), then a collapsed-on-demand **findings** panel where each item
-    is **accent-coloured by severity**, then a live list of the reviewer's
+    blue comment), then an expanded **findings** panel where each item is
+    **accent-coloured by severity**, then a live list of the reviewer's
     line comments (click any to jump to that line).
   - **Bottom** — the self-contained **"Changes"** block: collapsible per-file
     diffs with **language-aware syntax highlighting** (by file extension,
@@ -449,7 +449,9 @@ Viewer controls:
   review mode) findings reviewed, scoped to the **active PR** so they match its
   header. Grouped mode counts file-within-decision items; raw Git order counts
   files. The centre shows a compact **%** (a ✓ when complete) with the exact
-  count below, so it stays legible even at hundreds of items.
+  count below, so it stays legible even at hundreds of items. In review mode,
+  fixed **Previous / Next finding** controls remain beside the rings after a
+  finding jumps into the diff.
 - **Unified / Split** toggle — lives on the **"Changes"** bar; switches inline
   vs side-by-side (persists; comments follow the line in both).
 - **Git order / Grouped order** — every grouped review can return to the raw
@@ -466,9 +468,10 @@ Viewer controls:
   file.** Sending someone the `.html` sends an empty doc — send it and let them
   export their comments back. Comments survive a page reload and a rebuild
   **only if `reviewId` is unchanged**.
-- **Rebuilding after the diff changed:** line comments follow a stable content
-  fingerprint when the line moves. Comments whose source changed are shown in
-  an **Orphaned comments** tray and included in export until deleted.
+- **Rebuilding after the diff changed:** line comments first follow an exact
+  contextual fingerprint, then a unique file/type/content fingerprint when the
+  line moves. Comments whose source changed or is ambiguous are shown in an
+  **Orphaned comments** tray and included in export until deleted.
 - **Untrusted pull-request content:** Markdown links accept only HTTP(S),
   `mailto:`, or local fragments. Inline SVG is reduced to a safe SVG allowlist,
   and Mermaid runs in strict security mode.

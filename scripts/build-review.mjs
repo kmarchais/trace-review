@@ -90,17 +90,8 @@ const SVG_ATTRS = new Set([
   "role", "xmlns", "preserveaspectratio", "gradientunits", "gradienttransform",
   "offset", "stop-color", "stop-opacity", "clip-path", "mask", "marker-start",
   "marker-mid", "marker-end", "patternunits", "patterntransform", "href",
-  "xlink:href", "style",
+  "xlink:href",
 ]);
-
-function sanitizeStyle(value) {
-  if (/url\s*\(|expression\s*\(|@import|javascript:/i.test(value)) return "";
-  return String(value)
-    .split(";")
-    .map((part) => part.trim())
-    .filter((part) => /^(?:fill|stroke|stroke-width|opacity|fill-opacity|stroke-opacity|font-family|font-size|font-weight|text-anchor)\s*:/i.test(part))
-    .join("; ");
-}
 
 function sanitizeSvg(source) {
   const input = String(source || "")
@@ -124,9 +115,6 @@ function sanitizeSvg(source) {
       if (lower === "href" || lower === "xlink:href") {
         value = safeUrl(value);
         if (!value || !value.startsWith("#")) continue;
-      } else if (lower === "style") {
-        value = sanitizeStyle(value);
-        if (!value) continue;
       } else if (/javascript:|data:text\/html|url\s*\(\s*['"]?\s*(?:https?:|data:|javascript:)/i.test(value)) {
         continue;
       }
@@ -420,6 +408,7 @@ function fileData(file, reviewTarget = "") {
       const before = h.rows[rowIndex - 1]?.text || "";
       const after = h.rows[rowIndex + 1]?.text || "";
       o.f = fingerprint(`${file.path}\0${r.type}\0${before}\0${r.text}\0${after}`);
+      o.cf = fingerprint(`${file.path}\0${r.type}\0${r.text}`);
       return o;
     });
     d.hunks.push({ header: h.header, rows });
