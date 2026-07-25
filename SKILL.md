@@ -365,12 +365,13 @@ Linux `xdg-open`). Drop it and just tell the user the path if you prefer.
 In the doc the reviewer hovers a line and clicks the **+** in its gutter to
 comment (works in both unified and split view — comments follow the line, not
 the layout), types an overall note, and — in an LM mode — **Accepts / Dismisses
-/ Replies** to Claude's findings. Then they hit **Export comments**, which gives
-markdown two ways:
+/ Replies** to the LM findings. Then either:
 
-- **Copy to clipboard** → they paste it back into this chat.
-- **Download .md** → saves `review-comments-<reviewId>.md` to their Downloads
-  folder. Read it with:
+- **Copy comments** in the header → copies the current Markdown report directly
+  to the clipboard, with no modal.
+- **Export comments** → opens the report preview with another copy action and a
+  **Download .md** option that saves `review-comments-<reviewId>.md` to the
+  Downloads folder. Read it with:
 
   ```bash
   cat "$USERPROFILE/Downloads/review-comments-<reviewId>.md"

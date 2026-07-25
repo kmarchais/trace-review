@@ -17,9 +17,10 @@
       ],
       "titleEvidence": {
         "changeIds": [
-          "include/retry_policy.h#h0"
+          "include/retry_policy.h#h0",
+          "include/retry_policy.h#h1"
         ],
-        "rationale": "The public header hunk defines the chrono-based retry policy contract."
+        "rationale": "The cited public-header hunks introduce chrono and replace the integer API with typed durations."
       },
       "changes": [
         {
@@ -27,17 +28,53 @@
           "file": "include/retry_policy.h",
           "hunk": 0,
           "oldRange": {
-            "start": 1,
-            "end": 11,
-            "count": 11
+            "start": 2,
+            "end": 2,
+            "count": 0
           },
           "newRange": {
-            "start": 1,
-            "end": 15,
-            "count": 15
+            "start": 3,
+            "end": 4,
+            "count": 2
           },
-          "label": "new lines 1-15",
+          "label": "new lines 3-4",
           "topic": "#include <chrono>",
+          "definitions": []
+        },
+        {
+          "id": "include/retry_policy.h#h1",
+          "file": "include/retry_policy.h",
+          "hunk": 1,
+          "oldRange": {
+            "start": 7,
+            "end": 8,
+            "count": 2
+          },
+          "newRange": {
+            "start": 9,
+            "end": 10,
+            "count": 2
+          },
+          "label": "new lines 9-10",
+          "topic": "class RetryPolicy {",
+          "definitions": []
+        },
+        {
+          "id": "include/retry_policy.h#h2",
+          "file": "include/retry_policy.h",
+          "hunk": 2,
+          "oldRange": {
+            "start": 11,
+            "end": 11,
+            "count": 1
+          },
+          "newRange": {
+            "start": 13,
+            "end": 13,
+            "count": 1
+          },
+          "label": "new lines 13-13",
+          "topic": "class RetryPolicy {",
           "definitions": []
         }
       ]
@@ -57,9 +94,10 @@
       ],
       "titleEvidence": {
         "changeIds": [
-          "src/retry_policy.cpp#h0"
+          "src/retry_policy.cpp#h1",
+          "src/retry_policy.cpp#h3"
         ],
-        "rationale": "The source hunk implements both exponential growth and the maximum delay."
+        "rationale": "The cited source hunks define the maximum delay and implement exponential growth with the cap."
       },
       "changes": [
         {
@@ -67,20 +105,74 @@
           "file": "src/retry_policy.cpp",
           "hunk": 0,
           "oldRange": {
-            "start": 1,
-            "end": 14,
-            "count": 14
+            "start": 2,
+            "end": 2,
+            "count": 0
           },
           "newRange": {
-            "start": 1,
-            "end": 22,
-            "count": 22
+            "start": 3,
+            "end": 5,
+            "count": 3
           },
-          "label": "new lines 1-22",
+          "label": "new lines 3-5",
           "topic": "#include <algorithm>",
+          "definitions": []
+        },
+        {
+          "id": "src/retry_policy.cpp#h1",
+          "file": "src/retry_policy.cpp",
+          "hunk": 1,
+          "oldRange": {
+            "start": 5,
+            "end": 5,
+            "count": 1
+          },
+          "newRange": {
+            "start": 8,
+            "end": 10,
+            "count": 3
+          },
+          "label": "new lines 8-10",
+          "topic": "namespace trace_demo {",
+          "definitions": []
+        },
+        {
+          "id": "src/retry_policy.cpp#h2",
+          "file": "src/retry_policy.cpp",
+          "hunk": 2,
+          "oldRange": {
+            "start": 7,
+            "end": 10,
+            "count": 4
+          },
+          "newRange": {
+            "start": 12,
+            "end": 13,
+            "count": 2
+          },
+          "label": "new lines 12-13",
+          "topic": "RetryPolicy::RetryPolicy(int delay_ms) : delay_ms_(delay_ms) {}",
           "definitions": [
             "base_delay_"
           ]
+        },
+        {
+          "id": "src/retry_policy.cpp#h3",
+          "file": "src/retry_policy.cpp",
+          "hunk": 3,
+          "oldRange": {
+            "start": 12,
+            "end": 12,
+            "count": 1
+          },
+          "newRange": {
+            "start": 15,
+            "end": 18,
+            "count": 4
+          },
+          "label": "new lines 15-18",
+          "topic": "int RetryPolicy::delay_ms_for_attempt(int attempt) const {",
+          "definitions": []
         }
       ]
     },
@@ -100,7 +192,7 @@
       "titleEvidence": {
         "changeIds": [
           "tests/retry_policy_backoff_test.cpp#h0",
-          "tests/retry_policy_test.cpp#h0"
+          "tests/retry_policy_test.cpp#h2"
         ],
         "rationale": "The cited test hunks contain the growth, cap, and migrated baseline assertions."
       },
@@ -116,10 +208,10 @@
           },
           "newRange": {
             "start": 1,
-            "end": 22,
-            "count": 22
+            "end": 21,
+            "count": 21
           },
-          "label": "new lines 1-22",
+          "label": "new lines 1-21",
           "topic": "#include \"retry_policy.h\"",
           "definitions": [
             "main"
@@ -130,17 +222,53 @@
           "file": "tests/retry_policy_test.cpp",
           "hunk": 0,
           "oldRange": {
-            "start": 1,
-            "end": 12,
-            "count": 12
+            "start": 3,
+            "end": 3,
+            "count": 0
           },
           "newRange": {
-            "start": 1,
-            "end": 14,
-            "count": 14
+            "start": 4,
+            "end": 6,
+            "count": 3
           },
-          "label": "new lines 1-14",
+          "label": "new lines 4-6",
           "topic": "#include <chrono>",
+          "definitions": []
+        },
+        {
+          "id": "tests/retry_policy_test.cpp#h1",
+          "file": "tests/retry_policy_test.cpp",
+          "hunk": 1,
+          "oldRange": {
+            "start": 6,
+            "end": 6,
+            "count": 1
+          },
+          "newRange": {
+            "start": 9,
+            "end": 9,
+            "count": 1
+          },
+          "label": "new lines 9-9",
+          "topic": "int main() {",
+          "definitions": []
+        },
+        {
+          "id": "tests/retry_policy_test.cpp#h2",
+          "file": "tests/retry_policy_test.cpp",
+          "hunk": 2,
+          "oldRange": {
+            "start": 8,
+            "end": 9,
+            "count": 2
+          },
+          "newRange": {
+            "start": 11,
+            "end": 11,
+            "count": 1
+          },
+          "label": "new lines 11-11",
+          "topic": "int main() {",
           "definitions": []
         }
       ]
@@ -170,17 +298,17 @@
           "file": "CMakeLists.txt",
           "hunk": 0,
           "oldRange": {
-            "start": 18,
-            "end": 23,
-            "count": 6
+            "start": 20,
+            "end": 20,
+            "count": 0
           },
           "newRange": {
-            "start": 18,
-            "end": 24,
-            "count": 7
+            "start": 21,
+            "end": 21,
+            "count": 1
           },
-          "label": "new lines 18-24",
-          "topic": "add_library(retry_policy",
+          "label": "new lines 21-21",
+          "topic": "add_executable(retry_policy_tests",
           "definitions": []
         }
       ]
@@ -229,12 +357,6 @@
         "evidence": "Backoff test target integration is easier to review after Backoff examples and boundary coverage."
       },
       {
-        "from": "g2",
-        "to": "g4",
-        "reason": "related-configuration",
-        "evidence": "Configuration/build integration"
-      },
-      {
         "from": "g1",
         "to": "g4",
         "reason": "related-configuration",
@@ -242,12 +364,24 @@
       },
       {
         "from": "g2",
+        "to": "g4",
+        "reason": "related-configuration",
+        "evidence": "Configuration/build integration"
+      },
+      {
+        "from": "g3",
+        "to": "g4",
+        "reason": "related-configuration",
+        "evidence": "Configuration/build integration"
+      },
+      {
+        "from": "g1",
         "to": "g3",
         "reason": "associated-tests",
         "evidence": "Verification follows implementation"
       },
       {
-        "from": "g1",
+        "from": "g2",
         "to": "g3",
         "reason": "associated-tests",
         "evidence": "Verification follows implementation"
@@ -266,14 +400,14 @@
       "file": "CMakeLists.txt",
       "hunk": 0,
       "oldRange": {
-        "start": 18,
-        "end": 23,
-        "count": 6
+        "start": 20,
+        "end": 20,
+        "count": 0
       },
       "newRange": {
-        "start": 18,
-        "end": 24,
-        "count": 7
+        "start": 21,
+        "end": 21,
+        "count": 1
       }
     },
     {
@@ -281,14 +415,44 @@
       "file": "include/retry_policy.h",
       "hunk": 0,
       "oldRange": {
-        "start": 1,
-        "end": 11,
-        "count": 11
+        "start": 2,
+        "end": 2,
+        "count": 0
       },
       "newRange": {
-        "start": 1,
-        "end": 15,
-        "count": 15
+        "start": 3,
+        "end": 4,
+        "count": 2
+      }
+    },
+    {
+      "id": "include/retry_policy.h#h1",
+      "file": "include/retry_policy.h",
+      "hunk": 1,
+      "oldRange": {
+        "start": 7,
+        "end": 8,
+        "count": 2
+      },
+      "newRange": {
+        "start": 9,
+        "end": 10,
+        "count": 2
+      }
+    },
+    {
+      "id": "include/retry_policy.h#h2",
+      "file": "include/retry_policy.h",
+      "hunk": 2,
+      "oldRange": {
+        "start": 11,
+        "end": 11,
+        "count": 1
+      },
+      "newRange": {
+        "start": 13,
+        "end": 13,
+        "count": 1
       }
     },
     {
@@ -296,14 +460,59 @@
       "file": "src/retry_policy.cpp",
       "hunk": 0,
       "oldRange": {
-        "start": 1,
-        "end": 14,
-        "count": 14
+        "start": 2,
+        "end": 2,
+        "count": 0
       },
       "newRange": {
-        "start": 1,
-        "end": 22,
-        "count": 22
+        "start": 3,
+        "end": 5,
+        "count": 3
+      }
+    },
+    {
+      "id": "src/retry_policy.cpp#h1",
+      "file": "src/retry_policy.cpp",
+      "hunk": 1,
+      "oldRange": {
+        "start": 5,
+        "end": 5,
+        "count": 1
+      },
+      "newRange": {
+        "start": 8,
+        "end": 10,
+        "count": 3
+      }
+    },
+    {
+      "id": "src/retry_policy.cpp#h2",
+      "file": "src/retry_policy.cpp",
+      "hunk": 2,
+      "oldRange": {
+        "start": 7,
+        "end": 10,
+        "count": 4
+      },
+      "newRange": {
+        "start": 12,
+        "end": 13,
+        "count": 2
+      }
+    },
+    {
+      "id": "src/retry_policy.cpp#h3",
+      "file": "src/retry_policy.cpp",
+      "hunk": 3,
+      "oldRange": {
+        "start": 12,
+        "end": 12,
+        "count": 1
+      },
+      "newRange": {
+        "start": 15,
+        "end": 18,
+        "count": 4
       }
     },
     {
@@ -317,8 +526,8 @@
       },
       "newRange": {
         "start": 1,
-        "end": 22,
-        "count": 22
+        "end": 21,
+        "count": 21
       }
     },
     {
@@ -326,14 +535,44 @@
       "file": "tests/retry_policy_test.cpp",
       "hunk": 0,
       "oldRange": {
-        "start": 1,
-        "end": 12,
-        "count": 12
+        "start": 3,
+        "end": 3,
+        "count": 0
       },
       "newRange": {
-        "start": 1,
-        "end": 14,
-        "count": 14
+        "start": 4,
+        "end": 6,
+        "count": 3
+      }
+    },
+    {
+      "id": "tests/retry_policy_test.cpp#h1",
+      "file": "tests/retry_policy_test.cpp",
+      "hunk": 1,
+      "oldRange": {
+        "start": 6,
+        "end": 6,
+        "count": 1
+      },
+      "newRange": {
+        "start": 9,
+        "end": 9,
+        "count": 1
+      }
+    },
+    {
+      "id": "tests/retry_policy_test.cpp#h2",
+      "file": "tests/retry_policy_test.cpp",
+      "hunk": 2,
+      "oldRange": {
+        "start": 8,
+        "end": 9,
+        "count": 2
+      },
+      "newRange": {
+        "start": 11,
+        "end": 11,
+        "count": 1
       }
     }
   ],

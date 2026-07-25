@@ -75,6 +75,8 @@
   .btn { font-family:var(--font-heading); border:none; border-radius:5px; padding:8px 14px; cursor:pointer; font-size:.85rem; }
   .btn-primary { background:var(--orange); color:#fff; }
   .btn-primary:hover { filter:brightness(.95); }
+  .btn-header { background:rgba(255,255,255,.15); color:var(--header-text); }
+  .btn-header:hover { background:rgba(255,255,255,.24); }
   .icon-btn { background:rgba(255,255,255,.15); color:var(--header-text); border:none; border-radius:5px; width:34px; height:34px; cursor:pointer; font-size:1rem; }
   .seg { display:inline-flex; border:1px solid rgba(255,255,255,.35); border-radius:6px; overflow:hidden; }
   .seg button { background:transparent; color:var(--header-text); border:none; padding:7px 12px; cursor:pointer; font-family:var(--font-heading); font-size:.8rem; }
@@ -501,6 +503,7 @@
   <div class="header-actions">
     <span class="badge" id="commentCount">0 comments</span>
     <button class="icon-btn" id="themeBtn" title="Theme: system">◐</button>
+    <button class="btn btn-header" id="copyCommentsBtn">Copy comments</button>
     <button class="btn btn-primary" id="exportBtn">Export comments</button>
   </div>
 </header>
@@ -1415,12 +1418,38 @@
   }
   const modal = document.getElementById("exportModal");
   const exportText = document.getElementById("exportText");
+  async function copyMarkdown(markdown){
+    exportText.value=markdown;
+    try {
+      await navigator.clipboard.writeText(markdown);
+      return true;
+    } catch(e) {
+      try {
+        exportText.select();
+        return document.execCommand("copy");
+      } catch(fallbackError) {
+        return false;
+      }
+    }
+  }
+  document.getElementById("copyCommentsBtn").addEventListener("click", async ()=>{
+    const button=document.getElementById("copyCommentsBtn");
+    if(await copyMarkdown(buildMarkdown())){
+      button.textContent="Copied ✓";
+      setTimeout(()=>button.textContent="Copy comments",1800);
+    } else {
+      modal.hidden=false;
+      exportText.focus();
+      exportText.select();
+    }
+  });
   document.getElementById("exportBtn").addEventListener("click", ()=>{ exportText.value = buildMarkdown(); modal.hidden=false; });
   document.getElementById("closeModal").addEventListener("click", ()=> modal.hidden=true);
   modal.addEventListener("click", e=>{ if(e.target===modal) modal.hidden=true; });
   document.getElementById("copyBtn").addEventListener("click", async ()=>{
-    try { await navigator.clipboard.writeText(exportText.value); } catch(e){ exportText.select(); document.execCommand("copy"); }
-    const m=document.getElementById("copiedMsg"); m.hidden=false; setTimeout(()=>m.hidden=true,1800);
+    if(await copyMarkdown(exportText.value)){
+      const m=document.getElementById("copiedMsg"); m.hidden=false; setTimeout(()=>m.hidden=true,1800);
+    }
   });
   document.getElementById("downloadBtn").addEventListener("click", ()=>{
     const blob = new Blob([exportText.value], {type:"text/markdown"});

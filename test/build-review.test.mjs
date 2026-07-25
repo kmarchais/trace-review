@@ -39,6 +39,21 @@ test("generator produces a complete, mode-labelled review document", (t) => {
   assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/);
 });
 
+test("generated review exposes one-click clipboard export in the header", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-copy-export-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const result = build(path.join(fixtures, "workspace-spec.json"), out);
+
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  assert.match(html, /id="copyCommentsBtn"[^>]*>Copy comments<\/button>/);
+  assert.match(
+    html,
+    /getElementById\("copyCommentsBtn"\)\.addEventListener\("click",\s*async\s*\(\)=>\{[\s\S]*?buildMarkdown\(\)/,
+  );
+});
+
 test("generator rejects an invalid specification without writing output", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-invalid-build-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));

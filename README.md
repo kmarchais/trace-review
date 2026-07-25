@@ -41,8 +41,8 @@ publish from the `main` branch and `/docs` folder.
   sparse, budgeted set of line findings with confidence and rationale, each
   with Accept / Dismiss / Reply. Attribution is neutral ("LM") by default and
   configurable via `reviewer`.
-- **Export**: all comments and review decisions export as clean Markdown to
-  paste back into the conversation (or download and have the agent read).
+- **Export**: copy all comments and review decisions as clean Markdown directly
+  from the header, or open the export preview to inspect and download the file.
 - **Real-PR robustness**: comments follow stable diff fingerprints and remain
   visible as orphans when their source line changes; untrusted links and SVG
   are sanitized before rendering.

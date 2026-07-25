@@ -13,10 +13,17 @@
         "Confirm all callers can migrate without unit ambiguity."
       ],
       "titleEvidence": {
-        "changeIds": ["include/retry_policy.h#h0"],
-        "rationale": "The public header hunk defines the chrono-based retry policy contract."
+        "changeIds": [
+          "include/retry_policy.h#h0",
+          "include/retry_policy.h#h1"
+        ],
+        "rationale": "The cited public-header hunks introduce chrono and replace the integer API with typed durations."
       },
-      "changeIds": ["include/retry_policy.h#h0"],
+      "changeIds": [
+        "include/retry_policy.h#h0",
+        "include/retry_policy.h#h1",
+        "include/retry_policy.h#h2"
+      ],
       "readAfter": []
     },
     {
@@ -32,10 +39,18 @@
         "Check attempt boundaries, overflow protection, and cap semantics."
       ],
       "titleEvidence": {
-        "changeIds": ["src/retry_policy.cpp#h0"],
-        "rationale": "The source hunk implements both exponential growth and the maximum delay."
+        "changeIds": [
+          "src/retry_policy.cpp#h1",
+          "src/retry_policy.cpp#h3"
+        ],
+        "rationale": "The cited source hunks define the maximum delay and implement exponential growth with the cap."
       },
-      "changeIds": ["src/retry_policy.cpp#h0"],
+      "changeIds": [
+        "src/retry_policy.cpp#h0",
+        "src/retry_policy.cpp#h1",
+        "src/retry_policy.cpp#h2",
+        "src/retry_policy.cpp#h3"
+      ],
       "readAfter": ["Chrono-based retry policy contract"]
     },
     {
@@ -53,13 +68,15 @@
       "titleEvidence": {
         "changeIds": [
           "tests/retry_policy_backoff_test.cpp#h0",
-          "tests/retry_policy_test.cpp#h0"
+          "tests/retry_policy_test.cpp#h2"
         ],
         "rationale": "The cited test hunks contain the growth, cap, and migrated baseline assertions."
       },
       "changeIds": [
         "tests/retry_policy_backoff_test.cpp#h0",
-        "tests/retry_policy_test.cpp#h0"
+        "tests/retry_policy_test.cpp#h0",
+        "tests/retry_policy_test.cpp#h1",
+        "tests/retry_policy_test.cpp#h2"
       ],
       "readAfter": ["Capped exponential backoff behavior"]
     },

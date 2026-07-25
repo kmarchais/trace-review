@@ -1,77 +1,56 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 8d21a61..1cf21e3 100644
+index a671bdb..64e9ac3 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -18,6 +18,7 @@ add_library(retry_policy
- target_include_directories(retry_policy PUBLIC include)
- 
- add_executable(retry_policy_tests
+@@ -20,0 +21 @@ add_executable(retry_policy_tests
 +  tests/retry_policy_backoff_test.cpp
-   tests/retry_policy_test.cpp
- )
- target_link_libraries(retry_policy_tests PRIVATE retry_policy)
 diff --git a/include/retry_policy.h b/include/retry_policy.h
-index a211c11..2ddf990 100644
+index ff0b16e..01a0b89 100644
 --- a/include/retry_policy.h
 +++ b/include/retry_policy.h
-@@ -1,11 +1,15 @@
- #pragma once
- 
+@@ -2,0 +3,2 @@
 +#include <chrono>
 +
- namespace trace_demo {
- 
- class RetryPolicy {
-  public:
+@@ -7,2 +9,2 @@ class RetryPolicy {
 -  explicit RetryPolicy(int delay_ms);
 -  int delay_ms_for_attempt(int attempt) const;
 +  explicit RetryPolicy(std::chrono::milliseconds base_delay);
 +  std::chrono::milliseconds delay_for_attempt(int attempt) const;
- 
-  private:
+@@ -11 +13 @@ class RetryPolicy {
 -  int delay_ms_;
 +  std::chrono::milliseconds base_delay_;
- };
- 
- }  // namespace trace_demo
 diff --git a/src/retry_policy.cpp b/src/retry_policy.cpp
-index 82a0ef1..91875d0 100644
+index e653fc2..dec3de4 100644
 --- a/src/retry_policy.cpp
 +++ b/src/retry_policy.cpp
-@@ -1,14 +1,22 @@
- #include "retry_policy.h"
- 
+@@ -2,0 +3,3 @@
 +#include <algorithm>
 +#include <chrono>
 +
- namespace trace_demo {
- 
+@@ -5 +8,3 @@ namespace trace_demo {
 -RetryPolicy::RetryPolicy(int delay_ms) : delay_ms_(delay_ms) {}
 +namespace {
 +constexpr auto kMaximumDelay = std::chrono::seconds(30);
 +}
- 
+@@ -7,4 +12,2 @@ RetryPolicy::RetryPolicy(int delay_ms) : delay_ms_(delay_ms) {}
 -int RetryPolicy::delay_ms_for_attempt(int attempt) const {
 -  if (attempt <= 1) {
 -    return delay_ms_;
 -  }
 +RetryPolicy::RetryPolicy(std::chrono::milliseconds base_delay)
 +    : base_delay_(base_delay) {}
- 
+@@ -12 +15,4 @@ int RetryPolicy::delay_ms_for_attempt(int attempt) const {
 -  return delay_ms_ * attempt;
 +std::chrono::milliseconds RetryPolicy::delay_for_attempt(int attempt) const {
 +  const int exponent = std::max(0, attempt - 1);
 +  const auto multiplier = 1 << std::min(exponent, 10);
 +  return std::min(base_delay_ * multiplier, kMaximumDelay);
- }
- 
- }  // namespace trace_demo
 diff --git a/tests/retry_policy_backoff_test.cpp b/tests/retry_policy_backoff_test.cpp
 new file mode 100644
-index 0000000..af212da
+index 0000000..7bc0010
 --- /dev/null
 +++ b/tests/retry_policy_backoff_test.cpp
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,21 @@
 +#include "retry_policy.h"
 +
 +#include <cassert>
@@ -94,24 +73,17 @@ index 0000000..af212da
 +  return 0;
 +}
 diff --git a/tests/retry_policy_test.cpp b/tests/retry_policy_test.cpp
-index ac98c7e..7121c2b 100644
+index 036f278..2adbffb 100644
 --- a/tests/retry_policy_test.cpp
 +++ b/tests/retry_policy_test.cpp
-@@ -1,12 +1,14 @@
- #include "retry_policy.h"
- 
- #include <cassert>
+@@ -3,0 +4,3 @@
 +#include <chrono>
 +
 +using namespace std::chrono_literals;
- 
- int main() {
+@@ -6 +9 @@ int main() {
 -  const trace_demo::RetryPolicy policy(100);
 +  const trace_demo::RetryPolicy policy(100ms);
- 
+@@ -8,2 +11 @@ int main() {
 -  assert(policy.delay_ms_for_attempt(1) == 100);
 -  assert(policy.delay_ms_for_attempt(3) == 300);
 +  assert(policy.delay_for_attempt(1) == 100ms);
- 
-   return 0;
- }
