@@ -1,0 +1,59 @@
+# Release criteria
+
+A Trace Review release candidate is ready only when every automated gate passes
+and a person completes the interface checks below.
+
+## Automated gates
+
+Run from the repository root:
+
+```bash
+npm test
+npm run validate:example
+node scripts/validate-review-spec.mjs \
+  --spec examples/cpp-reference/review-spec.json
+node scripts/build-review.mjs \
+  --spec examples/cpp-reference/review-spec.json \
+  --out examples/cpp-reference/review.html \
+  --metrics-out examples/cpp-reference/metrics.json
+```
+
+Required results:
+
+- the complete test suite passes;
+- the general example and C++ reference spec pass schema validation;
+- malicious-content, comment-orphan, grouping, and LM finding tests remain
+  green;
+- the 300-file fixture generates in under 5 seconds on the test machine; and
+- the reference review builds without missing assets or diagnostics.
+
+Do not commit the generated reference HTML or metrics sidecar.
+
+## Accessibility and manual interface review
+
+Check the reference review in current Chromium and Firefox at desktop and
+narrow viewport sizes:
+
+- keyboard focus is always visible and stage, group, diff, comment, theme, and
+  export controls are reachable;
+- headings and landmarks give the page a sensible reading order;
+- light, dark, and high-contrast/forced-color presentation remain legible;
+- the context column collapses, Focus mode exits, and unified/split plus
+  grouped/Git order retain state;
+- findings navigate to the correct changed line;
+- line and file comments survive reload, and a deliberately changed patch
+  exposes an orphan rather than dropping it;
+- progressive rendering reaches the final file and progress totals are exact;
+  and
+- the page remains useful with network access disabled.
+
+Record the browser versions, operating system, reviewer, date, and any accepted
+exceptions in the release PR.
+
+## Distribution check
+
+Install the candidate into a clean skills directory and run one workspace
+review plus one LM-analysis review in a disposable repository. Confirm that the
+documented Node, Git, and optional GitHub CLI requirements are sufficient and
+that no repository contents are written outside `.review/` unless the user
+chooses another output path.
