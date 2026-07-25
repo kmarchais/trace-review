@@ -1,25 +1,31 @@
 {
   "palette": {
-    "primary": "#46B8D9",
-    "secondary": "#357290",
-    "orange": "#E78F1F",
-    "red": "#D8544F",
-    "green": "#25A845"
+    "surface-canvas": "#f5f7f8",
+    "surface-raised": "#ffffff",
+    "text-strong": "#172126",
+    "semantic-info": "#277b9b",
+    "semantic-warning": "#b96b12",
+    "semantic-danger": "#b6423d",
+    "semantic-success": "#218244"
   },
   "layout": {
+    "review-journey": "display:grid",
     "pr-cols": "display:flex",
     "pr-context": "position:sticky",
     "review-col": "display:flex",
     "diff-block-head": "position:sticky",
+    "group-intent-card": "background:var(--surface-subtle)",
     "overall-bar": "position:fixed"
   },
   "landmarks": [
     "app-header",
     "tabs",
+    "review-journey",
     "pr-cols",
     "pr-context",
     "review-col",
     "diff-block",
+    "group-intent-card",
     "overall-bar"
   ]
 }

@@ -99,7 +99,10 @@ test("visual contract matches the checked-in baseline", (t) => {
   }
   for (const [selector, declaration] of Object.entries(baseline.layout)) {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    assert.match(html, new RegExp(`\\.${escaped}\\s*\\{[^}]*${declaration.replace(":", "\\s*:\\s*")}`), `layout contract ${selector}`);
+    const [property, ...valueParts] = declaration.split(":");
+    const escapePattern = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const declarationPattern = `${escapePattern(property)}\\s*:\\s*${escapePattern(valueParts.join(":"))}`;
+    assert.match(html, new RegExp(`\\.${escaped}\\s*\\{[^}]*${declarationPattern}`), `layout contract ${selector}`);
   }
   let cursor = -1;
   for (const className of baseline.landmarks) {
@@ -124,6 +127,37 @@ test("change groups visually contain their files and confirm bulk review", (t) =
   assert.match(html, /if\(want && !window\.confirm\(/);
   assert.match(html, /Mark all .* files in .* as viewed/);
   assert.match(html, /files\.map\(f=> "• " \+ f\.dataset\.file\)/);
+});
+
+test("Phase 4 renders a staged, adaptive review experience", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-phase-4-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const result = build(path.join(fixtures, "workspace-spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+
+  for (const token of [
+    "surface-canvas",
+    "surface-raised",
+    "text-strong",
+    "semantic-info",
+    "space-3",
+    "radius-lg",
+    "shadow-sm",
+  ]) {
+    assert.match(html, new RegExp(`--${token}:`), `design token ${token}`);
+  }
+  assert.match(html, /class="review-journey"/);
+  assert.match(html, /data-review-stage="understand"/);
+  assert.match(html, /data-review-stage="validate"/);
+  assert.match(html, /data-review-stage="inspect"/);
+  assert.match(html, /class="context-toggle"/);
+  assert.match(html, /class="focus-mode-toggle"/);
+  assert.match(html, /aria-pressed="false"/);
+  assert.match(html, /:focus-visible/);
+  assert.match(html, /class="overall-bar collapsed"/);
+  assert.match(html, /function visibleEvidenceFiles/);
 });
 
 test("large-diff generation stays within the Phase 0 performance budget", (t) => {

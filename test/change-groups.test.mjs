@@ -255,6 +255,14 @@ test("builder consumes group files and emits correction controls", (t) => {
   assert.match(html, /class="ft-topic"/);
   assert.match(html, /paste a screenshot directly into this comment/i);
   assert.match(html, /attachmentMarkdown/);
+  assert.match(html, /class="group-intent-card"/);
+  assert.match(html, /Read first/);
+  assert.match(html, /Dependent changes/);
+  assert.match(html, /Definition preview/);
+  assert.match(html, /export function parse\(value\) \{/);
+  assert.match(html, /data-order-view="grouped"/);
+  assert.match(html, /data-order-view="raw"/);
+  assert.match(html, /class="raw-order-toggle"/);
 });
 
 test("review-spec validation accepts one Phase 2 group source and rejects ambiguity", () => {

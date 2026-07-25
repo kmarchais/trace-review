@@ -475,6 +475,19 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     const collapsedFiles = g.collapsed != null ? !!g.collapsed : kind === "mechanical";
     const gadd = gblocks.reduce((s, b) => s + b.d.add, 0);
     const gdel = gblocks.reduce((s, b) => s + b.d.del, 0);
+    const readFirst = g.readFirst?.length ? g.readFirst : ["No prerequisite group"];
+    const dependents = g.dependents?.length ? g.dependents : ["No dependent group detected"];
+    const definitions = g.definitions?.length ? g.definitions : [];
+    const relationship = `
+      <div class="group-relationships">
+        <div><span>Read first</span><strong>${readFirst.map(esc).join(" · ")}</strong></div>
+        <div><span>Dependent changes</span><strong>${dependents.map(esc).join(" · ")}</strong></div>
+      </div>`;
+    const definitionPreview = definitions.length
+      ? `<details class="definition-preview"><summary>Definition preview</summary>${definitions
+          .map((definition) => `<code>${esc(definition.symbol)}</code><pre>${esc(definition.preview)}</pre>`)
+          .join("")}</details>`
+      : `<div class="definition-preview empty"><span>Definition preview</span><p>No relevant symbol definitions detected in this group.</p></div>`;
     return `
       <div class="group gk-${esc(kind)}${g.startCollapsed ? " collapsed" : ""}" data-group="${esc(g.id || kind)}">
         <div class="group-head" data-gtoggle>
@@ -488,7 +501,12 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           <span class="stats"><span class="stat-add">+${gadd}</span> <span class="stat-del">-${gdel}</span></span>
           <label class="group-viewed" title="Mark every file in this group reviewed"><input type="checkbox" class="gv-cb"> Reviewed</label>
         </div>
-        ${g.intent || g.note ? `<div class="group-note">${g.intent ? `<p><strong>Intent:</strong> ${esc(g.intent)}</p>` : ""}${g.note ? md(g.note) : ""}${g.evidence?.length ? `<details><summary>Evidence</summary><ul>${g.evidence.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}${g.reviewerChecks?.length ? `<details><summary>Reviewer checks</summary><ul>${g.reviewerChecks.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}${g.readAfter?.length ? `<p class="read-after"><strong>Read after:</strong> ${g.readAfter.map(esc).join(", ")}</p>` : ""}</div>` : ""}
+        <div class="group-intent-card">
+          ${g.intent ? `<p><span>Intent</span>${esc(g.intent)}</p>` : g.note ? md(g.note) : `<p><span>Intent</span>Review these changes as one decision.</p>`}
+          ${relationship}
+          ${definitionPreview}
+          ${g.evidence?.length || g.reviewerChecks?.length ? `<details class="group-evidence"><summary>Inspect evidence and reviewer checks</summary>${g.evidence?.length ? `<h4>Evidence</h4><ul>${g.evidence.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}${g.reviewerChecks?.length ? `<h4>Reviewer checks</h4><ul>${g.reviewerChecks.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}</details>` : ""}
+        </div>
         <div class="group-files">${gblocks.map((b) => renderFileBlock(b, collapsedFiles, options)).join("\n")}</div>
       </div>`;
   };
@@ -511,13 +529,22 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       .map((group) => `<option value="${esc(group.id)}">${esc(group.title)}</option>`)
       .join("");
     const incoming = new Map();
+    const outgoing = new Map();
     for (const edge of changeGroups.dependencyGraph?.edges || []) {
       if (!incoming.has(edge.to)) incoming.set(edge.to, []);
+      if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
       const sourceTitle = titleById.get(edge.from) || edge.from;
+      const targetTitle = titleById.get(edge.to) || edge.to;
       if (!incoming.get(edge.to).includes(sourceTitle)) {
         incoming.get(edge.to).push(sourceTitle);
       }
+      if (!outgoing.get(edge.from).includes(targetTitle)) {
+        outgoing.get(edge.from).push(targetTitle);
+      }
     }
+    const nodesById = new Map(
+      (changeGroups.dependencyGraph?.nodes || []).map((node) => [node.id, node]),
+    );
     const parts = [];
     for (const group of orderedGroups) {
       const blocks = [];
@@ -553,9 +580,39 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         `value="${esc(group.id)}"`,
         `value="${esc(group.id)}" selected`,
       );
-      parts.push(renderGroup({ ...group, readAfter: incoming.get(group.id) || [] }, blocks, options));
+      const definitions = (nodesById.get(group.id)?.definitions || []).map((symbol) => {
+        const preview =
+          blocks
+            .flatMap((block) => block.d.hunks || [])
+            .flatMap((hunk) => hunk.rows || [])
+            .find((row) => row.t === "a" && row.c.includes(symbol))?.c || symbol;
+        return { symbol, preview };
+      });
+      parts.push(
+        renderGroup(
+          {
+            ...group,
+            readFirst: incoming.get(group.id) || [],
+            dependents: outgoing.get(group.id) || [],
+            definitions,
+          },
+          blocks,
+          options,
+        ),
+      );
     }
-    filesHtml = `<div class="reading-order"><strong>Suggested reading order:</strong> ${orderedGroups.map((group, index) => `${index + 1}. ${esc(group.title)}`).join(" → ")}</div>${parts.join("\n")}<div class="out-of-scope-group" data-out-of-scope hidden><div class="group-head"><span class="group-kind gk-other">out of scope</span><span class="group-title">Reviewer-excluded changes</span></div><div class="group-files"></div></div>`;
+    const rawBlocks = files.map((file, index) => {
+      const fid = `${prId}__raw__${index}`;
+      const d = fileData(file);
+      dataBag[fid] = d;
+      return renderFileBlock({ fid, d }, false);
+    });
+    filesHtml = `
+      <div class="group-workspace" data-review-stage="validate">
+        <div class="reading-order"><strong>Suggested reading order:</strong> ${orderedGroups.map((group, index) => `${index + 1}. ${esc(group.title)}`).join(" → ")}</div>
+        <div class="order-views" data-order-view="grouped">${parts.join("\n")}<div class="out-of-scope-group" data-out-of-scope hidden><div class="group-head"><span class="group-kind gk-other">out of scope</span><span class="group-title">Reviewer-excluded changes</span></div><div class="group-files"></div></div></div>
+        <div class="order-views" data-order-view="raw" hidden>${rawBlocks.join("\n")}</div>
+      </div>`;
   } else if (Array.isArray(pr.groups) && pr.groups.length) {
     const byPath = new Map(fileBlocks.map((b) => [b.d.path, b]));
     const assigned = new Set();
@@ -592,7 +649,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   const hasContext = hasBlocks || !!pr.url;
   const contextPanel = hasContext
     ? `
-      <aside class="pr-context">
+      <aside class="pr-context" data-review-stage="understand">
         <div class="summary-head">
           <h2>${esc(pr.title || prId)}</h2>
           <div class="pr-meta">${stat} · ${filesLabel}${link}</div>
@@ -620,11 +677,16 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
 
   return `
   <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}"${single ? "" : " hidden"}>
+    <nav class="review-journey" aria-label="Review stages">
+      <button type="button" data-review-stage="understand"><span>1</span><strong>Understand</strong><small>Pull request context</small></button>
+      <button type="button" data-review-stage="validate"><span>2</span><strong>Validate groups</strong><small>Intent and dependencies</small></button>
+      <button type="button" data-review-stage="inspect"><span>3</span><strong>Inspect evidence</strong><small>Diff and comments</small></button>
+    </nav>
     <div class="pr-cols${hasContext ? "" : " no-context"}">
       ${contextPanel}
       ${hasContext ? '<div class="col-resizer" title="Drag to resize · double-click for 50/50"></div>' : ""}
       <div class="review-col">
-        <div class="review-top">
+        <div class="review-top" data-review-stage="understand">
           ${aiGlobal}
           ${findingsList}
           <div class="cl-wrap">
@@ -632,14 +694,14 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
             <div class="comment-list" data-comment-list="${esc(prId)}"></div>
           </div>
         </div>
-        <div class="diff-block">
-          <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span><button type="button" class="dbh-tree" title="File tree (list of changed files)">🗂 Files</button><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
+        <div class="diff-block" data-review-stage="inspect">
+          <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span>${hasContext ? '<button type="button" class="context-toggle" aria-pressed="false" title="Collapse pull request context">Context</button>' : ""}<button type="button" class="focus-mode-toggle" aria-pressed="false" title="Show only the evidence surface">Focus</button>${changeGroups ? '<button type="button" class="raw-order-toggle" aria-pressed="false" title="Switch between grouped reading order and raw Git order">Git order</button>' : ""}<button type="button" class="dbh-tree" title="File tree (list of changed files)">🗂 Files</button><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
           ${warnHtml}
           <div class="files">${filesHtml}</div>
         </div>
       </div>
     </div>
-    <div class="overall-bar">
+    <div class="overall-bar collapsed">
       <div class="ob-head"><span class="review-label">📝 Your overall review</span><button type="button" class="ob-toggle" title="Collapse / expand">▾</button></div>
       <textarea class="general-input" data-general="${esc(prId)}" placeholder="${esc(overallPlaceholder)}"></textarea>
     </div>
