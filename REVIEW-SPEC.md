@@ -4,7 +4,7 @@ Every generated review is driven by a validated JSON specification. Version 1
 uses two required top-level fields:
 
 - `schemaVersion`: always `1`.
-- `mode`: one of `workspace`, `ai-analysis`, or `deep-audit`.
+- `mode`: one of `workspace`, `lm-analysis`, or `deep-audit`.
 
 The portable JSON Schema is
 [`schemas/review-spec.v1.schema.json`](schemas/review-spec.v1.schema.json).
@@ -13,11 +13,11 @@ human-oriented diagnostics.
 
 ## Modes
 
-| Mode | When to use it | AI contract |
+| Mode | When to use it | LM contract |
 |---|---|---|
 | `workspace` | Default. The reviewer inspects the facts and writes their own comments. | `prs[].review` is forbidden. |
-| `ai-analysis` | The user explicitly asks for AI findings. | Every PR has a `review` object; `comments` may be empty. |
-| `deep-audit` | The user explicitly requests a deep audit, or accepts it for a high-risk change. | Same rendered contract as AI analysis, but the producing agent performs broader dependency, failure-mode, and test analysis. |
+| `lm-analysis` | The user explicitly asks for language-model findings. | Every PR has a `review` object; `comments` may be empty. |
+| `deep-audit` | The user explicitly requests a deep audit, or accepts it for a high-risk change. | Same rendered contract as LM analysis, but the producing agent performs broader dependency, failure-mode, and test analysis. |
 
 Deep audit is deliberately not selected automatically by the generator.
 Choosing it changes the analysis workflow, not the meaning of a finding.
@@ -47,7 +47,7 @@ resolved relative to the specification and revalidated against the patch when
 the review is built.
 PR ids and group ids must be unique.
 
-Workspace specs cannot contain `review`. AI-analysis and deep-audit specs
+Workspace specs cannot contain `review`. LM-analysis and deep-audit specs
 require one per PR:
 
 ```json
@@ -71,7 +71,7 @@ Removed-line anchors use `o` plus the old line number, such as `"o7"`.
 Severity is `nit`, `suggestion`, `concern`, `question`, `praise`, or `comment`.
 Every finding requires numeric `confidence` between 0 and 1 and a concise,
 verifiable `rationale`. Focused analysis also enforces the fact-derived budget
-written by `prepare-ai-analysis.mjs`.
+written by `prepare-lm-analysis.mjs`.
 
 ## Validation
 

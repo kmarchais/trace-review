@@ -2,12 +2,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { analysisResultToReview } from "./lib/ai-analysis.mjs";
+import { analysisResultToReview } from "./lib/lm-analysis.mjs";
 
 function usage(message) {
   if (message) console.error(`Error: ${message}`);
   console.error(`Usage:
-  node finalize-ai-analysis.mjs --input <analysis-input.json>
+  node finalize-lm-analysis.mjs --input <analysis-input.json>
     --result <analysis-result.json> [--out <review.json>]`);
   process.exit(message ? 1 : 0);
 }

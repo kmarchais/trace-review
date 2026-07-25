@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "mode": "ai-analysis",
+  "mode": "lm-analysis",
   "title": "Review: <short description>",
   "reviewId": "keep-me-stable-to-retain-comments",
-  "reviewer": "AI",
+  "reviewer": "LM",
   "generated": "2026-07-22",
   "prs": [
     {
@@ -22,7 +22,7 @@
       ],
       "review": {
         "verdict": "comment",
-        "global": "Overall assessment. Add this only in **AI-analysis or deep-audit mode**; omit it from a workspace spec.",
+        "global": "Overall assessment. Add this only in **LM-analysis or deep-audit mode**; omit it from a workspace spec.",
         "comments": [
           { "file": "src/auth.js", "line": 42, "severity": "concern", "body": "Handle the null case before dereferencing.", "confidence": 0.94, "rationale": "The preceding branch allows null and this line dereferences it." },
           { "file": "src/auth.js", "line": "o58", "severity": "question", "body": "Why remove this guard? (comment on a removed line via `o<oldline>`)", "confidence": 0.72, "rationale": "No equivalent guard appears in the replacement path." }

@@ -33,9 +33,9 @@ publish from the `main` branch and `/docs` folder.
   suggested concept → consumer → integration → test reading order.
 - **Correctable grouping**: move or split individual hunk units, merge groups,
   and mark changes out of scope; corrections persist and export with comments.
-- **Focused AI analysis**: candidate groups and deterministic facts feed a
+- **Focused LM analysis**: candidate groups and deterministic facts feed a
   sparse, budgeted set of line findings with confidence and rationale, each
-  with Accept / Dismiss / Reply. Attribution is neutral ("AI") by default and
+  with Accept / Dismiss / Reply. Attribution is neutral ("LM") by default and
   configurable via `reviewer`.
 - **Export**: all comments and review decisions export as clean Markdown to
   paste back into the conversation (or download and have the agent read).
@@ -65,16 +65,15 @@ Both agents discover the skill as `trace-review`; Claude Code exposes it as
   local diff when GitHub context is unavailable. Explicit PR numbers/URLs
   require `gh`.
 - **Claude Code or Codex** — needed only to invoke the skill workflow and
-  generate AI analysis. The scripts can be run manually without either agent,
+  generate language-model (LM) analysis. The scripts can be run manually without either agent,
   and a generated review works as a standalone HTML file in a modern browser.
 
 ## Usage
 
 In Claude Code:
 
-- `/trace-review` — open the default review workspace without AI findings.
-- `/trace-review ai-analysis` — add focused AI analysis (global + line findings).
-- `/trace-review review` — temporary compatibility alias for `ai-analysis`.
+- `/trace-review` — open the default review workspace without LM findings.
+- `/trace-review lm-analysis` — add focused LM analysis (global + line findings).
 - Ask for a **deep audit** when a high-risk change warrants broader dependency,
   failure-mode, and test analysis.
 
@@ -113,19 +112,19 @@ inspection** or **Unclassified**. Run preflight directly with:
 node scripts/review-preflight.mjs --diff changes.patch
 ```
 
-For AI analysis, turn the collected context into the compact analyzer input
+For LM analysis, turn the collected context into the compact analyzer input
 instead of handing an agent the raw diff alone:
 
 ```bash
-node scripts/prepare-ai-analysis.mjs \
+node scripts/prepare-lm-analysis.mjs \
   --context .review/context.json --out .review/analysis-input.json
 
 # Deep audit is admitted only for high-risk facts or an explicit request
-node scripts/prepare-ai-analysis.mjs \
+node scripts/prepare-lm-analysis.mjs \
   --context .review/context.json --mode deep-audit --explicit
 
 # Validate the sparse result and convert it to a review-spec review object
-node scripts/finalize-ai-analysis.mjs \
+node scripts/finalize-lm-analysis.mjs \
   --input .review/analysis-input.json \
   --result .review/analysis-result.json \
   --out .review/review.json
@@ -145,7 +144,7 @@ node scripts/validate-review-spec.mjs --spec spec.json
 node scripts/build-review.mjs --spec spec.json --out review.html --open
 ```
 
-Every spec declares `schemaVersion: 1` and one of `workspace`, `ai-analysis`,
+Every spec declares `schemaVersion: 1` and one of `workspace`, `lm-analysis`,
 or `deep-audit`. Generation reports invalid fields with JSON paths and
 corrective hints before writing HTML. See [REVIEW-SPEC.md](REVIEW-SPEC.md),
 [SKILL.md](SKILL.md), and
@@ -159,8 +158,8 @@ npm test
 
 The dependency-free suite covers collection and preflight, review-spec
 validation, small and large generation, HTML landmarks, the checked-in visual
-contract, C++, CMake, renames, binaries, generated files, groups, and AI
-comments.
+contract, C++, CMake, renames, binaries, generated files, groups, and LM
+LM comments.
 
 ## Layout
 
@@ -171,8 +170,8 @@ scripts/collect-pr-context.mjs  PR detection + validated local fact pack
 scripts/review-preflight.mjs deterministic patch inventory and checks
 scripts/validate-review-spec.mjs  versioned review-spec validation
 scripts/detect-mechanical-groups.mjs  hunk groups, dependencies, and reading order
-scripts/prepare-ai-analysis.mjs  compact facts, risk gate, and finding budget
-scripts/finalize-ai-analysis.mjs  validate findings and emit review-spec content
+scripts/prepare-lm-analysis.mjs  compact facts, risk gate, and finding budget
+scripts/finalize-lm-analysis.mjs  validate findings and emit review-spec content
 templates/review.template.html  the static, interactive HTML template
 examples/                    example spec + screenshot
 test/fixtures/               patch, spec, and visual-contract fixtures

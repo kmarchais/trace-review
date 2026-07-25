@@ -2,24 +2,23 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { prepareAnalysisInput } from "./lib/ai-analysis.mjs";
+import { prepareAnalysisInput } from "./lib/lm-analysis.mjs";
 
 function usage(message) {
   if (message) console.error(`Error: ${message}`);
   console.error(`Usage:
-  node prepare-ai-analysis.mjs --context <context.json>
-    [--mode ai-analysis|deep-audit|review] [--explicit] [--out <analysis-input.json>]
+  node prepare-lm-analysis.mjs --context <context.json>
+    [--mode lm-analysis|deep-audit] [--explicit] [--out <analysis-input.json>]
 
 Options:
-  --mode ai-analysis  Prepare focused analysis (default).
-  --mode review       Temporary compatibility alias for ai-analysis.
+  --mode lm-analysis  Prepare focused language-model analysis (default).
   --mode deep-audit   Prepare a deep audit for a high-risk fact pack.
   --explicit          Confirm the user explicitly requested deep audit.`);
   process.exit(message ? 1 : 0);
 }
 
 function parseArgs(argv) {
-  const args = { mode: "ai-analysis", explicit: false };
+  const args = { mode: "lm-analysis", explicit: false };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--context") args.context = argv[++index];
@@ -39,9 +38,6 @@ if (!args.mode) usage("--mode requires a value");
 if (process.argv.includes("--out") && !args.out) usage("--out requires a value");
 
 try {
-  if (args.mode === "review") {
-    console.warn("Warning: mode 'review' is deprecated; use 'ai-analysis'.");
-  }
   const contextPath = path.resolve(args.context);
   const context = JSON.parse(fs.readFileSync(contextPath, "utf8"));
   if (context.validation?.valid === false) {

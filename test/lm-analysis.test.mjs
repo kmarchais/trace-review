@@ -9,7 +9,7 @@ import {
   analysisResultToReview,
   prepareAnalysisInput,
   validateAnalysisResult,
-} from "../scripts/lib/ai-analysis.mjs";
+} from "../scripts/lib/lm-analysis.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -77,11 +77,11 @@ const context = {
   validation: { valid: true, diagnostics: [] },
 };
 
-test("focused AI analysis receives compact facts and candidate groups, not raw diff text", () => {
-  const input = prepareAnalysisInput(context, { mode: "ai-analysis" });
+test("focused LM analysis receives compact facts and candidate groups, not raw diff text", () => {
+  const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
 
   assert.equal(input.schemaVersion, 1);
-  assert.equal(input.mode, "ai-analysis");
+  assert.equal(input.mode, "lm-analysis");
   assert.equal(input.target.title, "Harden widget parsing");
   assert.equal(input.diff.path, "context.patch");
   assert.equal(input.facts.preflight.totals.files, 1);
@@ -99,28 +99,30 @@ test("focused AI analysis receives compact facts and candidate groups, not raw d
   assert.equal(JSON.stringify(input).includes("diff --git"), false);
 });
 
-test("the temporary review alias resolves to the explicit ai-analysis mode", () => {
-  assert.equal(
-    prepareAnalysisInput(context, { mode: "review" }).mode,
-    "ai-analysis",
-  );
+test("legacy focused-analysis names are rejected", () => {
+  for (const mode of ["ai-analysis", "review"]) {
+    assert.throws(
+      () => prepareAnalysisInput(context, { mode }),
+      /Analysis mode must be one of: lm-analysis, deep-audit/,
+    );
+  }
 });
 
 test("focused analysis rejects missing or invalid deterministic facts", () => {
   assert.throws(
-    () => prepareAnalysisInput({}, { mode: "ai-analysis" }),
+    () => prepareAnalysisInput({}, { mode: "lm-analysis" }),
     /valid preflight fact pack/i,
   );
   const invalidGroups = structuredClone(context);
   invalidGroups.changeGroups.validation.valid = false;
   assert.throws(
-    () => prepareAnalysisInput(invalidGroups, { mode: "ai-analysis" }),
+    () => prepareAnalysisInput(invalidGroups, { mode: "lm-analysis" }),
     /valid candidate groups/i,
   );
 });
 
-test("AI findings require confidence and a brief rationale", () => {
-  const input = prepareAnalysisInput(context, { mode: "ai-analysis" });
+test("LM findings require confidence and a brief rationale", () => {
+  const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
   const validation = validateAnalysisResult({
     verdict: "comment",
     global: "One issue needs attention.",
@@ -138,7 +140,7 @@ test("AI findings require confidence and a brief rationale", () => {
 });
 
 test("focused analysis rejects findings beyond its fact-derived budget", () => {
-  const input = prepareAnalysisInput(context, { mode: "ai-analysis" });
+  const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
   const finding = {
     file: "src/widget.js",
     line: 3,
@@ -158,7 +160,7 @@ test("focused analysis rejects findings beyond its fact-derived budget", () => {
 });
 
 test("finding anchors must resolve to an actual changed hunk range", () => {
-  const input = prepareAnalysisInput(context, { mode: "ai-analysis" });
+  const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
   const result = {
     verdict: "request-changes",
     global: "One issue needs attention.",
@@ -217,7 +219,7 @@ test("deep audit opens for a high-risk group or an explicit request", () => {
   );
 });
 
-test("prepare-ai-analysis CLI writes the validated focused fact pack", (t) => {
+test("prepare-lm-analysis CLI writes the validated focused fact pack", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-analysis-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const contextPath = path.join(tempDir, "context.json");
@@ -225,21 +227,21 @@ test("prepare-ai-analysis CLI writes the validated focused fact pack", (t) => {
   fs.writeFileSync(contextPath, JSON.stringify(context));
 
   const result = spawnSync(process.execPath, [
-    path.join(root, "scripts", "prepare-ai-analysis.mjs"),
+    path.join(root, "scripts", "prepare-lm-analysis.mjs"),
     "--context", contextPath,
     "--out", outputPath,
   ], { cwd: root, encoding: "utf8" });
 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(fs.readFileSync(outputPath, "utf8"));
-  assert.equal(output.mode, "ai-analysis");
+  assert.equal(output.mode, "lm-analysis");
   assert.equal(output.diff.path, "../context.patch");
   assert.equal(output.facts.changeGroups.validation.valid, true);
   assert.equal(output.findingContract.maxFindings, 3);
 });
 
 test("a validated analysis result converts directly to a review-spec review", () => {
-  const input = prepareAnalysisInput(context, { mode: "ai-analysis" });
+  const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
   const result = {
     verdict: "request-changes",
     global: "One issue needs attention.",
@@ -260,13 +262,13 @@ test("a validated analysis result converts directly to a review-spec review", ()
   });
 });
 
-test("finalize-ai-analysis CLI rejects noise and writes review-spec output", (t) => {
+test("finalize-lm-analysis CLI rejects noise and writes review-spec output", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-result-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const inputPath = path.join(tempDir, "analysis-input.json");
   const resultPath = path.join(tempDir, "analysis-result.json");
   const outputPath = path.join(tempDir, "review.json");
-  const input = prepareAnalysisInput(context, { mode: "ai-analysis" });
+  const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
   const result = {
     verdict: "approve",
     global: "No actionable issues.",
@@ -276,7 +278,7 @@ test("finalize-ai-analysis CLI rejects noise and writes review-spec output", (t)
   fs.writeFileSync(resultPath, JSON.stringify(result));
 
   const cli = spawnSync(process.execPath, [
-    path.join(root, "scripts", "finalize-ai-analysis.mjs"),
+    path.join(root, "scripts", "finalize-lm-analysis.mjs"),
     "--input", inputPath,
     "--result", resultPath,
     "--out", outputPath,

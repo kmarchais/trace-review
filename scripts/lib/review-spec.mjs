@@ -4,7 +4,7 @@ import path from "node:path";
 export const REVIEW_SPEC_VERSION = 1;
 export const REVIEW_MODES = Object.freeze([
   "workspace",
-  "ai-analysis",
+  "lm-analysis",
   "deep-audit",
 ]);
 
@@ -315,9 +315,9 @@ export function validateReviewSpec(spec, options = {}) {
     }
 
     if (spec.mode === "workspace" && pr.review !== undefined) {
-      add("review-not-allowed", `${root}.review`, "Workspace mode cannot contain AI findings.", "Use mode 'ai-analysis' or 'deep-audit', or remove the review object.");
+      add("review-not-allowed", `${root}.review`, "Workspace mode cannot contain LM findings.", "Use mode 'lm-analysis' or 'deep-audit', or remove the review object.");
     }
-    if ((spec.mode === "ai-analysis" || spec.mode === "deep-audit") && pr.review === undefined) {
+    if ((spec.mode === "lm-analysis" || spec.mode === "deep-audit") && pr.review === undefined) {
       add("review-required", `${root}.review`, `${spec.mode} mode requires a review object for every review target.`, "Use an empty comments array when there are no findings.");
     }
   });

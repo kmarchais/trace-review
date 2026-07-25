@@ -1,5 +1,5 @@
 export const ANALYSIS_INPUT_VERSION = 1;
-export const ANALYSIS_MODES = Object.freeze(["ai-analysis", "deep-audit"]);
+export const ANALYSIS_MODES = Object.freeze(["lm-analysis", "deep-audit"]);
 const REQUIRED_FINDING_FIELDS = Object.freeze([
   "file",
   "line",
@@ -92,8 +92,7 @@ export function assessAnalysisRisk(context) {
 }
 
 export function prepareAnalysisInput(context, options = {}) {
-  const requestedMode = options.mode || "ai-analysis";
-  const mode = requestedMode === "review" ? "ai-analysis" : requestedMode;
+  const mode = options.mode || "lm-analysis";
   if (!ANALYSIS_MODES.includes(mode)) {
     throw new Error(`Analysis mode must be one of: ${ANALYSIS_MODES.join(", ")}.`);
   }
@@ -201,7 +200,7 @@ export function analysisResultToReview(result, input) {
     const detail = validation.diagnostics
       .map((item) => `${item.path}: ${item.message}`)
       .join("; ");
-    throw new Error(`Invalid AI analysis result: ${detail}`);
+    throw new Error(`Invalid LM analysis result: ${detail}`);
   }
   return {
     verdict: result.verdict,

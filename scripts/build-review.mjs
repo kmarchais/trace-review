@@ -698,7 +698,7 @@ function main() {
         })
         .join("");
 
-  const reviewer = spec.reviewer || "AI";
+  const reviewer = spec.reviewer || "LM";
   const dataBag = {};
   const reviewBag = {};
   const sections = prs

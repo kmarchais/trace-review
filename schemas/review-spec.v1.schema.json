@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "mode", "prs"],
   "properties": {
     "schemaVersion": { "const": 1 },
-    "mode": { "enum": ["workspace", "ai-analysis", "deep-audit"] },
+    "mode": { "enum": ["workspace", "lm-analysis", "deep-audit"] },
     "title": { "type": "string", "minLength": 1 },
     "reviewId": { "type": "string", "minLength": 1 },
     "reviewer": { "type": "string", "minLength": 1 },
@@ -181,7 +181,7 @@
       }
     },
     {
-      "if": { "properties": { "mode": { "enum": ["ai-analysis", "deep-audit"] } }, "required": ["mode"] },
+      "if": { "properties": { "mode": { "enum": ["lm-analysis", "deep-audit"] } }, "required": ["mode"] },
       "then": {
         "properties": {
           "prs": {

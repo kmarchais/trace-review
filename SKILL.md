@@ -22,12 +22,12 @@ only author a short JSON spec.
 | Mode | What you do | Result |
 |------|-------------|--------|
 | **Workspace** (default) | Set top-level `"mode": "workspace"` and omit every `review` object. | The reviewer reads the facts and diff and writes their own comments. |
-| **AI analysis** (on request) | Set `"mode": "ai-analysis"` and emit a `review` object for every PR. | Adds sparse AI findings: a global assessment plus severity-tagged, line-anchored comments. |
+| **LM analysis** (on request) | Set `"mode": "lm-analysis"` and emit a `review` object for every PR. | Adds sparse language-model findings: a global assessment plus severity-tagged, line-anchored comments. |
 | **Deep audit** (explicit/high-risk only) | Set `"mode": "deep-audit"` after the user requests or accepts deeper analysis. | Uses the same finding contract after broader dependency, failure-mode, and test analysis. |
 
-Default is **workspace**. Add AI analysis when the user invokes
-`/trace-review ai-analysis`, or asks for it in words ("review this and add your
-findings"). `/trace-review review` remains a temporary compatibility alias.
+Default is **workspace**. Add LM analysis when the user invokes
+`/trace-review lm-analysis`, or asks for it in words ("review this and add your
+findings").
 Invoking `/trace-review` (or `… no-review`) stays in workspace mode
 — don't spend tokens analysing the diff unless asked. Deep audit is never
 silently selected. See [REVIEW-SPEC.md](REVIEW-SPEC.md) for the versioned
@@ -117,12 +117,12 @@ fact pack also links definitions to usages, configuration/build integration,
 and tests, then computes a suggested concept → consumer → integration → test
 reading order.
 
-### 3. Prepare focused AI input when requested
+### 3. Prepare focused LM input when requested
 
-For `ai-analysis`, prepare a compact analyzer input from the collected context:
+For `lm-analysis`, prepare a compact analyzer input from the collected context:
 
 ```bash
-node <skill-dir>/scripts/prepare-ai-analysis.mjs \
+node <skill-dir>/scripts/prepare-lm-analysis.mjs \
   --context .review/context.json --out .review/analysis-input.json
 ```
 
@@ -139,7 +139,7 @@ Produce `analysis-result.json` with `verdict`, `global`, and `findings`, then
 validate and convert it:
 
 ```bash
-node <skill-dir>/scripts/finalize-ai-analysis.mjs \
+node <skill-dir>/scripts/finalize-lm-analysis.mjs \
   --input .review/analysis-input.json \
   --result .review/analysis-result.json \
   --out .review/review.json
@@ -207,11 +207,11 @@ used when the summary has room.
 | `callout` | `md`, `variant?` (`info`/`warn`/`success`), `title?` | A note to not miss. |
 | `heading` | `text`, `level?` | A sub-heading. |
 
-### Automatic AI findings (`ai-analysis` and `deep-audit` only)
+### Automatic LM findings (`lm-analysis` and `deep-audit` only)
 
-Only when the user asked for AI analysis, add a `review` object to every PR.
+Only when the user asked for LM analysis, add a `review` object to every PR.
 Skip it entirely in workspace mode. The review is attributed to a neutral
-**"AI"** by default — set the top-level `reviewer` (e.g. `"Claude"`, `"GPT-5"`,
+**"LM"** by default — set the top-level `reviewer` (e.g. `"Claude"`, `"GPT-5"`,
 a person's name) to relabel the card, pills, findings, and export.
 
 ```json
@@ -307,7 +307,7 @@ Linux `xdg-open`). Drop it and just tell the user the path if you prefer.
 
 In the doc the reviewer hovers a line and clicks the **+** in its gutter to
 comment (works in both unified and split view — comments follow the line, not
-the layout), types an overall note, and — in an AI mode — **Accepts / Dismisses
+the layout), types an overall note, and — in an LM mode — **Accepts / Dismisses
 / Replies** to Claude's findings. Then they hit **Export comments**, which gives
 markdown two ways:
 
@@ -329,10 +329,10 @@ accepted findings and their own comments; leave dismissed ones alone.
 | Field | Where | Meaning |
 |-------|-------|---------|
 | `schemaVersion` | top | Required. Always `1`; unknown versions are rejected. |
-| `mode` | top | Required. `workspace`, `ai-analysis`, or `deep-audit`. |
+| `mode` | top | Required. `workspace`, `lm-analysis`, or `deep-audit`. |
 | `title` | top | Document title (default `Code Review`). |
 | `reviewId` | top | localStorage key for comments (default: slug of title). Keep stable. |
-| `reviewer` | top | Display name for the AI reviewer (default `AI`) — labels the review card, pills, findings, export. |
+| `reviewer` | top | Display name for the LM reviewer (default `LM`) — labels the review card, pills, findings, export. |
 | `generated` | top | Free-text date/context line (default: today). |
 | `prs[].title` | per PR | Tab label + summary heading. |
 | `prs[].url` | per PR | Optional link to the PR/branch, shown in the summary head. |
@@ -345,7 +345,7 @@ accepted findings and their own comments; leave dismissed ones alone.
 | `prs[].changeGroups` | per PR | Inline Phase 2 grouping fact pack. |
 | `prs[].autoGroups` | per PR | Detect and validate Phase 2 groups while building. |
 | `prs[].groups` | per PR | Legacy file-level groups — `[{ id, title, kind?, note?, collapsed?, files[] }]`. |
-| `prs[].review` | per PR | Required in `ai-analysis` and `deep-audit`: `{ verdict?, global?, comments[] }`. Forbidden in `workspace`. |
+| `prs[].review` | per PR | Required in `lm-analysis` and `deep-audit`: `{ verdict?, global?, comments[] }`. Forbidden in `workspace`. |
 
 One PR → no tabs, section shown directly. Two+ → a tab bar with per-PR comment
 counts.
@@ -358,7 +358,7 @@ See [examples/screenshot.png](examples/screenshot.png). A two-column workspace:
   or `blocks`): a sticky panel with the title, `+/-` stats, PR link, and your
   free-form summary blocks. Omitted for a bare diff.
 - **Right — the review:**
-  - **Top** — in AI-analysis and deep-audit modes, a bold **"&lt;reviewer&gt; review"** card whose
+  - **Top** — in LM-analysis and deep-audit modes, a bold **"&lt;reviewer&gt; review"** card whose
     header is **coloured by verdict** (green approve / red request-changes /
     blue comment) so it's spotted instantly, then a **findings** list where each
     item is **accent-coloured by severity**, then a live list of the reviewer's
@@ -372,7 +372,7 @@ See [examples/screenshot.png](examples/screenshot.png). A two-column workspace:
     to comment on a line, the **💬** on a file header to comment on the whole
     file, ticks **Viewed** to mark a file done (it collapses, GitHub-style, is
     remembered, and the view scrolls to bring the next file up so reading order
-    is preserved), and hits **⛶** to read the diff fullscreen. AI findings
+    is preserved), and hits **⛶** to read the diff fullscreen. LM findings
     appear inline, severity-coloured, with Accept / Dismiss / Reply.
 - **Pinned to the bottom** — a **📝 Your overall review** bar stays visible at
   the bottom of the viewport no matter where you scroll (collapsible), for the
