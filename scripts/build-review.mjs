@@ -832,7 +832,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       : "";
   const findingsList =
     review && review.comments.length
-      ? `<details class="findings-panel"><summary>${esc(reviewer)} findings <span class="cl-count">${review.comments.length}</span><small>Review when relevant</small></summary><div class="finding-list" data-finding-list="${esc(prId)}"></div></details>`
+      ? `<details class="findings-panel" open><summary>${esc(reviewer)} findings <span class="cl-count">${review.comments.length}</span><small>Review when relevant</small></summary><div class="finding-list" data-finding-list="${esc(prId)}"></div></details>`
       : "";
   const overallPlaceholder = review
     ? `Your verdict after reading the summary, the ${reviewer} review, and the diff…`
@@ -849,7 +849,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       ${contextPanel}
       ${hasContext ? '<div class="col-resizer" title="Drag to resize · double-click for 34/66"></div>' : ""}
       <div class="review-col">
-        <div class="review-top" data-review-stage="understand">
+        <div class="review-top${review ? " has-lm-review" : ""}" data-review-stage="understand">
           ${aiGlobal}
           ${findingsList}
           <div class="cl-wrap">

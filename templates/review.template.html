@@ -113,7 +113,8 @@
   .pr[data-active-stage="understand"] .diff-block { display:none; }
   .pr[data-active-stage="validate"] .review-top { display:none; }
   .pr[data-active-stage="validate"] [data-order-view="grouped"] .file-body { display:none; }
-  .pr[data-active-stage="inspect"] .review-top { display:none; }
+  .pr[data-active-stage="inspect"] .review-top:not(.has-lm-review) { display:none; }
+  .pr[data-active-stage="inspect"] .review-top.has-lm-review .cl-wrap { display:none; }
   .pr[data-active-stage="inspect"] .group-intent-card { display:none; }
   .pr-cols.context-collapsed .pr-context, .pr-cols.context-collapsed .col-resizer { display:none; }
   .pr-cols.focus-mode .pr-context, .pr-cols.focus-mode .col-resizer, .pr-cols.focus-mode .review-top, .pr-cols.focus-mode ~ .overall-bar { display:none; }
