@@ -342,8 +342,14 @@ files** (a rename, an added `#include`, a signature tweak). Add a `groups` array
 ### 5. Build and open
 
 ```bash
-node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --open
+node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --metrics-out .review/metrics.json --open
 ```
+
+`--metrics-out` is recommended for real pull requests. It records generation
+time, estimated spec and avoided-patch tokens, size, and word-diff limits
+without storing patch contents. After the review, fill in actual model usage,
+review time, grouping quality, and finding relevance using
+[docs/REAL-PR-METRICS.md](docs/REAL-PR-METRICS.md).
 
 `--open` launches the default browser (Windows `start` / macOS `open` /
 Linux `xdg-open`). Drop it and just tell the user the path if you prefer.
@@ -409,8 +415,8 @@ stages remain available for focused context and group rationale.
 - **Right — the review:**
   - **Top** — in LM-analysis and deep-audit modes, a compact **"&lt;reviewer&gt; review"** card whose
     header is **coloured by verdict** (green approve / red request-changes /
-    blue comment), then a collapsed-on-demand **findings** panel where each item
-    is **accent-coloured by severity**, then a live list of the reviewer's
+    blue comment), then an expanded **findings** panel where each item is
+    **accent-coloured by severity**, then a live list of the reviewer's
     line comments (click any to jump to that line).
   - **Bottom** — the self-contained **"Changes"** block: collapsible per-file
     diffs with **language-aware syntax highlighting** (by file extension,
@@ -443,7 +449,9 @@ Viewer controls:
   review mode) findings reviewed, scoped to the **active PR** so they match its
   header. Grouped mode counts file-within-decision items; raw Git order counts
   files. The centre shows a compact **%** (a ✓ when complete) with the exact
-  count below, so it stays legible even at hundreds of items.
+  count below, so it stays legible even at hundreds of items. In review mode,
+  fixed **Previous / Next finding** controls remain beside the rings after a
+  finding jumps into the diff.
 - **Unified / Split** toggle — lives on the **"Changes"** bar; switches inline
   vs side-by-side (persists; comments follow the line in both).
 - **Git order / Grouped order** — every grouped review can return to the raw
@@ -460,8 +468,16 @@ Viewer controls:
   file.** Sending someone the `.html` sends an empty doc — send it and let them
   export their comments back. Comments survive a page reload and a rebuild
   **only if `reviewId` is unchanged**.
-- **Rebuilding after the diff changed:** comments anchored to lines that no
-  longer exist stay in storage but silently won't re-attach. Expected.
+- **Rebuilding after the diff changed:** line comments first follow an exact
+  contextual fingerprint, then a unique file/type/content fingerprint when the
+  line moves. Comments whose source changed or is ambiguous are shown in an
+  **Orphaned comments** tray and included in export until deleted.
+- **Untrusted pull-request content:** Markdown links accept only HTTP(S),
+  `mailto:`, or local fragments. Inline SVG is reduced to a safe SVG allowlist,
+  and Mermaid runs in strict security mode.
+- **Very large diffs:** diff mounts render progressively. Word-level
+  highlighting is skipped for pathological line or token sizes; the ordinary
+  line diff remains complete.
 - **Mermaid needs internet; SVG does not.** Prefer `svg`/`svgFile` diagrams —
   they render offline and scale crisply. Each SVG is placed on an explicit light
   canvas by default, including in dark mode, so generated diagrams remain legible.

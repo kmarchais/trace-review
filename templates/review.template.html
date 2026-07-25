@@ -113,7 +113,8 @@
   .pr[data-active-stage="understand"] .diff-block { display:none; }
   .pr[data-active-stage="validate"] .review-top { display:none; }
   .pr[data-active-stage="validate"] [data-order-view="grouped"] .file-body { display:none; }
-  .pr[data-active-stage="inspect"] .review-top { display:none; }
+  .pr[data-active-stage="inspect"] .review-top:not(.has-lm-review) { display:none; }
+  .pr[data-active-stage="inspect"] .review-top.has-lm-review .cl-wrap { display:none; }
   .pr[data-active-stage="inspect"] .group-intent-card { display:none; }
   .pr-cols.context-collapsed .pr-context, .pr-cols.context-collapsed .col-resizer { display:none; }
   .pr-cols.focus-mode .pr-context, .pr-cols.focus-mode .col-resizer, .pr-cols.focus-mode .review-top, .pr-cols.focus-mode ~ .overall-bar { display:none; }
@@ -403,6 +404,14 @@
   .comment-box textarea { font-family:var(--font-body); min-height:40px; }
   .comment-actions { margin-top:6px; }
   .comment-actions button { font-size:.76rem; background:none; border:none; color:var(--red); cursor:pointer; }
+  .orphan-panel { margin-top:12px; border:1px solid var(--orange); border-radius:8px; background:color-mix(in srgb,var(--orange) 9%,var(--card)); }
+  .orphan-panel[hidden] { display:none; }
+  .orphan-panel summary { cursor:pointer; padding:9px 11px; color:var(--orange); font-family:var(--font-heading); font-weight:700; }
+  .orphan-list { display:grid; gap:8px; padding:0 11px 11px; }
+  .orphan-item { border-left:3px solid var(--orange); padding:7px 9px; background:var(--panel); border-radius:4px; }
+  .orphan-loc { display:block; font-family:var(--mono); font-size:.72rem; color:var(--muted); }
+  .orphan-text { display:block; margin-top:3px; white-space:pre-wrap; }
+  .diff-mount.pending::before { content:"Preparing diff…"; display:block; padding:18px; color:var(--muted); font:italic .8rem var(--font-body); }
   .attachment-tray { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
   .comment-attachment { position:relative; width:132px; margin:0; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--panel); }
   .comment-attachment img { display:block; width:100%; height:92px; object-fit:cover; cursor:zoom-in; }
@@ -437,6 +446,10 @@
   .pd-item.done .pd-count { color:var(--green); }
   .pd-label { font-size:.6rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-family:var(--font-heading); text-align:center; }
   .pd-frac { font-family:var(--mono); font-size:.6rem; color:var(--muted); text-align:center; line-height:1; }
+  .pd-find-nav { border-top:1px solid var(--border); padding-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  .pd-find-label { grid-column:1/-1; font:600 .62rem var(--font-heading); color:var(--muted); text-align:center; }
+  .pd-find-nav button { border:1px solid var(--border); border-radius:5px; background:var(--panel); color:var(--text); cursor:pointer; padding:4px 6px; font:600 .68rem var(--font-heading); }
+  .pd-find-nav button:hover { border-color:var(--primary); color:var(--primary); }
   @media (max-width:960px){ .progress-dock { display:none !important; } body.has-dock main { padding-right:22px; } }
 
   /* file-tree drawer — a slide-in list/tree of changed files for navigation */
@@ -541,6 +554,7 @@
   const DATA = JSON.parse(document.getElementById("review-data").textContent || "{}");
   const REVIEW = JSON.parse(document.getElementById("ai-review-data").textContent || "{}");
   const HAS_REVIEW = Object.keys(REVIEW).length > 0;
+  const findingCursor = {};
 
   // ---- state ----
   let state = { general:{}, lines:{}, aiState:{}, files:{}, viewed:{}, grouping:{}, attachments:{} };
@@ -631,8 +645,8 @@
   }
 
   // ---- diff table builders (client-side, per mode) ----
-  function gutter(file,key,lineno,c){
-    return `<td class="gutter" data-file="${escAttr(file)}" data-key="${escAttr(key)}" data-lineno="${lineno}" data-code="${escAttr(c)}" title="Comment">+</td>`;
+  function gutter(file,key,lineno,c,lineFingerprint,contentFingerprint,diffFingerprint){
+    return `<td class="gutter" data-file="${escAttr(file)}" data-key="${escAttr(key)}" data-lineno="${lineno}" data-code="${escAttr(c)}" data-fingerprint="${escAttr(lineFingerprint||"")}" data-content-fingerprint="${escAttr(contentFingerprint||"")}" data-diff-fingerprint="${escAttr(diffFingerprint||"")}" title="Comment">+</td>`;
   }
   function unifiedTable(fd){
     let b="";
@@ -649,7 +663,7 @@
         b += `<tr class="line ${cls}">`
           + `<td class="ln ln-old">${r.t!=="a"&&r.o!=null?r.o:""}</td>`
           + `<td class="ln ln-new">${r.t!=="d"&&r.n!=null?r.n:""}</td>`
-          + gutter(fd.path,key,lineno,r.c)
+          + gutter(fd.path,key,lineno,r.c,r.f,r.cf,fd.fingerprint)
           + `<td class="code"><span class="marker">${marker}</span>${r._hl}</td>`
           + `</tr>`;
       }
@@ -675,15 +689,15 @@
         if(p.ctx){
           b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td><td class="gutter empty"></td><td class="code line-ctx">${p.l._hl}</td>`;
         } else if(p.l){
-          b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td>` + gutter(fd.path,"o"+p.l.o,p.l.o,p.l.c) + `<td class="code line-del">${p.l._hl}</td>`;
+          b += `<td class="ln ln-old">${p.l.o!=null?p.l.o:""}</td>` + gutter(fd.path,"o"+p.l.o,p.l.o,p.l.c,p.l.f,p.l.cf,fd.fingerprint) + `<td class="code line-del">${p.l._hl}</td>`;
         } else {
           b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
         }
         // right (new side)
         if(p.ctx){
-          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c) + `<td class="code line-ctx">${p.r._hl}</td>`;
+          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c,p.r.f,p.r.cf,fd.fingerprint) + `<td class="code line-ctx">${p.r._hl}</td>`;
         } else if(p.r){
-          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c) + `<td class="code line-add">${p.r._hl}</td>`;
+          b += `<td class="ln ln-new">${p.r.n!=null?p.r.n:""}</td>` + gutter(fd.path,String(p.r.n),p.r.n,p.r.c,p.r.f,p.r.cf,fd.fingerprint) + `<td class="code line-add">${p.r._hl}</td>`;
         } else {
           b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
         }
@@ -714,21 +728,123 @@
     const del = document.createElement("button"); del.textContent="Delete"; actions.appendChild(del);
     box.append(meta, ta, actions); td.appendChild(box); crow.appendChild(td);
     tr.after(crow);
-    const store = () => { state.lines[id] = { pr, file, key, lineno:g.dataset.lineno, code:g.dataset.code, text:ta.value }; save(); updateCounts(); };
+    const store = () => {
+      state.lines[id] = {
+        pr, file, key, lineno:g.dataset.lineno, code:g.dataset.code, text:ta.value,
+        fingerprint:g.dataset.fingerprint||"", contentFingerprint:g.dataset.contentFingerprint||"",
+        diffFingerprint:g.dataset.diffFingerprint||"",
+      };
+      save(); updateCounts(); renderOrphans();
+    };
     bindImagePaste(ta,box,attachId,store);
     ta.addEventListener("input", store);
     ta.addEventListener("blur", () => { if(!hasCommentContent(ta.value,attachId)){ delete state.lines[id]; save(); updateCounts(); crow.remove(); } });
-    del.addEventListener("click", () => { delete state.lines[id]; delete state.attachments[attachId]; save(); updateCounts(); crow.remove(); });
+    del.addEventListener("click", () => { delete state.lines[id]; delete state.attachments[attachId]; save(); updateCounts(); renderOrphans(); crow.remove(); });
     return ta;
   }
   function applyComments(mount){
     const pr = mount.closest("section.pr").dataset.pr;
     for(const id in state.lines){
       const c = state.lines[id]; if(!c || c.pr!==pr) continue;
-      const g = mount.querySelector('.gutter[data-key="'+cssEsc(c.key)+'"][data-file="'+cssEsc(c.file)+'"]');
-      if(g) createCommentRow(g, c.text);
+      const fingerprintSelector = c.fingerprint
+        ? '.gutter[data-fingerprint="'+cssEsc(c.fingerprint)+'"][data-file="'+cssEsc(c.file)+'"]'
+        : "";
+      const contentSelector = c.contentFingerprint && uniqueContentFingerprint(c.pr,c.file,c.contentFingerprint)
+        ? '.gutter[data-content-fingerprint="'+cssEsc(c.contentFingerprint)+'"][data-file="'+cssEsc(c.file)+'"]'
+        : "";
+      const g = (fingerprintSelector && mount.querySelector(fingerprintSelector))
+        || (contentSelector && mount.querySelector(contentSelector))
+        || (!c.fingerprint && mount.querySelector('.gutter[data-key="'+cssEsc(c.key)+'"][data-file="'+cssEsc(c.file)+'"]'));
+      if(g){
+        const currentId=uid(pr,c.file,g.dataset.key);
+        if(id!==currentId){
+          const oldAttachmentId=attachmentId("line",c.pr,c.file,c.key);
+          const newAttachmentId=attachmentId("line",pr,c.file,g.dataset.key);
+          if(state.attachments[oldAttachmentId]){
+            state.attachments[newAttachmentId]=state.attachments[oldAttachmentId];
+            delete state.attachments[oldAttachmentId];
+          }
+          delete state.lines[id];
+          c.key=g.dataset.key;
+          c.lineno=g.dataset.lineno;
+          c.code=g.dataset.code;
+          c.diffFingerprint=g.dataset.diffFingerprint||"";
+          state.lines[currentId]=c;
+          save();
+        }
+        c.fingerprint=g.dataset.fingerprint||"";
+        c.contentFingerprint=g.dataset.contentFingerprint||"";
+        c.diffFingerprint=g.dataset.diffFingerprint||"";
+        save();
+        createCommentRow(g, c.text);
+      }
     }
   }
+
+  let lineEvidenceCache=null;
+  function lineEvidence(){
+    if(lineEvidenceCache) return lineEvidenceCache;
+    const fingerprints=new Set(), anchors=new Set(), content=new Map();
+    Object.values(DATA).forEach(file=>{
+      (file.hunks||[]).forEach(hunk=>(hunk.rows||[]).forEach(row=>{
+        const prefix=file.reviewTarget+"\0"+file.path+"\0";
+        const key=row.t==="d" ? "o"+row.o : String(row.n);
+        if(row.f) fingerprints.add(prefix+row.f);
+        anchors.add(prefix+key);
+        if(row.cf){
+          const contentKey=prefix+row.cf;
+          if(!content.has(contentKey)) content.set(contentKey,new Set());
+          content.get(contentKey).add(row.f+"\0"+key);
+        }
+      }));
+    });
+    lineEvidenceCache={fingerprints,anchors,content};
+    return lineEvidenceCache;
+  }
+  function currentLineFingerprints(){
+    return lineEvidence().fingerprints;
+  }
+  function currentLineAnchors(){
+    return lineEvidence().anchors;
+  }
+  function uniqueContentFingerprint(pr,file,contentFingerprint){
+    return lineEvidence().content.get(pr+"\0"+file+"\0"+contentFingerprint)?.size===1;
+  }
+  function orphanedComments(){
+    const current=currentLineFingerprints(), anchors=currentLineAnchors();
+    return Object.entries(state.lines).filter(([,comment])=>{
+      if(!comment) return false;
+      const prefix=comment.pr+"\0"+comment.file+"\0";
+      if(!comment.fingerprint) return !anchors.has(prefix+comment.key);
+      if(current.has(prefix+comment.fingerprint)) return false;
+      return !(comment.contentFingerprint && uniqueContentFingerprint(comment.pr,comment.file,comment.contentFingerprint));
+    });
+  }
+  function renderOrphans(){
+    const byPr={};
+    orphanedComments().forEach(([id,comment])=>{
+      (byPr[comment.pr]=byPr[comment.pr]||[]).push([id,comment]);
+    });
+    document.querySelectorAll("[data-orphan-list]").forEach(list=>{
+      const items=byPr[list.dataset.orphanList]||[];
+      const panel=list.closest(".orphan-panel");
+      panel.hidden=!items.length;
+      panel.querySelector(".orphan-count").textContent=items.length;
+      list.innerHTML=items.map(([id,c])=>
+        `<div class="orphan-item" data-orphan-id="${encodeURIComponent(id)}"><span class="orphan-loc">${escAttr(c.file)}:${escAttr(c.lineno||c.key)} · previous diff ${escAttr((c.diffFingerprint||"unknown").slice(0,8))}</span><span class="orphan-text">${escAttr(c.text||"Pasted image")}</span><div class="comment-actions"><button type="button" data-delete-orphan>Delete</button></div></div>`
+      ).join("");
+    });
+  }
+  document.addEventListener("click",event=>{
+    const button=event.target.closest("[data-delete-orphan]"); if(!button) return;
+    const item=button.closest("[data-orphan-id]"); const id=item ? decodeURIComponent(item.dataset.orphanId) : "";
+    if(id){
+      const comment=state.lines[id];
+      delete state.lines[id];
+      if(comment) delete state.attachments[attachmentId("line",comment.pr||"",comment.file||"",comment.key||"")];
+      save(); updateCounts(); renderOrphans();
+    }
+  });
 
   // ---- Claude's automatic review (inline rows + findings list) ----
   function miniMd(s){
@@ -780,19 +896,49 @@
       list.innerHTML = rev.comments.map(c=>{
         const s = state.aiState[pr+" "+c.aid] || "";
         const statusHtml = s ? `<span class="fi-status ${s}">${s}</span>` : "";
-        return `<button class="finding-item sv-${escAttr(c.severity)}${s?" done":""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span><span class="ai-confidence">${Math.round(c.confidence*100)}% confidence</span>${statusHtml}</span><span class="finding-text">${escAttr(c.body)}</span></button>`;
+        return `<button class="finding-item sv-${escAttr(c.severity)}${s?" done":""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}" data-aid="${escAttr(c.aid)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span><span class="ai-confidence">${Math.round(c.confidence*100)}% confidence</span>${statusHtml}</span><span class="finding-text">${escAttr(c.body)}</span></button>`;
       }).join("");
     });
   }
 
   // ---- render all mounts in a mode ----
+  let renderGeneration=0;
+  function renderMount(mnt,mode){
+    const fd=DATA[mnt.dataset.fid]; if(!fd) return;
+    mnt.innerHTML=mode==="split" ? splitTable(fd) : unifiedTable(fd);
+    mnt.classList.remove("pending");
+    mnt.dataset.rendered=mode;
+    applyComments(mnt);
+    applyReview(mnt);
+  }
   function renderAll(mode){
-    document.querySelectorAll(".diff-mount").forEach(mnt=>{
-      const fd = DATA[mnt.dataset.fid]; if(!fd) return;
-      mnt.innerHTML = mode==="split" ? splitTable(fd) : unifiedTable(fd);
-      applyComments(mnt);
-      applyReview(mnt);
+    const generation=++renderGeneration;
+    const mounts=[...document.querySelectorAll(".diff-mount")];
+    mounts.forEach(mnt=>{
+      mnt.innerHTML="";
+      delete mnt.dataset.rendered;
+      mnt.classList.add("pending");
     });
+    const pending=mounts;
+    pending.slice(0,4).forEach(mnt=>renderMount(mnt,mode));
+    let cursor=4;
+    const pump=deadline=>{
+      if(generation!==renderGeneration) return;
+      let count=0;
+      while(cursor<pending.length && count<8 && (!deadline || deadline.timeRemaining()>2)){
+        renderMount(pending[cursor++],mode); count++;
+      }
+      if(cursor<pending.length){
+        if(window.requestIdleCallback) requestIdleCallback(pump,{timeout:120});
+        else setTimeout(()=>pump(null),16);
+      }else{
+        renderOrphans();
+      }
+    };
+    if(cursor<pending.length){
+      if(window.requestIdleCallback) requestIdleCallback(pump,{timeout:120});
+      else setTimeout(()=>pump(null),16);
+    }else renderOrphans();
   }
 
   // ---- counts ----
@@ -859,11 +1005,31 @@
       let ftotal=0, fdone=0;
       for(const p of prs){ const rv=REVIEW[p]; if(!rv) continue; for(const c of rv.comments){ ftotal++; if(state.aiState[p+" "+c.aid]) fdone++; } }
       if(ftotal) html += ring(fdone, ftotal, "Reviewed");
+      const rv=pr ? REVIEW[pr] : null;
+      if(rv?.comments?.length){
+        const cursor=Math.max(0,Math.min(findingCursor[pr]??0,rv.comments.length-1));
+        findingCursor[pr]=cursor;
+        html += `<div class="pd-find-nav"><div class="pd-find-label">Finding ${cursor+1}/${rv.comments.length}</div>`
+          + `<button type="button" data-finding-step="-1" title="Previous finding">← Prev</button>`
+          + `<button type="button" data-finding-step="1" title="Next finding">Next →</button></div>`;
+      }
     }
     dock.innerHTML = html;
     dock.hidden = !html;
     document.body.classList.toggle("has-dock", !!html);
   }
+  document.addEventListener("click",e=>{
+    const button=e.target.closest("[data-finding-step]"); if(!button) return;
+    const sec=activeSection(), pr=sec?.dataset.pr, rv=pr ? REVIEW[pr] : null;
+    if(!rv?.comments?.length) return;
+    const step=Number(button.dataset.findingStep);
+    const current=findingCursor[pr]??0;
+    const next=(current+step+rv.comments.length)%rv.comments.length;
+    findingCursor[pr]=next;
+    const item=sec.querySelector('.finding-item[data-aid="'+cssEsc(rv.comments[next].aid)+'"]');
+    if(item) item.click();
+    updateProgress();
+  });
 
   // ---- sidebar comment list (file notes + line comments) ----
   function renderCommentList(){
@@ -887,6 +1053,11 @@
     const it = e.target.closest(".cl-item, .finding-item"); if(!it) return;
     const sec = document.querySelector('section.pr[data-pr="'+cssEsc(it.dataset.pr)+'"]');
     if(!sec) return;
+    if(it.classList.contains("finding-item")){
+      const comments=REVIEW[it.dataset.pr]?.comments||[];
+      const index=comments.findIndex(comment=>comment.aid===it.dataset.aid);
+      if(index>=0){ findingCursor[it.dataset.pr]=index; updateProgress(); }
+    }
     if(it.classList.contains("cl-file")){
       const fileEl = visibleEvidenceFiles(sec).find(f=>f.dataset.file===it.dataset.file);
       if(fileEl){ fileEl.classList.remove("collapsed"); fileEl.scrollIntoView({ block:"start", behavior:"smooth" }); fileNoteBox(fileEl, (state.files[it.dataset.pr+" "+it.dataset.file]||{}).text||"", true); }
@@ -1230,6 +1401,13 @@
           if(lineAttachments) block += lineAttachments + "\n";
         }
       }
+      const orphans=orphanedComments().filter(([,comment])=>comment.pr===pr);
+      if(orphans.length){
+        block += "\n### Orphaned comments\n";
+        for(const [,comment] of orphans){
+          block += "- **" + comment.file + ":" + (comment.lineno||comment.key) + "** — " + (comment.text||"Pasted image").replace(/\n+/g," ").trim() + "\n";
+        }
+      }
       if(block.trim()){ any=true; out += "\n## " + title + "\n" + block; }
     });
     if(!any) out += "\n_No comments yet._\n";
@@ -1370,6 +1548,7 @@
   setMode(mode);
   renderFindingList();
   updateCounts();
+  renderOrphans();
 })();
 </script>
 {{MERMAID}}
