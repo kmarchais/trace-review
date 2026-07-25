@@ -31,9 +31,10 @@ publish from the `main` branch and `/docs` folder.
 - **Decision-oriented groups**: deterministic hunk facts feed LM-generated,
   change-specific decisions with intent, evidence, risk, confidence, reviewer
   checks, dependencies, and a validated reading order.
-- **File-cohesive grouping**: every file appears once with all of its relevant
-  hunks; groups are read-only context so the reviewer evaluates the decisions
-  instead of repairing the grouping model.
+- **Decision-cohesive rendering**: within a group, each file appears once with
+  that decision's relevant hunks. A file may participate in multiple groups
+  when separate hunks belong to separate decisions. Groups are read-only
+  context so the reviewer evaluates them instead of repairing the model.
 - **Focused LM analysis**: candidate groups and deterministic facts feed a
   sparse, budgeted set of line findings with confidence and rationale, each
   with Accept / Dismiss / Reply. Attribution is neutral ("LM") by default and
@@ -116,8 +117,8 @@ node scripts/finalize-lm-groups.mjs \
   --out .review/groups.json
 ```
 
-The finalizer rejects generic classifier titles, split files, incomplete
-coverage, unsupported title evidence, and invalid prerequisites. Run preflight
+The finalizer rejects generic classifier titles, incomplete coverage,
+unsupported title evidence, and invalid prerequisites. Run preflight
 directly with:
 
 ```bash

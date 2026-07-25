@@ -37,7 +37,7 @@ function candidates() {
   return detectChangeGroups(patch, analyzePatch(patch));
 }
 
-test("LM grouping uses change-specific names and keeps every file in one group", () => {
+test("LM grouping uses change-specific names and keeps same-group hunks together", () => {
   const facts = candidates();
   const sourceIds = facts.inventory
     .filter((change) => change.file === "src/session.js")
@@ -96,16 +96,19 @@ test("LM grouping uses change-specific names and keeps every file in one group",
   assert.equal(grouping.validation.valid, true);
 });
 
-test("LM grouping rejects generic classifier names and split files", () => {
+test("LM grouping allows one file to participate in distinct semantic groups", () => {
   const facts = candidates();
   const [firstSource, secondSource] = facts.inventory.filter(
     (change) => change.file === "src/session.js",
   );
+  const [testChange] = facts.inventory.filter(
+    (change) => change.file === "test/session.test.js",
+  );
   const result = {
     groups: [
       {
-        title: "Definitions and consumers",
-        intent: "First half.",
+        title: "Session opening contract",
+        intent: "Review the session opening entry point.",
         risk: "medium",
         confidence: 0.8,
         evidence: ["One hunk."],
@@ -113,12 +116,12 @@ test("LM grouping rejects generic classifier names and split files", () => {
         changeIds: [firstSource.id],
         titleEvidence: {
           changeIds: [firstSource.id],
-          rationale: "The title refers to this hunk.",
+          rationale: "The cited hunk introduces session opening.",
         },
       },
       {
-        title: "Consumers",
-        intent: "Second half.",
+        title: "Session timeout policy",
+        intent: "Review timeout behavior as a separate decision.",
         risk: "medium",
         confidence: 0.8,
         evidence: ["Another hunk."],
@@ -126,7 +129,51 @@ test("LM grouping rejects generic classifier names and split files", () => {
         changeIds: [secondSource.id],
         titleEvidence: {
           changeIds: [secondSource.id],
-          rationale: "The title refers to this hunk.",
+          rationale: "The cited hunk introduces timeout behavior.",
+        },
+      },
+      {
+        title: "Session opening verification",
+        intent: "Verify the opening contract.",
+        risk: "low",
+        confidence: 0.9,
+        evidence: ["The test imports the opening entry point."],
+        reviewerChecks: ["Confirm failure sensitivity."],
+        changeIds: [testChange.id],
+        titleEvidence: {
+          changeIds: [testChange.id],
+          rationale: "The cited test hunk verifies session opening.",
+        },
+      },
+    ],
+  };
+
+  const validation = validateLmGroupingResult(result, facts);
+  assert.equal(validation.valid, true);
+  const grouping = finalizeLmGrouping(result, facts);
+  assert.equal(
+    grouping.groups.filter((group) =>
+      group.changes.some((change) => change.file === "src/session.js"),
+    ).length,
+    2,
+  );
+});
+
+test("LM grouping rejects generic classifier names", () => {
+  const facts = candidates();
+  const result = {
+    groups: [
+      {
+        title: "Definitions and consumers",
+        intent: "Classify the entire patch.",
+        risk: "medium",
+        confidence: 0.8,
+        evidence: ["All changes are assigned."],
+        reviewerChecks: ["Inspect the patch."],
+        changeIds: facts.inventory.map((change) => change.id),
+        titleEvidence: {
+          changeIds: [facts.inventory[0].id],
+          rationale: "The title refers to the patch.",
         },
       },
     ],
@@ -135,7 +182,6 @@ test("LM grouping rejects generic classifier names and split files", () => {
   const validation = validateLmGroupingResult(result, facts);
   assert.equal(validation.valid, false);
   assert.ok(validation.diagnostics.some((item) => item.code === "generic-group-title"));
-  assert.ok(validation.diagnostics.some((item) => item.code === "split-file-across-groups"));
 });
 
 test("grouped rendering shows a multi-hunk file once", (t) => {

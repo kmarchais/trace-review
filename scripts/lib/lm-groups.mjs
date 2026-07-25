@@ -20,7 +20,6 @@ export function validateLmGroupingResult(result, candidates) {
     (candidates.inventory || []).map((change) => [change.id, change]),
   );
   const assigned = new Map();
-  const fileGroups = new Map();
   const titles = new Map();
   const groups = Array.isArray(result?.groups) ? result.groups : [];
 
@@ -144,8 +143,6 @@ export function validateLmGroupingResult(result, candidates) {
       } else {
         assigned.set(changeId, groupLabel);
       }
-      if (!fileGroups.has(change.file)) fileGroups.set(change.file, new Set());
-      fileGroups.get(change.file).add(groupLabel);
     }
   }
 
@@ -156,17 +153,6 @@ export function validateLmGroupingResult(result, candidates) {
         code: "unclassified-change",
         change: changeId,
         message: `Change '${changeId}' is not assigned to a semantic group.`,
-      });
-    }
-  }
-  for (const [file, groupNames] of fileGroups) {
-    if (groupNames.size > 1) {
-      diagnostics.push({
-        level: "error",
-        code: "split-file-across-groups",
-        file,
-        groups: [...groupNames],
-        message: `'${file}' is split across multiple top-level groups.`,
       });
     }
   }

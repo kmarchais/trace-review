@@ -138,10 +138,11 @@ then produce `.review/grouping-result.json`:
 
 Group titles must be generated from the actual change. Do not expose recurring
 classifier names such as **Definitions**, **Consumers**, or **Associated
-tests**. Assign every change unit exactly once, and keep every hunk from a file
-in one top-level group. When a file contains multiple related concerns,
-describe those as subtopics in the group's intent/checks instead of rendering
-the file repeatedly.
+tests**. Assign every change unit exactly once. Within a group, collect all of
+that group's hunks for a file into one file block. The same file may appear in
+another group when separate hunks belong to a genuinely different review
+decision; use change-specific group titles and intents to make that split
+explicit.
 
 Finalize and validate the LM result:
 
@@ -153,8 +154,8 @@ node <skill-dir>/scripts/finalize-lm-groups.mjs \
 ```
 
 Treat any validation failure as a hard stop. The finalizer rejects generic
-titles, unknown/missing/overlapping change units, split files, incomplete
-rationales, and invalid dependency references. Group generation is required
+titles, unknown/missing/overlapping change units, incomplete rationales, and
+invalid dependency references. Group generation is required
 even in workspace mode; workspace mode omits LM *findings*, not LM-organized
 review structure.
 
@@ -296,10 +297,11 @@ a reviewer should be able to act on every finding you leave.
 
 Prefer a finalized LM-generated `groupFile` (or embed it as `changeGroups`).
 Generated groups work at hunk granularity, display their rationale and
-dependencies, and follow the suggested reading order. Each file appears once
-in grouped order even when several of its hunks are assigned. The groups are
-read-only review context: the reviewer evaluates the proposed decisions rather
-than defining or repairing the grouping model.
+dependencies, and follow the suggested reading order. Within each group, a file
+appears once even when several of its hunks are assigned there. A file may
+appear in multiple groups when its hunks implement separate decisions. The
+groups are read-only review context: the reviewer evaluates the proposed
+decisions rather than defining or repairing the grouping model.
 
 The legacy file-level `groups` array remains available for hand-authored specs:
 
