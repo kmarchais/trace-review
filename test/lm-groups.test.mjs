@@ -55,6 +55,10 @@ test("LM grouping uses change-specific names and keeps every file in one group",
         evidence: ["The source file owns both lifecycle hunks."],
         reviewerChecks: ["Check lifecycle compatibility and timeout behavior."],
         changeIds: sourceIds,
+        titleEvidence: {
+          changeIds: [sourceIds[0]],
+          rationale: "The cited source hunk introduces the session lifecycle entry point.",
+        },
       },
       {
         title: "Lifecycle verification",
@@ -64,6 +68,10 @@ test("LM grouping uses change-specific names and keeps every file in one group",
         evidence: ["The test imports the new entry point."],
         reviewerChecks: ["Confirm the assertion fails without the implementation."],
         changeIds: testIds,
+        titleEvidence: {
+          changeIds: [testIds[0]],
+          rationale: "The cited test hunk verifies the lifecycle entry point.",
+        },
         readAfter: ["Session lifecycle contract"],
       },
     ],
@@ -80,6 +88,11 @@ test("LM grouping uses change-specific names and keeps every file in one group",
     grouping.groups[0].changes.filter((change) => change.file === "src/session.js").length,
     2,
   );
+  assert.ok(
+    grouping.dependencyGraph.nodes
+      .find((node) => node.id === grouping.groups[0].id)
+      .definitions.includes("openSession"),
+  );
   assert.equal(grouping.validation.valid, true);
 });
 
@@ -91,13 +104,17 @@ test("LM grouping rejects generic classifier names and split files", () => {
   const result = {
     groups: [
       {
-        title: "Definitions",
+        title: "Definitions and consumers",
         intent: "First half.",
         risk: "medium",
         confidence: 0.8,
         evidence: ["One hunk."],
         reviewerChecks: ["Inspect it."],
         changeIds: [firstSource.id],
+        titleEvidence: {
+          changeIds: [firstSource.id],
+          rationale: "The title refers to this hunk.",
+        },
       },
       {
         title: "Consumers",
@@ -107,6 +124,10 @@ test("LM grouping rejects generic classifier names and split files", () => {
         evidence: ["Another hunk."],
         reviewerChecks: ["Inspect it."],
         changeIds: [secondSource.id],
+        titleEvidence: {
+          changeIds: [secondSource.id],
+          rationale: "The title refers to this hunk.",
+        },
       },
     ],
   };
@@ -132,12 +153,17 @@ test("grouped rendering shows a multi-hunk file once", (t) => {
       groups: [
         {
           title: "Session lifecycle contract",
+          kind: "mechanical",
           intent: "Review lifecycle changes together.",
           risk: "medium",
           confidence: 0.9,
           evidence: ["Two hunks belong to one source file."],
           reviewerChecks: ["Review both lifecycle subtopics."],
           changeIds: sourceIds,
+          titleEvidence: {
+            changeIds: [sourceIds[0]],
+            rationale: "The source hunk introduces the lifecycle contract.",
+          },
         },
         {
           title: "Lifecycle verification",
@@ -147,6 +173,10 @@ test("grouped rendering shows a multi-hunk file once", (t) => {
           evidence: ["The test uses the new entry point."],
           reviewerChecks: ["Check failure sensitivity."],
           changeIds: testIds,
+          titleEvidence: {
+            changeIds: [testIds[0]],
+            rationale: "The test hunk verifies the lifecycle contract.",
+          },
         },
       ],
     },
@@ -189,4 +219,54 @@ test("grouped rendering shows a multi-hunk file once", (t) => {
     1,
   );
   assert.match(grouped, /2 change units/);
+  assert.doesNotMatch(
+    grouped,
+    /class="file collapsed"[^>]*data-file="src\/session\.js"/,
+  );
+});
+
+test("declared prerequisites determine suggested reading order", () => {
+  const facts = candidates();
+  const sourceIds = facts.inventory
+    .filter((change) => change.file === "src/session.js")
+    .map((change) => change.id);
+  const testIds = facts.inventory
+    .filter((change) => change.file === "test/session.test.js")
+    .map((change) => change.id);
+  const grouping = finalizeLmGrouping(
+    {
+      groups: [
+        {
+          title: "Lifecycle verification",
+          intent: "Verify session opening.",
+          risk: "low",
+          confidence: 0.9,
+          evidence: ["The test uses the new entry point."],
+          reviewerChecks: ["Check failure sensitivity."],
+          changeIds: testIds,
+          titleEvidence: {
+            changeIds: [testIds[0]],
+            rationale: "The test hunk verifies lifecycle behavior.",
+          },
+          readAfter: ["Session lifecycle contract"],
+        },
+        {
+          title: "Session lifecycle contract",
+          intent: "Review lifecycle changes together.",
+          risk: "medium",
+          confidence: 0.9,
+          evidence: ["Two hunks belong to one source file."],
+          reviewerChecks: ["Review both lifecycle subtopics."],
+          changeIds: sourceIds,
+          titleEvidence: {
+            changeIds: [sourceIds[0]],
+            rationale: "The source hunk introduces the lifecycle contract.",
+          },
+        },
+      ],
+    },
+    facts,
+  );
+
+  assert.deepEqual(grouping.dependencyGraph.suggestedOrder, ["g2", "g1"]);
 });

@@ -125,6 +125,10 @@ then produce `.review/grouping-result.json`:
       "confidence": 0.91,
       "evidence": ["The source file owns both lifecycle hunks."],
       "reviewerChecks": ["Check lifecycle compatibility and timeout behavior."],
+      "titleEvidence": {
+        "changeIds": ["src/session.js#h0"],
+        "rationale": "This hunk introduces the session lifecycle entry point."
+      },
       "changeIds": ["src/session.js#h0", "src/session.js#h1"],
       "readAfter": []
     }

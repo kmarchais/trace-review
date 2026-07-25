@@ -1,19 +1,7 @@
 import { validateGrouping } from "./change-groups.mjs";
 
-const GENERIC_TITLES = new Set(
-  [
-    "Definitions",
-    "Consumers",
-    "Configuration and build integration",
-    "Associated tests",
-    "Needs inspection",
-    "Unclassified",
-    "Imports and includes",
-    "Formatting-only changes",
-    "Generated dependency locks",
-    "Renames without content changes",
-  ].map((title) => title.toLowerCase()),
-);
+const GENERIC_TITLE_RE =
+  /\b(definitions?|consumers?|associated tests?|configuration(?: and build integration)?|needs inspection|unclassified|imports? and includes?|formatting-only changes?|generated dependency locks?|renames? without content changes?)\b/i;
 
 function candidateChanges(candidates) {
   const changes = new Map();
@@ -54,7 +42,7 @@ export function validateLmGroupingResult(result, candidates) {
         group: groupLabel,
         message: "Every semantic group needs a change-specific title.",
       });
-    } else if (GENERIC_TITLES.has(title.toLowerCase())) {
+    } else if (GENERIC_TITLE_RE.test(title)) {
       diagnostics.push({
         level: "error",
         code: "generic-group-title",
@@ -96,6 +84,33 @@ export function validateLmGroupingResult(result, candidates) {
     const changeIds = Array.isArray(group?.changeIds)
       ? group.changeIds
       : (group?.changes || []).map((change) => change.id);
+    const titleEvidenceIds = group?.titleEvidence?.changeIds;
+    if (
+      !group?.titleEvidence ||
+      !Array.isArray(titleEvidenceIds) ||
+      !titleEvidenceIds.length ||
+      !String(group.titleEvidence.rationale || "").trim()
+    ) {
+      diagnostics.push({
+        level: "error",
+        code: "missing-title-evidence",
+        group: groupLabel,
+        message:
+          "Every group title must cite assigned change IDs and explain how the title is grounded in those changes.",
+      });
+    } else {
+      for (const changeId of titleEvidenceIds) {
+        if (!changeIds.includes(changeId)) {
+          diagnostics.push({
+            level: "error",
+            code: "unassigned-title-evidence",
+            group: groupLabel,
+            change: changeId,
+            message: `Title evidence '${changeId}' is not assigned to '${groupLabel}'.`,
+          });
+        }
+      }
+    }
     if (!changeIds.length) {
       diagnostics.push({
         level: "error",
@@ -193,9 +208,10 @@ export function finalizeLmGrouping(result, candidates) {
     confidence: group.confidence,
     evidence: group.evidence,
     reviewerChecks: group.reviewerChecks,
+    titleEvidence: group.titleEvidence,
     changes: group.changeIds.map((changeId) => changes.get(changeId)),
   }));
-  const edges = result.groups.flatMap((group) =>
+  const explicitEdges = result.groups.flatMap((group) =>
     (group.readAfter || []).map((prerequisite) => ({
       from: groupIds.get(prerequisite.toLowerCase()),
       to: groupIds.get(group.title.toLowerCase()),
@@ -203,14 +219,90 @@ export function finalizeLmGrouping(result, candidates) {
       evidence: `${group.title} is easier to review after ${prerequisite}.`,
     })),
   );
+  const finalGroupByChange = new Map();
+  for (const group of groups) {
+    for (const change of group.changes) finalGroupByChange.set(change.id, group.id);
+  }
+  const candidateGroups = new Map(
+    (candidates.groups || []).map((group) => [group.id, group]),
+  );
+  const candidateNodes = new Map(
+    (candidates.dependencyGraph?.nodes || []).map((node) => [node.id, node]),
+  );
+  const finalGroupsForCandidate = (candidateGroupId) =>
+    [
+      ...new Set(
+        (candidateGroups.get(candidateGroupId)?.changes || [])
+          .map((change) => finalGroupByChange.get(change.id))
+          .filter(Boolean),
+      ),
+    ];
+  const inferredEdges = [];
+  for (const edge of candidates.dependencyGraph?.edges || []) {
+    for (const from of finalGroupsForCandidate(edge.from)) {
+      for (const to of finalGroupsForCandidate(edge.to)) {
+        if (from !== to) inferredEdges.push({ ...edge, from, to });
+      }
+    }
+  }
+  const edgeMap = new Map();
+  for (const edge of [...explicitEdges, ...inferredEdges]) {
+    edgeMap.set(`${edge.from}\u0000${edge.to}\u0000${edge.reason}`, edge);
+  }
+  const edges = [...edgeMap.values()];
+  const dependencies = new Map(groups.map((group) => [group.id, new Set()]));
+  for (const edge of edges) dependencies.get(edge.to)?.add(edge.from);
+  const suggestedOrder = [];
+  const remaining = new Set(groups.map((group) => group.id));
+  while (remaining.size) {
+    const ready = groups
+      .map((group) => group.id)
+      .filter(
+        (id) =>
+          remaining.has(id) &&
+          [...(dependencies.get(id) || [])].every(
+            (dependency) => !remaining.has(dependency),
+          ),
+      );
+    if (!ready.length) {
+      throw new Error("Invalid LM grouping result: dependency-cycle: Group prerequisites contain a cycle.");
+    }
+    for (const id of ready) {
+      suggestedOrder.push(id);
+      remaining.delete(id);
+    }
+  }
   const grouping = {
     schemaVersion: 1,
     provenance: "lm",
     groups,
     dependencyGraph: {
-      nodes: groups.map((group) => ({ id: group.id, definitions: [], role: group.kind })),
+      nodes: groups.map((group) => {
+        const candidateIds = [
+          ...new Set(
+            group.changes.flatMap((change) =>
+              [...candidateGroups.values()]
+                .filter((candidate) =>
+                  (candidate.changes || []).some((item) => item.id === change.id),
+                )
+                .map((candidate) => candidate.id),
+            ),
+          ),
+        ];
+        return {
+          id: group.id,
+          definitions: [
+            ...new Set(
+              candidateIds.flatMap(
+                (candidateId) => candidateNodes.get(candidateId)?.definitions || [],
+              ),
+            ),
+          ],
+          role: group.kind,
+        };
+      }),
       edges,
-      suggestedOrder: groups.map((group) => group.id),
+      suggestedOrder,
     },
     inventory: candidates.inventory,
   };

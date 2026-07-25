@@ -429,15 +429,35 @@ function resolveChangeGroups(pr, text) {
   }
   const inventory = parsePatchChanges(text, analyzePatch(text));
   const structuralValidation = validateGrouping(grouping, inventory);
+  const groupIdsByFile = new Map();
+  for (const group of grouping.groups || []) {
+    for (const change of group.changes || []) {
+      if (!groupIdsByFile.has(change.file)) groupIdsByFile.set(change.file, new Set());
+      groupIdsByFile.get(change.file).add(group.id);
+    }
+  }
+  const cohesionDiagnostics = [...groupIdsByFile]
+    .filter(([, groupIds]) => groupIds.size > 1)
+    .map(([file, groupIds]) => ({
+      level: "error",
+      code: "split-file-across-groups",
+      file,
+      groups: [...groupIds],
+      message: `'${file}' is split across multiple top-level groups.`,
+    }));
   const semanticValidation =
     grouping.provenance === "lm"
       ? validateLmGroupingResult(grouping, { inventory })
       : { valid: true, diagnostics: [] };
   const validation = {
-    valid: structuralValidation.valid && semanticValidation.valid,
+    valid:
+      structuralValidation.valid &&
+      semanticValidation.valid &&
+      cohesionDiagnostics.length === 0,
     diagnostics: [
       ...structuralValidation.diagnostics,
       ...semanticValidation.diagnostics,
+      ...cohesionDiagnostics,
     ],
   };
   if (!validation.valid) {
@@ -484,7 +504,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   };
   const renderGroup = (g, gblocks) => {
     const kind = g.kind || "other";
-    const collapsedFiles = g.collapsed != null ? !!g.collapsed : kind === "mechanical";
+    const collapsedFiles = g.collapsed != null ? !!g.collapsed : false;
     const gadd = gblocks.reduce((s, b) => s + b.d.add, 0);
     const gdel = gblocks.reduce((s, b) => s + b.d.del, 0);
     const readFirst = g.readFirst?.length ? g.readFirst : ["No prerequisite group"];
