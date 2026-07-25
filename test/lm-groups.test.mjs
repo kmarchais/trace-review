@@ -24,6 +24,9 @@ index 1111111..2222222 100644
 @@ -8 +9,2 @@
  export function closeSession() {}
 +export const timeout = 30;
+@@ -15 +17,2 @@
+ export function refreshSession() {}
++export const retryLimit = 2;
 diff --git a/test/session.test.js b/test/session.test.js
 index 1111111..2222222 100644
 --- a/test/session.test.js
@@ -86,7 +89,7 @@ test("LM grouping uses change-specific names and keeps same-group hunks together
   ]);
   assert.equal(
     grouping.groups[0].changes.filter((change) => change.file === "src/session.js").length,
-    2,
+    3,
   );
   assert.ok(
     grouping.dependencyGraph.nodes
@@ -98,7 +101,7 @@ test("LM grouping uses change-specific names and keeps same-group hunks together
 
 test("LM grouping allows one file to participate in distinct semantic groups", () => {
   const facts = candidates();
-  const [firstSource, secondSource] = facts.inventory.filter(
+  const [firstSource, secondSource, thirdSource] = facts.inventory.filter(
     (change) => change.file === "src/session.js",
   );
   const [testChange] = facts.inventory.filter(
@@ -113,7 +116,7 @@ test("LM grouping allows one file to participate in distinct semantic groups", (
         confidence: 0.8,
         evidence: ["One hunk."],
         reviewerChecks: ["Inspect it."],
-        changeIds: [firstSource.id],
+        changeIds: [firstSource.id, secondSource.id],
         titleEvidence: {
           changeIds: [firstSource.id],
           rationale: "The cited hunk introduces session opening.",
@@ -126,9 +129,9 @@ test("LM grouping allows one file to participate in distinct semantic groups", (
         confidence: 0.8,
         evidence: ["Another hunk."],
         reviewerChecks: ["Inspect it."],
-        changeIds: [secondSource.id],
+        changeIds: [thirdSource.id],
         titleEvidence: {
-          changeIds: [secondSource.id],
+          changeIds: [thirdSource.id],
           rationale: "The cited hunk introduces timeout behavior.",
         },
       },
@@ -184,7 +187,7 @@ test("LM grouping rejects generic classifier names", () => {
   assert.ok(validation.diagnostics.some((item) => item.code === "generic-group-title"));
 });
 
-test("grouped rendering shows a multi-hunk file once", (t) => {
+test("grouped rendering shows a multi-hunk file once per semantic group", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-lm-groups-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const facts = candidates();
@@ -205,11 +208,25 @@ test("grouped rendering shows a multi-hunk file once", (t) => {
           confidence: 0.9,
           evidence: ["Two hunks belong to one source file."],
           reviewerChecks: ["Review both lifecycle subtopics."],
-          changeIds: sourceIds,
+          changeIds: sourceIds.slice(0, 2),
           titleEvidence: {
             changeIds: [sourceIds[0]],
             rationale: "The source hunk introduces the lifecycle contract.",
           },
+        },
+        {
+          title: "Session retry policy",
+          intent: "Review retry behavior as a separate source-file decision.",
+          risk: "medium",
+          confidence: 0.88,
+          evidence: ["The later source hunk introduces a retry limit."],
+          reviewerChecks: ["Check retry and timeout interaction."],
+          changeIds: [sourceIds[2]],
+          titleEvidence: {
+            changeIds: [sourceIds[2]],
+            rationale: "The cited hunk introduces the retry limit.",
+          },
+          readAfter: ["Session lifecycle contract"],
         },
         {
           title: "Lifecycle verification",
@@ -262,9 +279,14 @@ test("grouped rendering shows a multi-hunk file once", (t) => {
   );
   assert.equal(
     [...grouped.matchAll(/data-file="src\/session\.js"/g)].length,
-    1,
+    2,
   );
   assert.match(grouped, /2 change units/);
+  assert.match(grouped, /data-view-key="g1::src\/session\.js"/);
+  assert.match(grouped, /data-view-key="g2::src\/session\.js"/);
+  assert.match(html, /data-view-key="raw::src\/session\.js"/);
+  assert.match(html, /function viewedId\(fileEl\)/);
+  assert.match(html, /grouped \? "Decisions" : "Files"/);
   assert.doesNotMatch(
     grouped,
     /class="file collapsed"[^>]*data-file="src\/session\.js"/,

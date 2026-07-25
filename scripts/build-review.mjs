@@ -464,11 +464,11 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     dataBag[fid] = fileData(f);
     return { fid, d: dataBag[fid] };
   });
-  const renderFileBlock = ({ fid, d, changeId, changeLabel }, collapsed) => {
+  const renderFileBlock = ({ fid, d, changeId, changeLabel, viewKey }, collapsed) => {
     const pathLabel = d.renamed ? `${esc(d.oldPath)} → ${esc(d.path)}` : esc(d.path);
     const tag = d.isNew ? '<span class="ftag ftag-new">new</span>' : d.isDeleted ? '<span class="ftag ftag-del">deleted</span>' : d.renamed ? '<span class="ftag">renamed</span>' : "";
     return `
-      <div class="file${collapsed ? " collapsed" : ""}" id="file-${fid}" data-file="${esc(d.path)}"${changeId ? ` data-change="${esc(changeId)}"` : ""}>
+      <div class="file${collapsed ? " collapsed" : ""}" id="file-${fid}" data-file="${esc(d.path)}"${changeId ? ` data-change="${esc(changeId)}"` : ""}${viewKey ? ` data-view-key="${esc(viewKey)}"` : ""}>
         <div class="file-header" data-toggle="file-${fid}">
           <span class="chevron">▾</span>
           <span class="file-path">${pathLabel}</span>${tag}${changeLabel ? `<span class="change-range" title="${esc(changeLabel)}">${esc(changeLabel)}</span>` : ""}
@@ -527,7 +527,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         const fid = `${prId}__raw__${index}`;
         const d = fileData(file);
         dataBag[fid] = d;
-        return renderFileBlock({ fid, d }, false);
+        return renderFileBlock({ fid, d, viewKey: `raw::${d.path}` }, false);
       })
       .join("\n");
   // pure renames (moved, no textual change) are noise to review one-by-one —
@@ -618,6 +618,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           d,
           changeId: fileChanges.map((change) => change.id).join(","),
           changeLabel: `${fileChanges.length} change unit${fileChanges.length === 1 ? "" : "s"}`,
+          viewKey: `${group.id}::${file}`,
         });
       }
       const previewSources = new Map(

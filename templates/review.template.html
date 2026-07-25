@@ -849,9 +849,10 @@
     // scope to the active PR so the counts match that PR's header
     const scope = activeSection() || document;
     const evidenceFiles=visibleEvidenceFiles(scope);
+    const grouped = !!scope.querySelector('[data-order-view="grouped"]:not([hidden])');
     const filesTotal = evidenceFiles.length;
     const filesViewed = evidenceFiles.filter(file=>file.classList.contains("viewed")).length;
-    let html = filesTotal ? ring(filesViewed, filesTotal, "Files") : "";
+    let html = filesTotal ? ring(filesViewed, filesTotal, grouped ? "Decisions" : "Files") : "";
     if(HAS_REVIEW){
       const pr = scope.dataset ? scope.dataset.pr : null;
       const prs = pr ? [pr] : Object.keys(REVIEW);
@@ -942,15 +943,48 @@
     if(focus) ta.focus();
     return ta;
   }
-  function setViewed(fileEl, viewed, persist){
-    const sec=fileEl.closest("section.pr"), pr=sec.dataset.pr, file=fileEl.dataset.file, id=pr+" "+file;
-    const related=[...sec.querySelectorAll(".file")].filter(candidate=>candidate.dataset.file===file);
-    related.forEach(candidate=>{
-      candidate.classList.toggle("viewed", viewed);
-      candidate.classList.toggle("collapsed", viewed);
-      const cb=candidate.querySelector(".viewed-cb"); if(cb) cb.checked=viewed;
+  function viewedId(fileEl){
+    const pr=fileEl.closest("section.pr").dataset.pr;
+    return pr+" "+(fileEl.dataset.viewKey || fileEl.dataset.file);
+  }
+  function applyViewed(fileEl, viewed){
+    fileEl.classList.toggle("viewed", viewed);
+    fileEl.classList.toggle("collapsed", viewed);
+    const cb=fileEl.querySelector(".viewed-cb"); if(cb) cb.checked=viewed;
+  }
+  function storeViewed(fileEl, viewed){
+    const id=viewedId(fileEl);
+    if(viewed) state.viewed[id]=true; else delete state.viewed[id];
+  }
+  function groupedOccurrences(sec, file){
+    return [...sec.querySelectorAll('[data-order-view="grouped"] .file')]
+      .filter(candidate=>candidate.dataset.file===file);
+  }
+  function rawOccurrences(sec, file){
+    return [...sec.querySelectorAll('[data-order-view="raw"] .file')]
+      .filter(candidate=>candidate.dataset.file===file);
+  }
+  function syncRawViewed(sec, file, persist){
+    const grouped=groupedOccurrences(sec,file), viewed=grouped.length>0 && grouped.every(candidate=>candidate.classList.contains("viewed"));
+    rawOccurrences(sec,file).forEach(candidate=>{
+      applyViewed(candidate,viewed);
+      if(persist) storeViewed(candidate,viewed);
     });
-    if(persist){ if(viewed) state.viewed[id]=true; else delete state.viewed[id]; save(); updateCounts(); }
+  }
+  function setViewed(fileEl, viewed, persist){
+    const sec=fileEl.closest("section.pr"), file=fileEl.dataset.file;
+    const isRaw=!!fileEl.closest('[data-order-view="raw"]');
+    const related=isRaw ? groupedOccurrences(sec,file) : [fileEl];
+    related.forEach(candidate=>{
+      applyViewed(candidate,viewed);
+      if(persist) storeViewed(candidate,viewed);
+    });
+    if(!isRaw){
+      applyViewed(fileEl,viewed);
+      if(persist) storeViewed(fileEl,viewed);
+    }
+    syncRawViewed(sec,file,persist);
+    if(persist){ save(); updateCounts(); }
     new Set(related.map(candidate=>candidate.closest(".group")).filter(Boolean)).forEach(syncGroupCb);
     refreshTree();
   }
@@ -979,8 +1013,8 @@
     cb.indeterminate = n>0 && n<files.length;
   }
   document.querySelectorAll(".file").forEach(fileEl=>{
-    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
-    const legacyId = pr + " " + (fileEl.dataset.change || file);
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = viewedId(fileEl);
+    const legacyId = pr + " " + file;
     const fileNoteId = pr + " " + fileEl.dataset.file;
     const fileAttachId = attachmentId("file",pr,fileEl.dataset.file,"");
     const btn = fileEl.querySelector(".file-note-btn");
@@ -989,6 +1023,9 @@
     if(cb) cb.addEventListener("change", ()=>{ setViewed(fileEl, cb.checked, true); if(cb.checked) scrollFileToTop(fileEl); });
     if(state.files[fileNoteId] && hasCommentContent(state.files[fileNoteId].text,fileAttachId)){ fileNoteBox(fileEl, state.files[fileNoteId].text, false); if(btn) btn.classList.add("has-note"); }
     if(state.viewed[id] || state.viewed[legacyId]) setViewed(fileEl, true, false);
+  });
+  document.querySelectorAll("section.pr").forEach(sec=>{
+    new Set([...sec.querySelectorAll(".file")].map(file=>file.dataset.file)).forEach(file=>syncRawViewed(sec,file,false));
   });
 
   // ---- change groups: collapse + one "Reviewed" that clears the whole group ----
