@@ -56,17 +56,19 @@ test("generator rejects an invalid specification without writing output", (t) =>
   assert.equal(fs.existsSync(out), false);
 });
 
-test("AI-analysis fixture renders its global assessment and line finding", (t) => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-ai-build-"));
+test("LM-analysis fixture renders its global assessment and line finding", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-lm-build-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const out = path.join(tempDir, "review.html");
-  const result = build(path.join(fixtures, "ai-analysis-spec.json"), out);
+  const result = build(path.join(fixtures, "lm-analysis-spec.json"), out);
 
   assert.equal(result.status, 0, result.stderr);
   const html = fs.readFileSync(out, "utf8");
-  assert.match(html, /<body data-review-mode="ai-analysis">/);
+  assert.match(html, /<body data-review-mode="lm-analysis">/);
   assert.match(html, /The implementation and build changes agree\./);
   assert.match(html, /Should the returned name be part of the public compatibility contract/);
+  assert.match(html, /Math\.round\(c\.confidence\*100\).*% confidence/);
+  assert.match(html, /The return value is exposed by a public header/);
 });
 
 test("generator reports malformed JSON without a stack trace", (t) => {

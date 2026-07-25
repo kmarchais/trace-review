@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "mode": "ai-analysis",
+  "mode": "lm-analysis",
   "title": "Widget API analysis",
-  "reviewId": "fixture-widget-ai",
-  "reviewer": "AI",
+  "reviewId": "fixture-widget-lm",
+  "reviewer": "LM",
   "generated": "2026-07-24",
   "prs": [
     {
@@ -19,7 +19,8 @@
             "line": 5,
             "severity": "question",
             "body": "Should the returned name be part of the public compatibility contract?",
-            "confidence": 0.8
+            "confidence": 0.8,
+            "rationale": "The return value is exposed by a public header but no compatibility expectation is documented."
           }
         ]
       }

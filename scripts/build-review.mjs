@@ -380,7 +380,7 @@ function renderBlocks(pr) {
 }
 
 // ---------- Claude's automatic review (optional) ----------
-// `pr.review = { verdict?, global?, comments: [{ file, line, severity, body }] }`.
+// `pr.review = { verdict?, global?, comments: [{ file, line, severity, body, confidence, rationale }] }`.
 // `line` is the new-file line number; prefix with `o` for a removed line (e.g. "o7").
 function normalizeReview(pr) {
   const r = pr.review;
@@ -395,7 +395,16 @@ function normalizeReview(pr) {
       key = String(c.line);
       line = String(c.line);
     }
-    return { file: c.file, key, line, severity: c.severity || "comment", body: c.body || "", aid: "a" + n++ };
+    return {
+      file: c.file,
+      key,
+      line,
+      severity: c.severity || "comment",
+      body: c.body || "",
+      confidence: c.confidence,
+      rationale: c.rationale || "",
+      aid: "a" + n++,
+    };
   });
   return { verdict: r.verdict || "", global: r.global || "", comments };
 }
@@ -689,7 +698,7 @@ function main() {
         })
         .join("");
 
-  const reviewer = spec.reviewer || "AI";
+  const reviewer = spec.reviewer || "LM";
   const dataBag = {};
   const reviewBag = {};
   const sections = prs
