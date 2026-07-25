@@ -95,27 +95,69 @@ change groups.
 Multiple PRs → run the collector once per explicit PR with distinct output
 paths.
 
-### 2. Detect and validate change groups
+### 2. Generate and validate semantic change groups
 
-The collector includes `changeGroups` in its context. For an existing patch,
-write the same fact pack separately:
+The collector includes deterministic **candidate facts** in its context. For an
+existing patch, write those candidates separately:
 
 ```bash
 node <skill-dir>/scripts/detect-mechanical-groups.mjs \
-  --diff .review/context.patch --out .review/groups.json
+  --diff .review/context.patch --out .review/candidates.json
 ```
 
-The detector classifies at hunk/line-range granularity. It recognizes pure
+The detector inventories changes at hunk/line-range granularity. It recognizes pure
 renames, formatting-only changes, lockfiles, import/include changes, and
 repeated includes. Every group carries intent, evidence, risk, confidence, and
 reviewer checks. Binary/generated uncertainty is placed in **Needs inspection**;
 anything unmatched stays visible in **Unclassified**.
 
-Treat `validation.valid: false` as a hard stop. A change unit must be assigned
-exactly once; missing and overlapping units are never silently rendered. The
-fact pack also links definitions to usages, configuration/build integration,
-and tests, then computes a suggested concept → consumer → integration → test
-reading order.
+Those fixed classifier labels are evidence for the LM, never the final group
+names shown to a reviewer. In every mode, read the candidate facts and patch,
+then produce `.review/grouping-result.json`:
+
+```json
+{
+  "groups": [
+    {
+      "title": "Session lifecycle contract",
+      "intent": "Review opening and timeout behavior as one source-file decision.",
+      "risk": "medium",
+      "confidence": 0.91,
+      "evidence": ["The source file owns both lifecycle hunks."],
+      "reviewerChecks": ["Check lifecycle compatibility and timeout behavior."],
+      "titleEvidence": {
+        "changeIds": ["src/session.js#h0"],
+        "rationale": "This hunk introduces the session lifecycle entry point."
+      },
+      "changeIds": ["src/session.js#h0", "src/session.js#h1"],
+      "readAfter": []
+    }
+  ]
+}
+```
+
+Group titles must be generated from the actual change. Do not expose recurring
+classifier names such as **Definitions**, **Consumers**, or **Associated
+tests**. Assign every change unit exactly once. Within a group, collect all of
+that group's hunks for a file into one file block. The same file may appear in
+another group when separate hunks belong to a genuinely different review
+decision; use change-specific group titles and intents to make that split
+explicit.
+
+Finalize and validate the LM result:
+
+```bash
+node <skill-dir>/scripts/finalize-lm-groups.mjs \
+  --candidates .review/candidates.json \
+  --result .review/grouping-result.json \
+  --out .review/groups.json
+```
+
+Treat any validation failure as a hard stop. The finalizer rejects generic
+titles, unknown/missing/overlapping change units, incomplete rationales, and
+invalid dependency references. Group generation is required
+even in workspace mode; workspace mode omits LM *findings*, not LM-organized
+review structure.
 
 ### 3. Prepare focused LM input when requested
 
@@ -175,8 +217,9 @@ Minimum viable spec:
   .review/spec.json` to inspect contract diagnostics without generating HTML.
   The build command runs the same validation and refuses invalid specs.
 - `groupFile` is resolved relative to the spec and revalidated against the
-  current patch at build time. Use `autoGroups: true` to detect in-process, or
-  `changeGroups` to embed an already-collected fact pack.
+  current patch at build time. It should point to the finalized LM grouping.
+  `autoGroups: true` remains a low-level deterministic fallback for tests and
+  diagnostics; do not use it for a reviewer-facing document.
 - `reviewId` keys the reviewer's saved comments — **keep it stable** across
   rebuilds so comments survive a regenerate.
 
@@ -252,11 +295,13 @@ a reviewer should be able to act on every finding you leave.
 
 ### Change groups
 
-Prefer `groupFile`, `changeGroups`, or `autoGroups: true`. Generated groups work
-at hunk granularity, display their rationale and dependencies, and follow the
-suggested reading order. Reviewers can move/split individual units, merge
-groups, or mark units out of scope; those decisions persist and are included in
-the Markdown export.
+Prefer a finalized LM-generated `groupFile` (or embed it as `changeGroups`).
+Generated groups work at hunk granularity, display their rationale and
+dependencies, and follow the suggested reading order. Within each group, a file
+appears once even when several of its hunks are assigned there. A file may
+appear in multiple groups when its hunks implement separate decisions. The
+groups are read-only review context: the reviewer evaluates the proposed
+decisions rather than defining or repairing the grouping model.
 
 The legacy file-level `groups` array remains available for hand-authored specs:
 
@@ -352,16 +397,20 @@ counts.
 
 ## What the output looks like
 
-See [examples/screenshot.png](examples/screenshot.png). A two-column workspace:
+See [examples/screenshot.png](examples/screenshot.png). The workspace follows
+three explicit stages: **Understand** the pull request, **Validate groups** and
+their relationships, then **Inspect evidence** in the diff. It opens on
+**Inspect evidence**, so the reviewer sees the code immediately; the other
+stages remain available for focused context and group rationale.
 
 - **Left — the PR** (only when there's context: `url`, `summary`, `diagrams`,
   or `blocks`): a sticky panel with the title, `+/-` stats, PR link, and your
   free-form summary blocks. Omitted for a bare diff.
 - **Right — the review:**
-  - **Top** — in LM-analysis and deep-audit modes, a bold **"&lt;reviewer&gt; review"** card whose
+  - **Top** — in LM-analysis and deep-audit modes, a compact **"&lt;reviewer&gt; review"** card whose
     header is **coloured by verdict** (green approve / red request-changes /
-    blue comment) so it's spotted instantly, then a **findings** list where each
-    item is **accent-coloured by severity**, then a live list of the reviewer's
+    blue comment), then a collapsed-on-demand **findings** panel where each item
+    is **accent-coloured by severity**, then a live list of the reviewer's
     line comments (click any to jump to that line).
   - **Bottom** — the self-contained **"Changes"** block: collapsible per-file
     diffs with **language-aware syntax highlighting** (by file extension,
@@ -374,25 +423,32 @@ See [examples/screenshot.png](examples/screenshot.png). A two-column workspace:
     remembered, and the view scrolls to bring the next file up so reading order
     is preserved), and hits **⛶** to read the diff fullscreen. LM findings
     appear inline, severity-coloured, with Accept / Dismiss / Reply.
-- **Pinned to the bottom** — a **📝 Your overall review** bar stays visible at
-  the bottom of the viewport no matter where you scroll (collapsible), for the
-  reviewer's own verdict after reading everything.
+- **Pinned at the bottom-right** — a compact **📝 Your overall review** drawer
+  stays available without covering the width of the diff. It starts collapsed
+  and expands for the reviewer's own verdict after reading everything.
 
-The two columns are **resizable** — drag the divider between them (default
-**50/50**, double-click resets). On narrow screens the left panel stacks on top.
-Styled with the Elsyca palette (Titillium Web / Roboto, JetBrains Mono for code).
+The context column is **adaptive, resizable, and collapsible** — drag the divider
+between it and the evidence surface (default **34/66**, double-click resets),
+use **Context** to collapse it, or use **Focus** to remove surrounding review
+chrome. On narrow screens the context panel stacks on top. The design system
+uses Inter for interface text, JetBrains Mono for code, quiet neutral surfaces,
+semantic state colors, a shared spacing scale, and visible keyboard focus.
 
 Viewer controls:
 - **File tree** — a **🗂 Files** button on the "Changes" bar opens a slide-in
   tree of the changed files (directory chains compacted, per-file `+/-`, viewed
   files struck through). Click a file to jump to it — it expands its group if
   needed and scrolls it under the sticky header. Built for big diffs.
-- **Progress dock** (right edge) — two rings, `files viewed` and (in review
-  mode) `findings reviewed`, scoped to the **active PR** so they match its
-  header. The centre shows a compact **%** (a ✓ when complete) with the exact
-  count below, so it stays legible even at hundreds of files.
+- **Progress dock** (right edge) — two rings, review items viewed and (in
+  review mode) findings reviewed, scoped to the **active PR** so they match its
+  header. Grouped mode counts file-within-decision items; raw Git order counts
+  files. The centre shows a compact **%** (a ✓ when complete) with the exact
+  count below, so it stays legible even at hundreds of items.
 - **Unified / Split** toggle — lives on the **"Changes"** bar; switches inline
   vs side-by-side (persists; comments follow the line in both).
+- **Git order / Grouped order** — every grouped review can return to the raw
+  patch sequence for verification. Viewed state, navigation, and progress share
+  the same file identity in both representations.
 - **Click any diagram** to view it fullscreen (click again / Esc to close).
 - **Theme** button (header) — the doc **follows the OS light/dark setting by
   default**; the button cycles a session-only override (system → light → dark),

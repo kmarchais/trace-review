@@ -8,11 +8,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
   :root {
+    /* Phase 4 design system: quiet neutrals, semantic accents, and one spacing scale. */
+    --surface-canvas:#f5f7f8; --surface-subtle:#eef2f4; --surface-raised:#ffffff;
+    --text-strong:#172126; --text-default:#34434a; --text-muted:#687980;
+    --semantic-info:#277b9b; --semantic-warning:#b96b12; --semantic-danger:#b6423d; --semantic-success:#218244;
+    --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px; --space-6:32px;
+    --radius-sm:5px; --radius-md:8px; --radius-lg:12px;
+    --shadow-sm:0 1px 2px rgba(18,37,45,.08); --shadow-md:0 8px 24px rgba(18,37,45,.12);
     --primary:#46B8D9; --secondary:#357290; --orange:#E78F1F; --red:#D8544F; --green:#25A845;
     --font-heading:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif; --font-body:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
     --mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
     /* light (default) */
-    --bg:#ffffff; --panel:#f7f9fa; --card:#ffffff; --text:#4B4A4A; --muted:#808080;
+    --bg:var(--surface-canvas); --panel:var(--surface-subtle); --card:var(--surface-raised); --text:var(--text-default); --muted:var(--text-muted);
     --border:#e2e8ec; --header:#357290; --header-text:#ffffff;
     --add-bg:#e6ffed; --add-word:#a6f0b6; --del-bg:#ffeef0; --del-word:#f7b9c0;
     --ctx:#4B4A4A; --ln:#f2f5f7; --ln-text:#9aa7ad; --hunk-bg:#eef5f9; --hunk-text:#357290;
@@ -22,6 +29,9 @@
   /* dark, applied when the OS prefers dark AND the user has not overridden */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
+      --surface-canvas:#0e1418; --surface-subtle:#141c22; --surface-raised:#161f26;
+      --text-strong:#edf4f7; --text-default:#c8d2d8; --text-muted:#8fa0a8;
+      --semantic-info:#62bddc; --semantic-warning:#e3a454; --semantic-danger:#e47772; --semantic-success:#58bb78;
       --bg:#0e1418; --panel:#141c22; --card:#161f26; --text:#c8d2d8; --muted:#7d8b93;
       --border:#243038; --header:#0b2b38; --header-text:#daeff8;
       --add-bg:#132a1d; --add-word:#1f6f38; --del-bg:#30191e; --del-word:#8a2a33;
@@ -32,6 +42,9 @@
   }
   /* explicit manual override (session only) */
   :root[data-theme="dark"] {
+    --surface-canvas:#0e1418; --surface-subtle:#141c22; --surface-raised:#161f26;
+    --text-strong:#edf4f7; --text-default:#c8d2d8; --text-muted:#8fa0a8;
+    --semantic-info:#62bddc; --semantic-warning:#e3a454; --semantic-danger:#e47772; --semantic-success:#58bb78;
     --bg:#0e1418; --panel:#141c22; --card:#161f26; --text:#c8d2d8; --muted:#7d8b93;
     --border:#243038; --header:#0b2b38; --header-text:#daeff8;
     --add-bg:#0f2a17; --add-word:#1f6f38; --del-bg:#3a1418; --del-word:#8a2a33;
@@ -44,6 +57,9 @@
   body { margin:0; font-family:var(--font-body); color:var(--text); background:var(--bg); }
   h1,h2,h3,h4,h5,h6 { font-family:var(--font-heading); }
   a { color:var(--secondary); }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, textarea:focus-visible {
+    outline:3px solid color-mix(in srgb,var(--semantic-info) 38%,transparent); outline-offset:2px;
+  }
 
   .app-header {
     position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
@@ -70,10 +86,19 @@
   .tab.active { color:var(--secondary); border-bottom-color:var(--orange); }
   .tab-count { background:var(--orange); color:#fff; border-radius:10px; padding:0 6px; margin-left:6px; font-size:.72rem; }
 
-  main { max-width:none; margin:0; padding:18px 22px; }
+  main { max-width:none; margin:0; padding:var(--space-4) var(--space-5); }
+
+  .review-journey { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--space-2); max-width:860px; margin:0 auto var(--space-4); }
+  .review-journey button { display:grid; grid-template-columns:28px 1fr; column-gap:var(--space-2); text-align:left; color:var(--text-muted); background:transparent; border:0; border-bottom:2px solid var(--border); padding:var(--space-2) var(--space-3); cursor:pointer; }
+  .review-journey button:hover { color:var(--text-strong); border-bottom-color:var(--semantic-info); }
+  .review-journey button[aria-current="step"] { color:var(--semantic-info); border-bottom-color:var(--semantic-info); }
+  .review-journey button[aria-current="step"] > span { color:var(--surface-raised); background:var(--semantic-info); border-color:var(--semantic-info); }
+  .review-journey button > span { grid-row:span 2; width:24px; height:24px; display:grid; place-items:center; border:1px solid var(--border); border-radius:50%; font:600 .72rem var(--font-heading); }
+  .review-journey strong { font:.78rem var(--font-heading); color:var(--text-strong); }
+  .review-journey small { font-size:.68rem; }
 
   /* ── page columns: PR context (left) | resizer | review column (right) ── */
-  :root { --left-w:50%; }
+  :root { --left-w:34%; }
   .pr-cols { display:flex; gap:0; align-items:flex-start; }
   .pr-context {
     flex:0 0 var(--left-w); width:auto; min-width:0; position:sticky; top:72px;
@@ -85,6 +110,16 @@
   .col-resizer::before { content:""; position:absolute; left:7px; top:0; bottom:0; width:2px; background:var(--border); border-radius:2px; transition:background .1s,width .1s; }
   .col-resizer:hover::before, .col-resizer.active::before { background:var(--primary); width:4px; left:6px; }
   .review-col { flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:16px; }
+  .pr[data-active-stage="understand"] .diff-block { display:none; }
+  .pr[data-active-stage="validate"] .review-top { display:none; }
+  .pr[data-active-stage="validate"] [data-order-view="grouped"] .file-body { display:none; }
+  .pr[data-active-stage="inspect"] .review-top { display:none; }
+  .pr[data-active-stage="inspect"] .group-intent-card { display:none; }
+  .pr-cols.context-collapsed .pr-context, .pr-cols.context-collapsed .col-resizer { display:none; }
+  .pr-cols.focus-mode .pr-context, .pr-cols.focus-mode .col-resizer, .pr-cols.focus-mode .review-top, .pr-cols.focus-mode ~ .overall-bar { display:none; }
+  .context-toggle, .focus-mode-toggle, .raw-order-toggle { background:var(--card); border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; font:500 .74rem var(--font-heading); color:var(--muted); padding:5px 9px; white-space:nowrap; }
+  .context-toggle:hover, .focus-mode-toggle:hover, .raw-order-toggle:hover,
+  .context-toggle[aria-pressed="true"], .focus-mode-toggle[aria-pressed="true"], .raw-order-toggle[aria-pressed="true"] { color:var(--semantic-info); border-color:var(--semantic-info); background:var(--ai-bg); }
   @media (max-width:960px){
     .pr-cols { flex-direction:column; }
     .pr-context { position:static; flex-basis:auto; width:100%; max-height:none; }
@@ -111,22 +146,22 @@
   .summary-body > :last-child { margin-bottom:0; }
 
   /* right column: global review comment on top */
-  .review-top { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px 16px; }
+  .review-top { background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-3) var(--space-4); box-shadow:var(--shadow-sm); }
   .review-label { display:block; font-family:var(--font-heading); font-size:.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin-bottom:6px; }
   .review-top .general-input { min-height:60px; }
   /* the reviewer's own overall verdict — an always-visible bar pinned to the
      bottom of the viewport (orange accent, collapsible) */
-  .overall-bar { position:fixed; left:0; right:0; bottom:0; z-index:40; background:var(--card);
-    border-top:2px solid var(--orange); box-shadow:0 -3px 14px rgba(0,0,0,.16); padding:8px 22px 10px; }
+  .overall-bar { position:fixed; right:var(--space-4); bottom:var(--space-4); z-index:40; width:min(440px,calc(100vw - 32px)); background:var(--card);
+    border:1px solid var(--border); border-top:2px solid var(--semantic-warning); border-radius:var(--radius-md); box-shadow:var(--shadow-md); padding:var(--space-2) var(--space-3); }
   .ob-head { display:flex; align-items:center; gap:10px; }
   .ob-head .review-label { color:var(--orange); font-size:.82rem; margin:0; }
   .ob-toggle { margin-left:auto; background:none; border:1px solid var(--border); border-radius:5px; color:var(--muted); cursor:pointer; font-size:.8rem; line-height:1; padding:3px 9px; }
   .ob-toggle:hover { border-color:var(--orange); color:var(--orange); }
   .overall-bar textarea { margin-top:7px; min-height:64px; }
-  body.oq-collapsed .overall-bar textarea { display:none; }
+  body.oq-collapsed .overall-bar textarea, .overall-bar.collapsed textarea { display:none; }
   body.oq-collapsed .overall-bar { padding-bottom:8px; }
   body.oq-collapsed .ob-toggle { transform:rotate(180deg); }
-  main { padding-bottom:150px; }
+  main { padding-bottom:72px; }
   body.oq-collapsed main { padding-bottom:58px; }
   @media (max-width:960px){ .overall-bar { padding-left:14px; padding-right:14px; } }
 
@@ -144,6 +179,10 @@
   .verdict-comment { background:var(--secondary-light,#5894AC); color:#fff; }
   .verdict-request-changes { background:var(--red); color:#fff; }
   .finding-list { display:flex; flex-direction:column; gap:6px; max-height:280px; overflow:auto; }
+  .findings-panel { margin-top:var(--space-3); border-top:1px solid var(--border); padding-top:var(--space-3); }
+  .findings-panel > summary { display:flex; align-items:center; gap:var(--space-2); cursor:pointer; color:var(--text-muted); font:600 .78rem var(--font-heading); text-transform:uppercase; letter-spacing:.03em; }
+  .findings-panel > summary small { margin-left:auto; color:var(--text-muted); font-size:.68rem; font-weight:400; text-transform:none; letter-spacing:0; }
+  .findings-panel[open] > summary { margin-bottom:var(--space-2); color:var(--semantic-info); }
   .finding-item { text-align:left; background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--primary); border-radius:4px; padding:6px 8px; cursor:pointer; font:inherit; color:var(--text); }
   .finding-item:hover { border-color:var(--primary); }
   .finding-item.done { opacity:.55; }
@@ -246,7 +285,7 @@
 
   /* change groups — a visible container keeps the header and all member files
      legible as one review decision, even when every file is collapsed */
-  .group { --group-accent:var(--secondary); margin-bottom:22px; border:1px solid var(--border); border-top:3px solid var(--group-accent); border-radius:10px; padding:8px; background:var(--panel); box-shadow:0 3px 12px rgba(0,0,0,.08); }
+  .group { --group-accent:var(--secondary); margin-bottom:var(--space-4); border:1px solid var(--border); border-top:3px solid var(--group-accent); border-radius:var(--radius-lg); padding:var(--space-2); background:var(--card); box-shadow:var(--shadow-sm); }
   .group-head { display:flex; align-items:center; gap:10px; padding:9px 14px; cursor:pointer; user-select:none; background:var(--card); border:0; border-radius:7px; box-shadow:inset 4px 0 0 var(--group-accent); }
   .group.gk-mechanical { --group-accent:var(--muted); }
   .group.gk-refactor { --group-accent:#8a63d2; }
@@ -256,7 +295,7 @@
   .group.gk-docs { --group-accent:var(--orange); }
   .group .chevron { color:var(--muted); font-size:.8rem; transition:transform .15s; }
   .group.collapsed .chevron { transform:rotate(-90deg); }
-  .group.collapsed .group-note, .group.collapsed .group-files { display:none; }
+  .group.collapsed .group-note, .group.collapsed .group-intent-card, .group.collapsed .group-files { display:none; }
   .group-title { font-family:var(--font-heading); font-weight:600; color:var(--secondary); flex:1; word-break:break-word; }
   .group-kind { font-family:var(--font-heading); font-size:.64rem; text-transform:uppercase; letter-spacing:.04em; padding:2px 8px; border-radius:10px; color:#fff; white-space:nowrap; }
   .group-kind.gk-mechanical { background:var(--muted); } .group-kind.gk-refactor { background:#8a63d2; } .group-kind.gk-feature { background:var(--primary); }
@@ -269,15 +308,27 @@
   .reading-order { margin:0 0 14px; padding:10px 12px; border:1px solid var(--border); border-radius:7px; background:var(--panel); color:var(--muted); font-size:.82rem; line-height:1.45; }
   .group-note details { margin:7px 0; } .group-note summary { cursor:pointer; color:var(--secondary); font-family:var(--font-heading); font-weight:600; }
   .group-note ul { margin:5px 0 0; } .read-after { color:var(--muted); font-size:.82rem; }
-  .group-correction, .group-merge { display:flex; align-items:center; gap:4px; }
-  .group-correction select, .group-merge select, .group-merge button { max-width:150px; font-family:var(--font-heading); font-size:.68rem; color:var(--muted); background:var(--card); border:1px solid var(--border); border-radius:4px; padding:3px 5px; }
-  .group-merge button { cursor:pointer; } .group-merge button:hover { border-color:var(--primary); color:var(--primary); }
-  .out-of-scope-group { margin:18px 0; opacity:.8; } .out-of-scope-group > .group-head { border-left-color:var(--muted); cursor:default; }
-  .out-of-scope-group .file { border-style:dashed; }
   .group-viewed { display:flex; align-items:center; gap:5px; font-family:var(--font-heading); font-size:.74rem; color:var(--muted); cursor:pointer; white-space:nowrap; }
   .group-viewed input { accent-color:var(--green); width:15px; height:15px; cursor:pointer; }
   .group-note { font-size:.9rem; line-height:1.5; color:var(--text); padding:10px 14px 2px; }
   .group-note > :first-child { margin-top:0; } .group-note > :last-child { margin-bottom:0; }
+  .group-intent-card { margin:var(--space-2) var(--space-1) 0; padding:var(--space-3); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-subtle); font-size:.84rem; line-height:1.45; }
+  .group-intent-card > p { margin:0; color:var(--text-default); }
+  .group-intent-card > p > span, .group-relationships span, .definition-preview > span { display:block; margin-bottom:2px; color:var(--text-muted); font:600 .65rem var(--font-heading); text-transform:uppercase; letter-spacing:.05em; }
+  .group-relationships { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-3); margin-top:var(--space-3); }
+  .group-relationships > div { min-width:0; }
+  .group-relationships strong { display:block; color:var(--text-strong); font-size:.76rem; font-weight:500; }
+  .definition-preview { margin-top:var(--space-3); padding-top:var(--space-2); border-top:1px solid var(--border); }
+  .definition-preview summary { color:var(--semantic-info); cursor:pointer; font:600 .76rem var(--font-heading); }
+  .definition-preview code { display:inline-block; margin:var(--space-2) var(--space-2) 0 0; color:var(--semantic-info); }
+  .definition-preview pre { margin:var(--space-1) 0 0; overflow:auto; padding:var(--space-2); border-radius:var(--radius-sm); background:var(--card); font: .75rem/1.45 var(--mono); }
+  .definition-preview.empty p { margin:0; color:var(--text-muted); font-size:.76rem; }
+  .group-evidence { margin-top:var(--space-3); }
+  .group-evidence summary { cursor:pointer; color:var(--semantic-info); font:600 .76rem var(--font-heading); }
+  .group-evidence h4 { margin:var(--space-3) 0 var(--space-1); color:var(--text-strong); font-size:.74rem; }
+  .group-evidence ul { margin:0; padding-left:20px; }
+  .order-views[hidden] { display:none; }
+  .reading-order[hidden] { display:none; }
   .group-files { padding:12px 2px 2px; display:flex; flex-direction:column; gap:12px; }
   .group-files .file { margin-bottom:0; }
 
@@ -787,13 +838,21 @@
   function activeSection(){
     return [...document.querySelectorAll("section.pr")].find(s=>!s.hidden) || document.querySelector("section.pr");
   }
+  function visibleEvidenceFiles(scope){
+    return [...scope.querySelectorAll(".file")].filter(file=>{
+      const view=file.closest("[data-order-view]");
+      return !view || !view.hidden;
+    });
+  }
   function updateProgress(){
     const dock = document.getElementById("progressDock");
     // scope to the active PR so the counts match that PR's header
     const scope = activeSection() || document;
-    const filesTotal = scope.querySelectorAll(".file").length;
-    const filesViewed = scope.querySelectorAll(".file.viewed").length;
-    let html = filesTotal ? ring(filesViewed, filesTotal, "Files") : "";
+    const evidenceFiles=visibleEvidenceFiles(scope);
+    const grouped = !!scope.querySelector('[data-order-view="grouped"]:not([hidden])');
+    const filesTotal = evidenceFiles.length;
+    const filesViewed = evidenceFiles.filter(file=>file.classList.contains("viewed")).length;
+    let html = filesTotal ? ring(filesViewed, filesTotal, grouped ? "Items" : "Files") : "";
     if(HAS_REVIEW){
       const pr = scope.dataset ? scope.dataset.pr : null;
       const prs = pr ? [pr] : Object.keys(REVIEW);
@@ -829,11 +888,13 @@
     const sec = document.querySelector('section.pr[data-pr="'+cssEsc(it.dataset.pr)+'"]');
     if(!sec) return;
     if(it.classList.contains("cl-file")){
-      const fileEl = [...sec.querySelectorAll(".file")].find(f=>f.dataset.file===it.dataset.file);
+      const fileEl = visibleEvidenceFiles(sec).find(f=>f.dataset.file===it.dataset.file);
       if(fileEl){ fileEl.classList.remove("collapsed"); fileEl.scrollIntoView({ block:"start", behavior:"smooth" }); fileNoteBox(fileEl, (state.files[it.dataset.pr+" "+it.dataset.file]||{}).text||"", true); }
       return;
     }
-    const g = sec.querySelector('.gutter[data-key="'+cssEsc(it.dataset.key)+'"][data-file="'+cssEsc(it.dataset.file)+'"]');
+    const g = visibleEvidenceFiles(sec)
+      .map(file=>file.querySelector('.gutter[data-key="'+cssEsc(it.dataset.key)+'"][data-file="'+cssEsc(it.dataset.file)+'"]'))
+      .find(Boolean);
     if(!g) return;
     const file = g.closest(".file"); if(file) file.classList.remove("collapsed");
     const group = g.closest(".group"); if(group) group.classList.remove("collapsed");
@@ -882,13 +943,49 @@
     if(focus) ta.focus();
     return ta;
   }
-  function setViewed(fileEl, viewed, persist){
-    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.change || fileEl.dataset.file, id = pr + " " + file;
+  function viewedId(fileEl){
+    const pr=fileEl.closest("section.pr").dataset.pr;
+    return pr+" "+(fileEl.dataset.viewKey || fileEl.dataset.file);
+  }
+  function applyViewed(fileEl, viewed){
     fileEl.classList.toggle("viewed", viewed);
     fileEl.classList.toggle("collapsed", viewed);
-    const cb = fileEl.querySelector(".viewed-cb"); if(cb) cb.checked = viewed;
-    if(persist){ if(viewed) state.viewed[id]=true; else delete state.viewed[id]; save(); updateCounts(); }
-    const grp = fileEl.closest(".group"); if(grp) syncGroupCb(grp);
+    const cb=fileEl.querySelector(".viewed-cb"); if(cb) cb.checked=viewed;
+  }
+  function storeViewed(fileEl, viewed){
+    const id=viewedId(fileEl);
+    if(viewed) state.viewed[id]=true; else delete state.viewed[id];
+  }
+  function groupedOccurrences(sec, file){
+    return [...sec.querySelectorAll('[data-order-view="grouped"] .file')]
+      .filter(candidate=>candidate.dataset.file===file);
+  }
+  function rawOccurrences(sec, file){
+    return [...sec.querySelectorAll('[data-order-view="raw"] .file')]
+      .filter(candidate=>candidate.dataset.file===file);
+  }
+  function syncRawViewed(sec, file, persist){
+    const grouped=groupedOccurrences(sec,file), viewed=grouped.length>0 && grouped.every(candidate=>candidate.classList.contains("viewed"));
+    rawOccurrences(sec,file).forEach(candidate=>{
+      applyViewed(candidate,viewed);
+      if(persist) storeViewed(candidate,viewed);
+    });
+  }
+  function setViewed(fileEl, viewed, persist){
+    const sec=fileEl.closest("section.pr"), file=fileEl.dataset.file;
+    const isRaw=!!fileEl.closest('[data-order-view="raw"]');
+    const related=isRaw ? groupedOccurrences(sec,file) : [fileEl];
+    related.forEach(candidate=>{
+      applyViewed(candidate,viewed);
+      if(persist) storeViewed(candidate,viewed);
+    });
+    if(!isRaw){
+      applyViewed(fileEl,viewed);
+      if(persist) storeViewed(fileEl,viewed);
+    }
+    syncRawViewed(sec,file,persist);
+    if(persist){ save(); updateCounts(); }
+    new Set(related.map(candidate=>candidate.closest(".group")).filter(Boolean)).forEach(syncGroupCb);
     refreshTree();
   }
   // scroll a file's (now-collapsed) header just under the sticky bars, so the
@@ -915,8 +1012,28 @@
     cb.checked = files.length>0 && n===files.length;
     cb.indeterminate = n>0 && n<files.length;
   }
+  let migratedViewedState=false;
+  document.querySelectorAll("section.pr").forEach(sec=>{
+    const pr=sec.dataset.pr;
+    const files=new Set(
+      [...sec.querySelectorAll('[data-order-view="grouped"] .file')]
+        .map(file=>file.dataset.file),
+    );
+    files.forEach(file=>{
+      const legacyId=pr+" "+file;
+      if(!state.viewed[legacyId]) return;
+      const scoped=groupedOccurrences(sec,file)
+        .filter(candidate=>candidate.dataset.viewKey);
+      if(!scoped.length) return;
+      scoped.forEach(candidate=>storeViewed(candidate,true));
+      rawOccurrences(sec,file).forEach(candidate=>storeViewed(candidate,true));
+      delete state.viewed[legacyId];
+      migratedViewedState=true;
+    });
+  });
+  if(migratedViewedState) save();
   document.querySelectorAll(".file").forEach(fileEl=>{
-    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.change || fileEl.dataset.file, id = pr + " " + file;
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = viewedId(fileEl);
     const fileNoteId = pr + " " + fileEl.dataset.file;
     const fileAttachId = attachmentId("file",pr,fileEl.dataset.file,"");
     const btn = fileEl.querySelector(".file-note-btn");
@@ -925,6 +1042,9 @@
     if(cb) cb.addEventListener("change", ()=>{ setViewed(fileEl, cb.checked, true); if(cb.checked) scrollFileToTop(fileEl); });
     if(state.files[fileNoteId] && hasCommentContent(state.files[fileNoteId].text,fileAttachId)){ fileNoteBox(fileEl, state.files[fileNoteId].text, false); if(btn) btn.classList.add("has-note"); }
     if(state.viewed[id]) setViewed(fileEl, true, false);
+  });
+  document.querySelectorAll("section.pr").forEach(sec=>{
+    new Set([...sec.querySelectorAll(".file")].map(file=>file.dataset.file)).forEach(file=>syncRawViewed(sec,file,false));
   });
 
   // ---- change groups: collapse + one "Reviewed" that clears the whole group ----
@@ -964,37 +1084,9 @@
     updateProgress();
     refreshTree();
   }
-  function moveChange(fileEl, target, persist){
-    const sec=fileEl.closest("section.pr");
-    const destination=target==="__out"
-      ? sec.querySelector("[data-out-of-scope] .group-files")
-      : sec.querySelector('.group[data-group="'+cssEsc(target)+'"] > .group-files');
-    if(!destination) return;
-    destination.appendChild(fileEl);
-    const select=fileEl.querySelector(".change-group-select");
-    if(select) select.value=target;
-    if(persist){ state.grouping[groupingKey(fileEl)]=target; save(); }
-    refreshGroupMeta(sec);
-  }
-  document.querySelectorAll(".file[data-change]").forEach(fileEl=>{
-    const select=fileEl.querySelector(".change-group-select");
-    if(select) select.addEventListener("change", e=>{ e.stopPropagation(); moveChange(fileEl, select.value, true); });
-    const saved=state.grouping[groupingKey(fileEl)];
-    if(saved) moveChange(fileEl, saved, false);
-  });
-  document.querySelectorAll(".group-merge-btn").forEach(button=>{
-    button.addEventListener("click", e=>{
-      e.stopPropagation();
-      const source=button.closest(".group");
-      const target=source.querySelector(".group-merge-select").value;
-      if(!target || target===source.dataset.group) return;
-      [...source.querySelectorAll(":scope > .group-files > .file")].forEach(file=>moveChange(file,target,true));
-    });
-  });
-
   // ---- file tree drawer (navigate a big diff by path) ----
   function collectTreeFiles(sec){
-    return [...sec.querySelectorAll(".file")].map(el=>{
+    return visibleEvidenceFiles(sec).map(el=>{
       const p = el.dataset.file || "";
       const num = (sel)=>{ const t=el.querySelector(".file-header "+sel); return t?parseInt(t.textContent.replace(/[^0-9]/g,""))||0:0; };
       return { path:p, change:el.dataset.change||"", topic:el.querySelector(".change-range")?.textContent||"", name:p.split("/").pop(), add:num(".stat-add"), del:num(".stat-del"), viewed:el.classList.contains("viewed") };
@@ -1045,7 +1137,7 @@
     const dir = e.target.closest(".ft-dirrow"); if(dir){ dir.parentElement.classList.toggle("collapsed"); return; }
     const fr = e.target.closest(".ft-file"); if(!fr) return;
     const sec = activeSection(); if(!sec) return;
-    const el = [...sec.querySelectorAll(".file")].find(f=>
+    const el = visibleEvidenceFiles(sec).find(f=>
       fr.dataset.change
         ? f.dataset.change===fr.dataset.change
         : f.dataset.file===fr.dataset.file
@@ -1118,11 +1210,6 @@
         block += "\n**My overall:**" + (gen ? " " + gen : "") + "\n";
         if(generalAttachments) block += generalAttachments + "\n";
       }
-      const corrections=Object.entries(state.grouping).filter(([key])=>key.startsWith(pr+" "));
-      if(corrections.length){
-        block += "\n**Grouping corrections:**\n";
-        for(const [key,target] of corrections) block += "- `" + key.slice(pr.length+1) + "` → " + (target==="__out" ? "out of scope" : target) + "\n";
-      }
       const byFile = {};
       const F = (f)=> byFile[f] = byFile[f] || { note:"", lines:[] };
       for(const k in state.files){ const c=state.files[k]; if(!c||c.pr!==pr||!hasCommentContent(c.text,attachmentId("file",c.pr,c.file,""))) continue; F(c.file).note = c.text; }
@@ -1163,13 +1250,66 @@
     a.download = "review-comments-" + REVIEW_ID + ".md"; a.click(); URL.revokeObjectURL(a.href);
   });
 
-  // ---- resizable columns (drag the divider; double-click resets 50/50) ----
+  // ---- staged journey + adaptive evidence workspace ----
+  function setOrderView(sec,raw){
+    const button=sec.querySelector(".raw-order-toggle");
+    if(button){
+      button.setAttribute("aria-pressed",String(raw));
+      button.textContent=raw ? "Grouped order" : "Git order";
+    }
+    sec.querySelectorAll("[data-order-view]").forEach(view=>{ view.hidden=view.dataset.orderView!==(raw?"raw":"grouped"); });
+    const readingOrder=sec.querySelector(".reading-order"); if(readingOrder) readingOrder.hidden=raw;
+    refreshTree();
+    updateProgress();
+  }
+  document.querySelectorAll(".review-journey button").forEach(button=>{
+    button.addEventListener("click", ()=>{
+      const sec=button.closest("section.pr"), stage=button.dataset.reviewStage;
+      sec.dataset.activeStage=stage;
+      sec.querySelectorAll(".review-journey button").forEach(candidate=>{
+        if(candidate===button) candidate.setAttribute("aria-current","step");
+        else candidate.removeAttribute("aria-current");
+      });
+      if(stage==="validate") setOrderView(sec,false);
+      const target = stage==="understand"
+        ? sec.querySelector(".pr-context, .review-top")
+        : stage==="validate"
+          ? sec.querySelector(".group-workspace, .files")
+          : sec.querySelector(".diff-block");
+      if(target) target.scrollIntoView({block:"start",behavior:"smooth"});
+    });
+  });
+  document.querySelectorAll(".context-toggle").forEach(button=>{
+    button.addEventListener("click", ()=>{
+      const cols=button.closest(".pr-cols");
+      const pressed=cols.classList.toggle("context-collapsed");
+      button.setAttribute("aria-pressed", String(pressed));
+      button.textContent=pressed ? "Show context" : "Context";
+    });
+  });
+  document.querySelectorAll(".focus-mode-toggle").forEach(button=>{
+    button.addEventListener("click", ()=>{
+      const cols=button.closest(".pr-cols");
+      const pressed=cols.classList.toggle("focus-mode");
+      button.setAttribute("aria-pressed", String(pressed));
+      button.textContent=pressed ? "Exit focus" : "Focus";
+    });
+  });
+  document.querySelectorAll(".raw-order-toggle").forEach(button=>{
+    button.addEventListener("click", ()=>{
+      const sec=button.closest("section.pr");
+      const raw=button.getAttribute("aria-pressed")!=="true";
+      setOrderView(sec,raw);
+    });
+  });
+
+  // ---- resizable columns (drag the divider; double-click resets the adaptive default) ----
   try { const w = localStorage.getItem("htmlreview:leftw"); if(w) document.documentElement.style.setProperty("--left-w", w); } catch(e){}
   let rzTarget = null;
   document.addEventListener("mousedown", (e)=>{ const rz=e.target.closest(".col-resizer"); if(!rz) return; rzTarget=rz.closest(".pr-cols"); rz.classList.add("active"); document.body.style.userSelect="none"; e.preventDefault(); });
   document.addEventListener("mousemove", (e)=>{ if(!rzTarget) return; const rect=rzTarget.getBoundingClientRect(); let pct=(e.clientX-rect.left)/rect.width*100; pct=Math.max(20,Math.min(80,pct)); document.documentElement.style.setProperty("--left-w", pct.toFixed(1)+"%"); });
   document.addEventListener("mouseup", ()=>{ if(!rzTarget) return; document.querySelectorAll(".col-resizer.active").forEach(r=>r.classList.remove("active")); document.body.style.userSelect=""; try{ localStorage.setItem("htmlreview:leftw", document.documentElement.style.getPropertyValue("--left-w")||"50%"); }catch(e){} rzTarget=null; });
-  document.addEventListener("dblclick", (e)=>{ if(!e.target.closest(".col-resizer")) return; document.documentElement.style.setProperty("--left-w","50%"); try{ localStorage.setItem("htmlreview:leftw","50%"); }catch(e){} });
+  document.addEventListener("dblclick", (e)=>{ if(!e.target.closest(".col-resizer")) return; document.documentElement.style.setProperty("--left-w","34%"); try{ localStorage.setItem("htmlreview:leftw","34%"); }catch(e){} });
 
   // ---- diagram / image lightbox (click to fullscreen) ----
   const lb = document.getElementById("lightbox"), lbInner = lb.querySelector(".lb-inner");
@@ -1214,8 +1354,11 @@
   window.addEventListener("resize", setStickyVars);
   window.addEventListener("load", setStickyVars);
 
-  // ---- overall-review bottom bar: collapse toggle (persisted) ----
-  try { if(localStorage.getItem("htmlreview:overallcollapsed")==="1") document.body.classList.add("oq-collapsed"); } catch(e){}
+  // ---- overall-review compact drawer: collapsed by default, persisted ----
+  let overallCollapsed=true;
+  try { overallCollapsed=localStorage.getItem("htmlreview:overallcollapsed")!=="0"; } catch(e){}
+  document.body.classList.toggle("oq-collapsed",overallCollapsed);
+  document.querySelectorAll(".overall-bar.collapsed").forEach(bar=>bar.classList.remove("collapsed"));
   document.querySelectorAll(".ob-toggle").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       const c = document.body.classList.toggle("oq-collapsed");

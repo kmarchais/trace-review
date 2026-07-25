@@ -205,7 +205,7 @@ test("CLI writes a validated group fact pack", (t) => {
   );
 });
 
-test("builder consumes group files and emits correction controls", (t) => {
+test("builder consumes group files as reviewer-visible, read-only decisions", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-build-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const diffPath = path.join(tempDir, "change.patch");
@@ -247,14 +247,79 @@ test("builder consumes group files and emits correction controls", (t) => {
 
   const html = fs.readFileSync(outPath, "utf8");
   assert.match(html, /Suggested reading order/);
-  assert.match(html, /change-group-select/);
+  assert.doesNotMatch(html, /change-group-select/);
   assert.match(html, /Reviewer checks/);
-  assert.match(html, /Grouping corrections/);
+  assert.doesNotMatch(html, /Grouping corrections/);
   assert.match(html, /class="change-range"[^>]*title=/);
   assert.match(html, /data-change=/);
   assert.match(html, /class="ft-topic"/);
   assert.match(html, /paste a screenshot directly into this comment/i);
   assert.match(html, /attachmentMarkdown/);
+  assert.match(html, /class="group-intent-card"/);
+  assert.match(html, /Read first/);
+  assert.match(html, /Dependent changes/);
+  assert.match(html, /Definition preview/);
+  assert.match(html, /export function parse\(value\) \{/);
+  const consumerStart = html.indexOf('class="group-title">Consumers');
+  const consumerEnd = html.indexOf('class="group gk-', consumerStart + 1);
+  assert.ok(consumerStart > -1, "consumer group should render");
+  assert.match(html.slice(consumerStart, consumerEnd), /<code>parse<\/code>/);
+  assert.match(html, /data-order-view="grouped"/);
+  assert.match(html, /data-order-view="raw"/);
+  assert.match(html, /class="raw-order-toggle"/);
+});
+
+test("dependent groups preview the definition when source-group usage appears first", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-definition-preview-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const diffPath = path.join(tempDir, "consumer-first.patch");
+  const specPath = path.join(tempDir, "spec.json");
+  const outPath = path.join(tempDir, "review.html");
+  const consumerFirst = `diff --git a/src/use.js b/src/use.js
+index 1111111..2222222 100644
+--- a/src/use.js
++++ b/src/use.js
+@@ -1 +1,2 @@
+ import { parse } from "./parse.js";
++console.log(parse(42));
+diff --git a/src/helpers.js b/src/helpers.js
+index 1111111..2222222 100644
+--- a/src/helpers.js
++++ b/src/helpers.js
+@@ -0,0 +1 @@
++export function helper() { return parse(1); }
+diff --git a/src/parse.js b/src/parse.js
+index 1111111..2222222 100644
+--- a/src/parse.js
++++ b/src/parse.js
+@@ -1 +1,4 @@
+ export const old = true;
++export function parse(value) {
++  return String(value);
++}
+`;
+  fs.writeFileSync(diffPath, consumerFirst);
+  fs.writeFileSync(specPath, JSON.stringify({
+    schemaVersion: 1,
+    mode: "workspace",
+    title: "Consumer-first definition preview",
+    prs: [{ title: "Preview", diffFile: "consumer-first.patch", autoGroups: true }],
+  }));
+
+  execFileSync(
+    process.execPath,
+    [path.join(root, "scripts", "build-review.mjs"), "--spec", specPath, "--out", outPath],
+    { cwd: root },
+  );
+
+  const html = fs.readFileSync(outPath, "utf8");
+  const consumerStart = html.indexOf('class="group-title">Consumers');
+  const previewStart = html.indexOf('class="definition-preview"', consumerStart);
+  const previewEnd = html.indexOf("</details>", previewStart);
+  const preview = html.slice(previewStart, previewEnd);
+  assert.match(preview, /export function parse\(value\) \{/);
+  assert.doesNotMatch(preview, /console\.log\(parse\(42\)\)/);
+  assert.doesNotMatch(preview, /function helper/);
 });
 
 test("review-spec validation accepts one Phase 2 group source and rejects ambiguity", () => {

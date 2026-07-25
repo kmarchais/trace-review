@@ -28,11 +28,13 @@ publish from the `main` branch and `/docs` folder.
   Python, CMake, TOML, Markdown, JS/TS, Rust, Go, …), unified **or** split view,
   word-level context, per-line and per-file comments, "Viewed" checkboxes, and a
   **fullscreen** mode for focused reading.
-- **Decision-oriented groups**: deterministic hunk-level classification with
-  intent, evidence, risk, confidence, reviewer checks, dependencies, and a
-  suggested concept → consumer → integration → test reading order.
-- **Correctable grouping**: move or split individual hunk units, merge groups,
-  and mark changes out of scope; corrections persist and export with comments.
+- **Decision-oriented groups**: deterministic hunk facts feed LM-generated,
+  change-specific decisions with intent, evidence, risk, confidence, reviewer
+  checks, dependencies, and a validated reading order.
+- **Decision-cohesive rendering**: within a group, each file appears once with
+  that decision's relevant hunks. A file may participate in multiple groups
+  when separate hunks belong to separate decisions. Groups are read-only
+  context so the reviewer evaluates them instead of repairing the model.
 - **Focused LM analysis**: candidate groups and deterministic facts feed a
   sparse, budgeted set of line findings with confidence and rationale, each
   with Accept / Dismiss / Reply. Attribution is neutral ("LM") by default and
@@ -101,12 +103,23 @@ group detection directly for any existing patch with:
 
 ```bash
 node scripts/detect-mechanical-groups.mjs \
-  --diff changes.patch --out .review/groups.json
+  --diff changes.patch --out .review/candidates.json
 ```
 
 Every textual hunk or metadata-only change must appear exactly once. The
-detector rejects overlaps and leaves uncertain work visible in **Needs
-inspection** or **Unclassified**. Run preflight directly with:
+detector rejects overlaps and leaves uncertain work visible as candidate facts.
+The skill then asks the LM for change-specific group titles and finalizes them:
+
+```bash
+node scripts/finalize-lm-groups.mjs \
+  --candidates .review/candidates.json \
+  --result .review/grouping-result.json \
+  --out .review/groups.json
+```
+
+The finalizer rejects generic classifier titles, incomplete coverage,
+unsupported title evidence, and invalid prerequisites. Run preflight
+directly with:
 
 ```bash
 node scripts/review-preflight.mjs --diff changes.patch
