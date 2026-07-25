@@ -519,16 +519,6 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         return renderFileBlock({ fid, d }, false);
       })
       .join("\n");
-  const previewDefinition = (symbol) => {
-    for (const file of files) {
-      const row = fileData(file)
-        .hunks.flatMap((hunk) => hunk.rows || [])
-        .find((candidate) => candidate.t === "a" && candidate.c.includes(symbol));
-      if (row) return row.c;
-    }
-    return symbol;
-  };
-
   // pure renames (moved, no textual change) are noise to review one-by-one —
   // auto-collect them into a collapsed group once there are a few of them.
   const isPureRename = (b) => b.d.renamed && b.d.add === 0 && b.d.del === 0;
@@ -537,6 +527,22 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   let filesHtml;
   if (changeGroups) {
     const parsedByPath = new Map(files.map((file) => [file.path, file]));
+    const previewDefinitionFromGroup = (symbol, sourceGroupId) => {
+      const sourceGroup = changeGroups.groups.find((candidate) => candidate.id === sourceGroupId);
+      const escapedSymbol = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const identifier = new RegExp(`(?:^|[^A-Za-z0-9_$])${escapedSymbol}(?=$|[^A-Za-z0-9_$])`);
+      for (const change of sourceGroup?.changes || []) {
+        const parsed = parsedByPath.get(change.file);
+        if (!parsed) continue;
+        const d = fileData(parsed);
+        const hunks = Number.isInteger(change.hunk) ? [d.hunks[change.hunk]].filter(Boolean) : d.hunks;
+        const row = hunks
+          .flatMap((hunk) => hunk.rows || [])
+          .find((candidate) => candidate.t === "a" && identifier.test(candidate.c));
+        if (row) return row.c;
+      }
+      return symbol;
+    };
     const order = changeGroups.dependencyGraph?.suggestedOrder || changeGroups.groups.map((group) => group.id);
     const orderIndex = new Map(order.map((id, index) => [id, index]));
     const orderedGroups = changeGroups.groups
@@ -562,8 +568,8 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       }
       if (edge.reason === "definition-usage" && edge.evidence) {
         if (!incomingSymbols.has(edge.to)) incomingSymbols.set(edge.to, []);
-        if (!incomingSymbols.get(edge.to).includes(edge.evidence)) {
-          incomingSymbols.get(edge.to).push(edge.evidence);
+        if (!incomingSymbols.get(edge.to).some((item) => item.symbol === edge.evidence)) {
+          incomingSymbols.get(edge.to).push({ symbol: edge.evidence, sourceGroupId: edge.from });
         }
       }
     }
@@ -605,12 +611,21 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         `value="${esc(group.id)}"`,
         `value="${esc(group.id)}" selected`,
       );
-      const definitions = [
-        ...new Set([
-          ...(nodesById.get(group.id)?.definitions || []),
-          ...(incomingSymbols.get(group.id) || []),
+      const previewSources = new Map(
+        (nodesById.get(group.id)?.definitions || []).map((symbol) => [
+          symbol,
+          group.id,
         ]),
-      ].map((symbol) => ({ symbol, preview: previewDefinition(symbol) }));
+      );
+      for (const item of incomingSymbols.get(group.id) || []) {
+        if (!previewSources.has(item.symbol)) {
+          previewSources.set(item.symbol, item.sourceGroupId);
+        }
+      }
+      const definitions = [...previewSources].map(([symbol, sourceGroupId]) => ({
+        symbol,
+        preview: previewDefinitionFromGroup(symbol, sourceGroupId),
+      }));
       parts.push(
         renderGroup(
           {
