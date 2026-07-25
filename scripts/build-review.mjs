@@ -21,6 +21,7 @@ import {
 import { analyzePatch } from "./lib/preflight.mjs";
 import {
   detectChangeGroups,
+  extractDefinedSymbols,
   parsePatchChanges,
   validateGrouping,
 } from "./lib/change-groups.mjs";
@@ -529,8 +530,6 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     const parsedByPath = new Map(files.map((file) => [file.path, file]));
     const previewDefinitionFromGroup = (symbol, sourceGroupId) => {
       const sourceGroup = changeGroups.groups.find((candidate) => candidate.id === sourceGroupId);
-      const escapedSymbol = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const identifier = new RegExp(`(?:^|[^A-Za-z0-9_$])${escapedSymbol}(?=$|[^A-Za-z0-9_$])`);
       for (const change of sourceGroup?.changes || []) {
         const parsed = parsedByPath.get(change.file);
         if (!parsed) continue;
@@ -538,7 +537,11 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         const hunks = Number.isInteger(change.hunk) ? [d.hunks[change.hunk]].filter(Boolean) : d.hunks;
         const row = hunks
           .flatMap((hunk) => hunk.rows || [])
-          .find((candidate) => candidate.t === "a" && identifier.test(candidate.c));
+          .find(
+            (candidate) =>
+              candidate.t === "a" &&
+              extractDefinedSymbols([candidate.c]).includes(symbol),
+          );
         if (row) return row.c;
       }
       return symbol;

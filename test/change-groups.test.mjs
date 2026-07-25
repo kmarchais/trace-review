@@ -269,7 +269,7 @@ test("builder consumes group files and emits correction controls", (t) => {
   assert.match(html, /class="raw-order-toggle"/);
 });
 
-test("dependent groups preview definitions from the source group", (t) => {
+test("dependent groups preview the definition when source-group usage appears first", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-definition-preview-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const diffPath = path.join(tempDir, "consumer-first.patch");
@@ -282,6 +282,12 @@ index 1111111..2222222 100644
 @@ -1 +1,2 @@
  import { parse } from "./parse.js";
 +console.log(parse(42));
+diff --git a/src/helpers.js b/src/helpers.js
+index 1111111..2222222 100644
+--- a/src/helpers.js
++++ b/src/helpers.js
+@@ -0,0 +1 @@
++export function helper() { return parse(1); }
 diff --git a/src/parse.js b/src/parse.js
 index 1111111..2222222 100644
 --- a/src/parse.js
@@ -313,6 +319,7 @@ index 1111111..2222222 100644
   const preview = html.slice(previewStart, previewEnd);
   assert.match(preview, /export function parse\(value\) \{/);
   assert.doesNotMatch(preview, /console\.log\(parse\(42\)\)/);
+  assert.doesNotMatch(preview, /function helper/);
 });
 
 test("review-spec validation accepts one Phase 2 group source and rejects ambiguity", () => {
