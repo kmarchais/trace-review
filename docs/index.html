@@ -25,7 +25,7 @@
       <section class="review-intro">
         <div>
           <p class="eyebrow">Example review</p>
-          <h1>Harden auth flow</h1>
+          <h1>Use typed, capped retry delays</h1>
           <p class="intro-copy">
             This is the document Trace Review creates for a pull request: the change
             summary, review findings, dependency context, and diff in one place.
@@ -33,8 +33,8 @@
         </div>
         <dl class="review-meta" aria-label="Pull request summary">
           <div><dt>Pull request</dt><dd>1 linked PR</dd></div>
-          <div><dt>Changes</dt><dd><strong>+11</strong> <span>−4</span> · 3 files</dd></div>
-          <div><dt>Review state</dt><dd><b>2 findings</b> · 0 comments</dd></div>
+          <div><dt>Changes</dt><dd><strong>+44</strong> <span>−12</span> · 5 files</dd></div>
+          <div><dt>Review state</dt><dd><b>1 finding</b> · 0 comments</dd></div>
         </dl>
       </section>
 
@@ -43,8 +43,8 @@
           <p class="rail-title">Read this pull request</p>
           <ol>
             <li class="active"><span>01</span><div><strong>Summary</strong><small>Intent and scope</small></div></li>
-            <li><span>02</span><div><strong>AI review</strong><small>2 findings to assess</small></div></li>
-            <li><span>03</span><div><strong>Changes</strong><small>3 files · +11 −4</small></div></li>
+            <li><span>02</span><div><strong>LM review</strong><small>1 finding to assess</small></div></li>
+            <li><span>03</span><div><strong>Changes</strong><small>5 files · +44 −12</small></div></li>
             <li><span>04</span><div><strong>Your verdict</strong><small>Export when ready</small></div></li>
           </ol>
           <div class="rail-note">
@@ -60,7 +60,7 @@
           </div>
           <img
             src="./assets/review-interface.png"
-            alt="Trace Review showing the pull request summary, AI review findings, and an interactive code diff"
+            alt="Trace Review showing a C++ pull request summary, an LM review finding, and an interactive code diff"
             width="1560"
             height="1118"
           />
@@ -79,7 +79,7 @@
         <div class="path-steps">
           <article><span>1</span><strong>Understand intent</strong><p>Start with the PR summary and the group’s purpose.</p></article>
           <article><span>2</span><strong>Follow context</strong><p>Move from a definition to its usages, config, and tests.</p></article>
-          <article><span>3</span><strong>Assess evidence</strong><p>Keep AI findings and your line comments anchored to the diff.</p></article>
+          <article><span>3</span><strong>Assess evidence</strong><p>Keep LM findings and your line comments anchored to the diff.</p></article>
         </div>
       </section>
     </main>

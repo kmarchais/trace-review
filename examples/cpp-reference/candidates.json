@@ -1,0 +1,316 @@
+{
+  "schemaVersion": 1,
+  "groups": [
+    {
+      "id": "g1",
+      "title": "Definitions",
+      "kind": "feature",
+      "intent": "Introduce or change the concepts that other changes may consume.",
+      "evidence": [
+        "1 change unit across 1 file.",
+        "Added lines contain a deterministic class, function, type, or variable definition pattern."
+      ],
+      "risk": "medium",
+      "confidence": 0.82,
+      "reviewerChecks": [
+        "Read these definitions before their usages.",
+        "Check public contracts and compatibility."
+      ],
+      "changes": [
+        {
+          "id": "src/retry_policy.cpp#h0",
+          "file": "src/retry_policy.cpp",
+          "hunk": 0,
+          "oldRange": {
+            "start": 1,
+            "end": 14,
+            "count": 14
+          },
+          "newRange": {
+            "start": 1,
+            "end": 22,
+            "count": 22
+          },
+          "label": "new lines 1-22",
+          "topic": "#include <algorithm>",
+          "definitions": [
+            "base_delay_"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g2",
+      "title": "Consumers",
+      "kind": "feature",
+      "intent": "Update code that consumes definitions changed elsewhere in the patch.",
+      "evidence": [
+        "1 change unit across 1 file.",
+        "The change is executable source without a newly detected definition."
+      ],
+      "risk": "medium",
+      "confidence": 0.7,
+      "reviewerChecks": [
+        "Trace each usage back to its definition.",
+        "Check behavior and error paths at call sites."
+      ],
+      "changes": [
+        {
+          "id": "include/retry_policy.h#h0",
+          "file": "include/retry_policy.h",
+          "hunk": 0,
+          "oldRange": {
+            "start": 1,
+            "end": 11,
+            "count": 11
+          },
+          "newRange": {
+            "start": 1,
+            "end": 15,
+            "count": 15
+          },
+          "label": "new lines 1-15",
+          "topic": "#include <chrono>",
+          "definitions": []
+        }
+      ]
+    },
+    {
+      "id": "g3",
+      "title": "Configuration and build integration",
+      "kind": "other",
+      "intent": "Connect the implementation to configuration, packaging, or build behavior.",
+      "evidence": [
+        "1 change unit across 1 file.",
+        "The changed path matches a configuration or build-file convention."
+      ],
+      "risk": "medium",
+      "confidence": 0.9,
+      "reviewerChecks": [
+        "Confirm platform and environment variants.",
+        "Check that names and paths match the implementation."
+      ],
+      "changes": [
+        {
+          "id": "CMakeLists.txt#h0",
+          "file": "CMakeLists.txt",
+          "hunk": 0,
+          "oldRange": {
+            "start": 18,
+            "end": 23,
+            "count": 6
+          },
+          "newRange": {
+            "start": 18,
+            "end": 24,
+            "count": 7
+          },
+          "label": "new lines 18-24",
+          "topic": "add_library(retry_policy",
+          "definitions": []
+        }
+      ]
+    },
+    {
+      "id": "g4",
+      "title": "Associated tests",
+      "kind": "test",
+      "intent": "Verify the behavior introduced by the implementation groups.",
+      "evidence": [
+        "2 change units across 2 files.",
+        "The changed path matches a test directory or test/spec filename convention."
+      ],
+      "risk": "low",
+      "confidence": 0.95,
+      "reviewerChecks": [
+        "Check that assertions would fail without the implementation.",
+        "Look for uncovered edge and failure cases."
+      ],
+      "changes": [
+        {
+          "id": "tests/retry_policy_backoff_test.cpp#h0",
+          "file": "tests/retry_policy_backoff_test.cpp",
+          "hunk": 0,
+          "oldRange": {
+            "start": 0,
+            "end": 0,
+            "count": 0
+          },
+          "newRange": {
+            "start": 1,
+            "end": 22,
+            "count": 22
+          },
+          "label": "new lines 1-22",
+          "topic": "#include \"retry_policy.h\"",
+          "definitions": [
+            "main"
+          ]
+        },
+        {
+          "id": "tests/retry_policy_test.cpp#h0",
+          "file": "tests/retry_policy_test.cpp",
+          "hunk": 0,
+          "oldRange": {
+            "start": 1,
+            "end": 12,
+            "count": 12
+          },
+          "newRange": {
+            "start": 1,
+            "end": 14,
+            "count": 14
+          },
+          "label": "new lines 1-14",
+          "topic": "#include <chrono>",
+          "definitions": []
+        }
+      ]
+    }
+  ],
+  "dependencyGraph": {
+    "nodes": [
+      {
+        "id": "g1",
+        "definitions": [
+          "base_delay_"
+        ],
+        "role": "definition"
+      },
+      {
+        "id": "g2",
+        "definitions": [],
+        "role": "consumer"
+      },
+      {
+        "id": "g3",
+        "definitions": [],
+        "role": "integration"
+      },
+      {
+        "id": "g4",
+        "definitions": [],
+        "role": "tests"
+      }
+    ],
+    "edges": [
+      {
+        "from": "g1",
+        "to": "g2",
+        "reason": "definition-usage",
+        "evidence": "base_delay_"
+      },
+      {
+        "from": "g1",
+        "to": "g3",
+        "reason": "related-configuration",
+        "evidence": "Configuration/build integration"
+      },
+      {
+        "from": "g2",
+        "to": "g3",
+        "reason": "related-configuration",
+        "evidence": "Configuration/build integration"
+      },
+      {
+        "from": "g1",
+        "to": "g4",
+        "reason": "associated-tests",
+        "evidence": "Verification follows implementation"
+      },
+      {
+        "from": "g2",
+        "to": "g4",
+        "reason": "associated-tests",
+        "evidence": "Verification follows implementation"
+      }
+    ],
+    "suggestedOrder": [
+      "g1",
+      "g2",
+      "g3",
+      "g4"
+    ]
+  },
+  "inventory": [
+    {
+      "id": "CMakeLists.txt#h0",
+      "file": "CMakeLists.txt",
+      "hunk": 0,
+      "oldRange": {
+        "start": 18,
+        "end": 23,
+        "count": 6
+      },
+      "newRange": {
+        "start": 18,
+        "end": 24,
+        "count": 7
+      }
+    },
+    {
+      "id": "include/retry_policy.h#h0",
+      "file": "include/retry_policy.h",
+      "hunk": 0,
+      "oldRange": {
+        "start": 1,
+        "end": 11,
+        "count": 11
+      },
+      "newRange": {
+        "start": 1,
+        "end": 15,
+        "count": 15
+      }
+    },
+    {
+      "id": "src/retry_policy.cpp#h0",
+      "file": "src/retry_policy.cpp",
+      "hunk": 0,
+      "oldRange": {
+        "start": 1,
+        "end": 14,
+        "count": 14
+      },
+      "newRange": {
+        "start": 1,
+        "end": 22,
+        "count": 22
+      }
+    },
+    {
+      "id": "tests/retry_policy_backoff_test.cpp#h0",
+      "file": "tests/retry_policy_backoff_test.cpp",
+      "hunk": 0,
+      "oldRange": {
+        "start": 0,
+        "end": 0,
+        "count": 0
+      },
+      "newRange": {
+        "start": 1,
+        "end": 22,
+        "count": 22
+      }
+    },
+    {
+      "id": "tests/retry_policy_test.cpp#h0",
+      "file": "tests/retry_policy_test.cpp",
+      "hunk": 0,
+      "oldRange": {
+        "start": 1,
+        "end": 12,
+        "count": 12
+      },
+      "newRange": {
+        "start": 1,
+        "end": 14,
+        "count": 14
+      }
+    }
+  ],
+  "validation": {
+    "valid": true,
+    "diagnostics": []
+  }
+}

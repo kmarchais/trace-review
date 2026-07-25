@@ -1,0 +1,344 @@
+{
+  "schemaVersion": 1,
+  "provenance": "lm",
+  "groups": [
+    {
+      "id": "g1",
+      "title": "Chrono-based retry policy contract",
+      "kind": "feature",
+      "intent": "Review the public migration from integer milliseconds to typed chrono durations.",
+      "risk": "medium",
+      "confidence": 0.97,
+      "evidence": [
+        "The public header replaces integer delay inputs and outputs with std::chrono::milliseconds."
+      ],
+      "reviewerChecks": [
+        "Confirm all callers can migrate without unit ambiguity."
+      ],
+      "titleEvidence": {
+        "changeIds": [
+          "include/retry_policy.h#h0"
+        ],
+        "rationale": "The public header hunk defines the chrono-based retry policy contract."
+      },
+      "changes": [
+        {
+          "id": "include/retry_policy.h#h0",
+          "file": "include/retry_policy.h",
+          "hunk": 0,
+          "oldRange": {
+            "start": 1,
+            "end": 11,
+            "count": 11
+          },
+          "newRange": {
+            "start": 1,
+            "end": 15,
+            "count": 15
+          },
+          "label": "new lines 1-15",
+          "topic": "#include <chrono>",
+          "definitions": []
+        }
+      ]
+    },
+    {
+      "id": "g2",
+      "title": "Capped exponential backoff behavior",
+      "kind": "feature",
+      "intent": "Review the exponential delay calculation and its 30-second ceiling as one behavioral decision.",
+      "risk": "medium",
+      "confidence": 0.96,
+      "evidence": [
+        "The implementation doubles the base delay by attempt and caps the result at 30 seconds."
+      ],
+      "reviewerChecks": [
+        "Check attempt boundaries, overflow protection, and cap semantics."
+      ],
+      "titleEvidence": {
+        "changeIds": [
+          "src/retry_policy.cpp#h0"
+        ],
+        "rationale": "The source hunk implements both exponential growth and the maximum delay."
+      },
+      "changes": [
+        {
+          "id": "src/retry_policy.cpp#h0",
+          "file": "src/retry_policy.cpp",
+          "hunk": 0,
+          "oldRange": {
+            "start": 1,
+            "end": 14,
+            "count": 14
+          },
+          "newRange": {
+            "start": 1,
+            "end": 22,
+            "count": 22
+          },
+          "label": "new lines 1-22",
+          "topic": "#include <algorithm>",
+          "definitions": [
+            "base_delay_"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g3",
+      "title": "Backoff examples and boundary coverage",
+      "kind": "test",
+      "intent": "Review the updated baseline assertion with the new zero, growth, and cap cases.",
+      "risk": "low",
+      "confidence": 0.98,
+      "evidence": [
+        "The tests exercise attempts zero through three and attempts above the maximum-delay threshold."
+      ],
+      "reviewerChecks": [
+        "Confirm each assertion would fail under the former linear-delay behavior."
+      ],
+      "titleEvidence": {
+        "changeIds": [
+          "tests/retry_policy_backoff_test.cpp#h0",
+          "tests/retry_policy_test.cpp#h0"
+        ],
+        "rationale": "The cited test hunks contain the growth, cap, and migrated baseline assertions."
+      },
+      "changes": [
+        {
+          "id": "tests/retry_policy_backoff_test.cpp#h0",
+          "file": "tests/retry_policy_backoff_test.cpp",
+          "hunk": 0,
+          "oldRange": {
+            "start": 0,
+            "end": 0,
+            "count": 0
+          },
+          "newRange": {
+            "start": 1,
+            "end": 22,
+            "count": 22
+          },
+          "label": "new lines 1-22",
+          "topic": "#include \"retry_policy.h\"",
+          "definitions": [
+            "main"
+          ]
+        },
+        {
+          "id": "tests/retry_policy_test.cpp#h0",
+          "file": "tests/retry_policy_test.cpp",
+          "hunk": 0,
+          "oldRange": {
+            "start": 1,
+            "end": 12,
+            "count": 12
+          },
+          "newRange": {
+            "start": 1,
+            "end": 14,
+            "count": 14
+          },
+          "label": "new lines 1-14",
+          "topic": "#include <chrono>",
+          "definitions": []
+        }
+      ]
+    },
+    {
+      "id": "g4",
+      "title": "Backoff test target integration",
+      "kind": "other",
+      "intent": "Verify that the new backoff test is compiled and executed by the existing CMake test setup.",
+      "risk": "medium",
+      "confidence": 0.95,
+      "evidence": [
+        "CMake adds retry_policy_backoff_test.cpp to the retry_policy_tests executable."
+      ],
+      "reviewerChecks": [
+        "Confirm the target structure supports every test source and registers the executable with the test runner."
+      ],
+      "titleEvidence": {
+        "changeIds": [
+          "CMakeLists.txt#h0"
+        ],
+        "rationale": "The CMake hunk is the integration point for the new backoff test source."
+      },
+      "changes": [
+        {
+          "id": "CMakeLists.txt#h0",
+          "file": "CMakeLists.txt",
+          "hunk": 0,
+          "oldRange": {
+            "start": 18,
+            "end": 23,
+            "count": 6
+          },
+          "newRange": {
+            "start": 18,
+            "end": 24,
+            "count": 7
+          },
+          "label": "new lines 18-24",
+          "topic": "add_library(retry_policy",
+          "definitions": []
+        }
+      ]
+    }
+  ],
+  "dependencyGraph": {
+    "nodes": [
+      {
+        "id": "g1",
+        "definitions": [],
+        "role": "feature"
+      },
+      {
+        "id": "g2",
+        "definitions": [],
+        "role": "feature"
+      },
+      {
+        "id": "g3",
+        "definitions": [],
+        "role": "test"
+      },
+      {
+        "id": "g4",
+        "definitions": [],
+        "role": "other"
+      }
+    ],
+    "edges": [
+      {
+        "from": "g1",
+        "to": "g2",
+        "reason": "semantic-prerequisite",
+        "evidence": "Capped exponential backoff behavior is easier to review after Chrono-based retry policy contract."
+      },
+      {
+        "from": "g2",
+        "to": "g3",
+        "reason": "semantic-prerequisite",
+        "evidence": "Backoff examples and boundary coverage is easier to review after Capped exponential backoff behavior."
+      },
+      {
+        "from": "g3",
+        "to": "g4",
+        "reason": "semantic-prerequisite",
+        "evidence": "Backoff test target integration is easier to review after Backoff examples and boundary coverage."
+      },
+      {
+        "from": "g2",
+        "to": "g4",
+        "reason": "related-configuration",
+        "evidence": "Configuration/build integration"
+      },
+      {
+        "from": "g1",
+        "to": "g4",
+        "reason": "related-configuration",
+        "evidence": "Configuration/build integration"
+      },
+      {
+        "from": "g2",
+        "to": "g3",
+        "reason": "associated-tests",
+        "evidence": "Verification follows implementation"
+      },
+      {
+        "from": "g1",
+        "to": "g3",
+        "reason": "associated-tests",
+        "evidence": "Verification follows implementation"
+      }
+    ],
+    "suggestedOrder": [
+      "g1",
+      "g2",
+      "g3",
+      "g4"
+    ]
+  },
+  "inventory": [
+    {
+      "id": "CMakeLists.txt#h0",
+      "file": "CMakeLists.txt",
+      "hunk": 0,
+      "oldRange": {
+        "start": 18,
+        "end": 23,
+        "count": 6
+      },
+      "newRange": {
+        "start": 18,
+        "end": 24,
+        "count": 7
+      }
+    },
+    {
+      "id": "include/retry_policy.h#h0",
+      "file": "include/retry_policy.h",
+      "hunk": 0,
+      "oldRange": {
+        "start": 1,
+        "end": 11,
+        "count": 11
+      },
+      "newRange": {
+        "start": 1,
+        "end": 15,
+        "count": 15
+      }
+    },
+    {
+      "id": "src/retry_policy.cpp#h0",
+      "file": "src/retry_policy.cpp",
+      "hunk": 0,
+      "oldRange": {
+        "start": 1,
+        "end": 14,
+        "count": 14
+      },
+      "newRange": {
+        "start": 1,
+        "end": 22,
+        "count": 22
+      }
+    },
+    {
+      "id": "tests/retry_policy_backoff_test.cpp#h0",
+      "file": "tests/retry_policy_backoff_test.cpp",
+      "hunk": 0,
+      "oldRange": {
+        "start": 0,
+        "end": 0,
+        "count": 0
+      },
+      "newRange": {
+        "start": 1,
+        "end": 22,
+        "count": 22
+      }
+    },
+    {
+      "id": "tests/retry_policy_test.cpp#h0",
+      "file": "tests/retry_policy_test.cpp",
+      "hunk": 0,
+      "oldRange": {
+        "start": 1,
+        "end": 12,
+        "count": 12
+      },
+      "newRange": {
+        "start": 1,
+        "end": 14,
+        "count": 14
+      }
+    }
+  ],
+  "validation": {
+    "valid": true,
+    "diagnostics": []
+  }
+}

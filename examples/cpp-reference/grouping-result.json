@@ -1,0 +1,86 @@
+{
+  "groups": [
+    {
+      "title": "Chrono-based retry policy contract",
+      "kind": "feature",
+      "intent": "Review the public migration from integer milliseconds to typed chrono durations.",
+      "risk": "medium",
+      "confidence": 0.97,
+      "evidence": [
+        "The public header replaces integer delay inputs and outputs with std::chrono::milliseconds."
+      ],
+      "reviewerChecks": [
+        "Confirm all callers can migrate without unit ambiguity."
+      ],
+      "titleEvidence": {
+        "changeIds": ["include/retry_policy.h#h0"],
+        "rationale": "The public header hunk defines the chrono-based retry policy contract."
+      },
+      "changeIds": ["include/retry_policy.h#h0"],
+      "readAfter": []
+    },
+    {
+      "title": "Capped exponential backoff behavior",
+      "kind": "feature",
+      "intent": "Review the exponential delay calculation and its 30-second ceiling as one behavioral decision.",
+      "risk": "medium",
+      "confidence": 0.96,
+      "evidence": [
+        "The implementation doubles the base delay by attempt and caps the result at 30 seconds."
+      ],
+      "reviewerChecks": [
+        "Check attempt boundaries, overflow protection, and cap semantics."
+      ],
+      "titleEvidence": {
+        "changeIds": ["src/retry_policy.cpp#h0"],
+        "rationale": "The source hunk implements both exponential growth and the maximum delay."
+      },
+      "changeIds": ["src/retry_policy.cpp#h0"],
+      "readAfter": ["Chrono-based retry policy contract"]
+    },
+    {
+      "title": "Backoff examples and boundary coverage",
+      "kind": "test",
+      "intent": "Review the updated baseline assertion with the new zero, growth, and cap cases.",
+      "risk": "low",
+      "confidence": 0.98,
+      "evidence": [
+        "The tests exercise attempts zero through three and attempts above the maximum-delay threshold."
+      ],
+      "reviewerChecks": [
+        "Confirm each assertion would fail under the former linear-delay behavior."
+      ],
+      "titleEvidence": {
+        "changeIds": [
+          "tests/retry_policy_backoff_test.cpp#h0",
+          "tests/retry_policy_test.cpp#h0"
+        ],
+        "rationale": "The cited test hunks contain the growth, cap, and migrated baseline assertions."
+      },
+      "changeIds": [
+        "tests/retry_policy_backoff_test.cpp#h0",
+        "tests/retry_policy_test.cpp#h0"
+      ],
+      "readAfter": ["Capped exponential backoff behavior"]
+    },
+    {
+      "title": "Backoff test target integration",
+      "kind": "other",
+      "intent": "Verify that the new backoff test is compiled and executed by the existing CMake test setup.",
+      "risk": "medium",
+      "confidence": 0.95,
+      "evidence": [
+        "CMake adds retry_policy_backoff_test.cpp to the retry_policy_tests executable."
+      ],
+      "reviewerChecks": [
+        "Confirm the target structure supports every test source and registers the executable with the test runner."
+      ],
+      "titleEvidence": {
+        "changeIds": ["CMakeLists.txt#h0"],
+        "rationale": "The CMake hunk is the integration point for the new backoff test source."
+      },
+      "changeIds": ["CMakeLists.txt#h0"],
+      "readAfter": ["Backoff examples and boundary coverage"]
+    }
+  ]
+}

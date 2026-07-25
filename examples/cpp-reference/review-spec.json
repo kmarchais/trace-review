@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "mode": "lm-analysis",
+  "title": "Reference review: capped retry backoff",
+  "reviewId": "reference-cpp-retry-backoff",
+  "reviewer": "LM",
+  "generated": "Reference C++ pull request",
+  "prs": [
+    {
+      "id": "cpp-reference",
+      "title": "Use typed, capped exponential retry delays",
+      "blocks": [
+        {
+          "type": "prose",
+          "md": "## What and why\nReplace unit-ambiguous integer delays with `std::chrono::milliseconds`, then move retries from linear to capped exponential backoff."
+        },
+        {
+          "type": "stats",
+          "items": [
+            {"label": "Files", "value": "5"},
+            {"label": "Behavior", "value": "Exponential"},
+            {"label": "Maximum", "value": "30 s", "accent": "orange"}
+          ]
+        },
+        {
+          "type": "table",
+          "headers": ["Decision", "Reviewer focus"],
+          "rows": [
+            ["Public contract", "Call-site compatibility and units"],
+            ["Backoff behavior", "Boundary, overflow, and cap semantics"],
+            ["Build and tests", "Executable structure and meaningful assertions"]
+          ]
+        },
+        {
+          "type": "callout",
+          "variant": "info",
+          "title": "Reference demo",
+          "md": "This fixture deliberately includes one build-integration defect so the LM finding workflow is visible."
+        }
+      ],
+      "diffFile": "changes.patch",
+      "groupFile": "groups.json",
+      "review": {
+        "verdict": "request-changes",
+        "global": "The typed duration contract and capped backoff are coherent, but the new test source cannot be linked into the existing executable as written.",
+        "comments": [
+          {
+            "file": "CMakeLists.txt",
+            "line": 21,
+            "severity": "concern",
+            "body": "This adds a second source containing `main()` to `retry_policy_tests`, so the target will fail to link with duplicate entry points. Give the new test its own executable or use a shared test framework entry point.",
+            "confidence": 0.99,
+            "rationale": "Both retry_policy_backoff_test.cpp and retry_policy_test.cpp define main(), and CMake compiles them into one executable."
+          }
+        ]
+      }
+    }
+  ]
+}

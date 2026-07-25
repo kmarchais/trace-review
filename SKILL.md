@@ -52,6 +52,12 @@ absolute paths for `--spec`/`--out` when in doubt.
   nothing), and the **fonts** (system fallback). The diff, comments, viewed
   state, and export are fully offline.
 
+Before grouping, read repository-local agent instructions for risk rules, test
+conventions, generated outputs, and regeneration commands. Apply those rules
+only when the current patch supplies supporting evidence. See
+[docs/REPOSITORY-CONFIGURATION.md](docs/REPOSITORY-CONFIGURATION.md) for a
+recommended policy block and the deterministic conventions schema v1 detects.
+
 ## Workflow (the agent path)
 
 ### 1. Collect facts and the diff — never dump the diff into chat
@@ -491,6 +497,13 @@ Viewer controls:
 - **Line-ending warnings** from git (`LF will be replaced by CRLF`) on Windows
   are harmless; the patch is still valid.
 
+The complete operational boundary—including binary files, heuristic generated
+file detection, localStorage portability, GitHub CLI fallback, and offline CDN
+degradation—is documented in
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md). Do not represent a generated review
+as a substitute for the repository's compiler, tests, linters, or security
+tooling.
+
 ## Build & test the driver itself
 
 Run the dependency-free test suite, then reproduce the generator smoke test:
@@ -503,3 +516,9 @@ node scripts/build-review.mjs --spec examples/review-spec.json --out review-smok
 The suite covers collection, preflight, schema diagnostics, representative
 patches, HTML structure, a checked-in visual contract, and a 300-file
 performance fixture.
+
+Use [examples/cpp-reference/README.md](examples/cpp-reference/README.md) as the
+distribution smoke test. A release candidate must satisfy
+[docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md), including schema,
+tests, accessibility, the five-second 300-file generation budget, offline
+behavior, and a manual interface review.

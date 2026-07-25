@@ -20,6 +20,8 @@ into the conversation), and the agent only authors a short JSON spec.
 The static GitHub Pages site lives in [`docs/`](docs/). Configure Pages to
 publish from the `main` branch and `/docs` folder.
 
+![Trace Review reference C++ review](examples/screenshot.png)
+
 ## What you get
 
 - **Free-form PR summary** (left): description, diagrams (SVG or Mermaid), stat
@@ -74,6 +76,11 @@ Both agents discover the skill as `trace-review`; Claude Code exposes it as
 - **Claude Code or Codex** — needed only to invoke the skill workflow and
   generate language-model (LM) analysis. The scripts can be run manually without either agent,
   and a generated review works as a standalone HTML file in a modern browser.
+
+Before adopting Trace Review across a team, record repository-specific
+[risk rules, test conventions, and generated-file guidance](docs/REPOSITORY-CONFIGURATION.md).
+The guidance is explicit agent policy in schema v1, not a hidden configuration
+format.
 
 ## Usage
 
@@ -172,11 +179,25 @@ or `deep-audit`. Generation reports invalid fields with JSON paths and
 corrective hints before writing HTML. See [REVIEW-SPEC.md](REVIEW-SPEC.md),
 [SKILL.md](SKILL.md), and
 [examples/review-spec.json](examples/review-spec.json) for a starting template.
+For a complete, reproducible workflow, use the
+[C++ reference review](examples/cpp-reference/README.md), which includes typed
+API changes, standard-library includes, capped backoff behavior, CMake, tests,
+semantic groups, and one actionable LM finding.
+
+## Operational boundaries
+
+Read [known limitations and offline behavior](docs/LIMITATIONS.md) before
+distribution. Generated reviews keep the diff, comments, groups, and export
+available offline; hosted syntax colors, fonts, and Mermaid diagrams degrade
+gracefully when the network is unavailable.
 
 ## Quality checks
 
 ```bash
 npm test
+npm run validate:example
+npm run validate:reference
+npm run build:reference
 ```
 
 The dependency-free suite covers collection and preflight, review-spec
@@ -184,6 +205,9 @@ validation, small and very large generation, malicious pull-request content,
 comment fingerprints and orphan recovery, progressive rendering, HTML
 landmarks, the checked-in visual contract, C++, CMake, renames, binaries,
 generated files, groups, and LM comments.
+
+Release candidates must also pass the
+[automated, accessibility, performance, and manual interface criteria](docs/RELEASE-CHECKLIST.md).
 
 ## Layout
 
@@ -198,5 +222,7 @@ scripts/prepare-lm-analysis.mjs  compact facts, risk gate, and finding budget
 scripts/finalize-lm-analysis.mjs  validate findings and emit review-spec content
 templates/review.template.html  the static, interactive HTML template
 examples/                    example spec + screenshot
+examples/cpp-reference/      reproducible C++ reference pull request
+docs/                        adoption, limitations, metrics, and release guidance
 test/fixtures/               patch, spec, and visual-contract fixtures
 ```
