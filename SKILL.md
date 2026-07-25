@@ -352,16 +352,19 @@ counts.
 
 ## What the output looks like
 
-See [examples/screenshot.png](examples/screenshot.png). A two-column workspace:
+See [examples/screenshot.png](examples/screenshot.png). The workspace follows
+three explicit stages: **Understand** the pull request, **Validate groups** and
+their relationships, then **Inspect evidence** in the diff. The stage controls
+change the visible level of detail rather than acting as decorative anchors.
 
 - **Left — the PR** (only when there's context: `url`, `summary`, `diagrams`,
   or `blocks`): a sticky panel with the title, `+/-` stats, PR link, and your
   free-form summary blocks. Omitted for a bare diff.
 - **Right — the review:**
-  - **Top** — in LM-analysis and deep-audit modes, a bold **"&lt;reviewer&gt; review"** card whose
+  - **Top** — in LM-analysis and deep-audit modes, a compact **"&lt;reviewer&gt; review"** card whose
     header is **coloured by verdict** (green approve / red request-changes /
-    blue comment) so it's spotted instantly, then a **findings** list where each
-    item is **accent-coloured by severity**, then a live list of the reviewer's
+    blue comment), then a collapsed-on-demand **findings** panel where each item
+    is **accent-coloured by severity**, then a live list of the reviewer's
     line comments (click any to jump to that line).
   - **Bottom** — the self-contained **"Changes"** block: collapsible per-file
     diffs with **language-aware syntax highlighting** (by file extension,
@@ -374,13 +377,16 @@ See [examples/screenshot.png](examples/screenshot.png). A two-column workspace:
     remembered, and the view scrolls to bring the next file up so reading order
     is preserved), and hits **⛶** to read the diff fullscreen. LM findings
     appear inline, severity-coloured, with Accept / Dismiss / Reply.
-- **Pinned to the bottom** — a **📝 Your overall review** bar stays visible at
-  the bottom of the viewport no matter where you scroll (collapsible), for the
-  reviewer's own verdict after reading everything.
+- **Pinned at the bottom-right** — a compact **📝 Your overall review** drawer
+  stays available without covering the width of the diff. It starts collapsed
+  and expands for the reviewer's own verdict after reading everything.
 
-The two columns are **resizable** — drag the divider between them (default
-**50/50**, double-click resets). On narrow screens the left panel stacks on top.
-Styled with the Elsyca palette (Titillium Web / Roboto, JetBrains Mono for code).
+The context column is **adaptive, resizable, and collapsible** — drag the divider
+between it and the evidence surface (default **34/66**, double-click resets),
+use **Context** to collapse it, or use **Focus** to remove surrounding review
+chrome. On narrow screens the context panel stacks on top. The design system
+uses Inter for interface text, JetBrains Mono for code, quiet neutral surfaces,
+semantic state colors, a shared spacing scale, and visible keyboard focus.
 
 Viewer controls:
 - **File tree** — a **🗂 Files** button on the "Changes" bar opens a slide-in
@@ -393,6 +399,9 @@ Viewer controls:
   count below, so it stays legible even at hundreds of files.
 - **Unified / Split** toggle — lives on the **"Changes"** bar; switches inline
   vs side-by-side (persists; comments follow the line in both).
+- **Git order / Grouped order** — every grouped review can return to the raw
+  patch sequence for verification. Viewed state, navigation, and progress share
+  the same file identity in both representations.
 - **Click any diagram** to view it fullscreen (click again / Esc to close).
 - **Theme** button (header) — the doc **follows the OS light/dark setting by
   default**; the button cycles a session-only override (system → light → dark),

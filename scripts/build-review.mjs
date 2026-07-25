@@ -510,6 +510,24 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         <div class="group-files">${gblocks.map((b) => renderFileBlock(b, collapsedFiles, options)).join("\n")}</div>
       </div>`;
   };
+  const renderRawOrder = () =>
+    files
+      .map((file, index) => {
+        const fid = `${prId}__raw__${index}`;
+        const d = fileData(file);
+        dataBag[fid] = d;
+        return renderFileBlock({ fid, d }, false);
+      })
+      .join("\n");
+  const previewDefinition = (symbol) => {
+    for (const file of files) {
+      const row = fileData(file)
+        .hunks.flatMap((hunk) => hunk.rows || [])
+        .find((candidate) => candidate.t === "a" && candidate.c.includes(symbol));
+      if (row) return row.c;
+    }
+    return symbol;
+  };
 
   // pure renames (moved, no textual change) are noise to review one-by-one —
   // auto-collect them into a collapsed group once there are a few of them.
@@ -530,6 +548,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       .join("");
     const incoming = new Map();
     const outgoing = new Map();
+    const incomingSymbols = new Map();
     for (const edge of changeGroups.dependencyGraph?.edges || []) {
       if (!incoming.has(edge.to)) incoming.set(edge.to, []);
       if (!outgoing.has(edge.from)) outgoing.set(edge.from, []);
@@ -540,6 +559,12 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       }
       if (!outgoing.get(edge.from).includes(targetTitle)) {
         outgoing.get(edge.from).push(targetTitle);
+      }
+      if (edge.reason === "definition-usage" && edge.evidence) {
+        if (!incomingSymbols.has(edge.to)) incomingSymbols.set(edge.to, []);
+        if (!incomingSymbols.get(edge.to).includes(edge.evidence)) {
+          incomingSymbols.get(edge.to).push(edge.evidence);
+        }
       }
     }
     const nodesById = new Map(
@@ -580,14 +605,12 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         `value="${esc(group.id)}"`,
         `value="${esc(group.id)}" selected`,
       );
-      const definitions = (nodesById.get(group.id)?.definitions || []).map((symbol) => {
-        const preview =
-          blocks
-            .flatMap((block) => block.d.hunks || [])
-            .flatMap((hunk) => hunk.rows || [])
-            .find((row) => row.t === "a" && row.c.includes(symbol))?.c || symbol;
-        return { symbol, preview };
-      });
+      const definitions = [
+        ...new Set([
+          ...(nodesById.get(group.id)?.definitions || []),
+          ...(incomingSymbols.get(group.id) || []),
+        ]),
+      ].map((symbol) => ({ symbol, preview: previewDefinition(symbol) }));
       parts.push(
         renderGroup(
           {
@@ -601,17 +624,11 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
         ),
       );
     }
-    const rawBlocks = files.map((file, index) => {
-      const fid = `${prId}__raw__${index}`;
-      const d = fileData(file);
-      dataBag[fid] = d;
-      return renderFileBlock({ fid, d }, false);
-    });
     filesHtml = `
       <div class="group-workspace" data-review-stage="validate">
         <div class="reading-order"><strong>Suggested reading order:</strong> ${orderedGroups.map((group, index) => `${index + 1}. ${esc(group.title)}`).join(" → ")}</div>
         <div class="order-views" data-order-view="grouped">${parts.join("\n")}<div class="out-of-scope-group" data-out-of-scope hidden><div class="group-head"><span class="group-kind gk-other">out of scope</span><span class="group-title">Reviewer-excluded changes</span></div><div class="group-files"></div></div></div>
-        <div class="order-views" data-order-view="raw" hidden>${rawBlocks.join("\n")}</div>
+        <div class="order-views" data-order-view="raw" hidden>${renderRawOrder()}</div>
       </div>`;
   } else if (Array.isArray(pr.groups) && pr.groups.length) {
     const byPath = new Map(fileBlocks.map((b) => [b.d.path, b]));
@@ -628,7 +645,12 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
     const restOther = groupRenames ? rest.filter((b) => !isPureRename(b)) : rest;
     if (restOther.length) parts.push(renderGroup({ id: "__other", title: "Other changes", kind: "other" }, restOther));
     if (groupRenames) parts.push(renderGroup(RENAME_GROUP, restRenames));
-    filesHtml = parts.join("\n");
+    filesHtml = `
+      <div class="group-workspace" data-review-stage="validate">
+        <div class="reading-order"><strong>Group reading order:</strong> ${parts.length} decision group${parts.length === 1 ? "" : "s"}</div>
+        <div class="order-views" data-order-view="grouped">${parts.join("\n")}</div>
+        <div class="order-views" data-order-view="raw" hidden>${renderRawOrder()}</div>
+      </div>`;
   } else {
     const renames = fileBlocks.filter(isPureRename);
     if (renames.length >= 3) {
@@ -669,22 +691,22 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
       : "";
   const findingsList =
     review && review.comments.length
-      ? `<div class="cl-wrap"><div class="cl-head">${esc(reviewer)} findings <span class="cl-count">${review.comments.length}</span></div><div class="finding-list" data-finding-list="${esc(prId)}"></div></div>`
+      ? `<details class="findings-panel"><summary>${esc(reviewer)} findings <span class="cl-count">${review.comments.length}</span><small>Review when relevant</small></summary><div class="finding-list" data-finding-list="${esc(prId)}"></div></details>`
       : "";
   const overallPlaceholder = review
     ? `Your verdict after reading the summary, the ${reviewer} review, and the diff…`
     : "Your overall verdict after reading the summary and the diff…";
 
   return `
-  <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}"${single ? "" : " hidden"}>
+  <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}" data-active-stage="understand"${single ? "" : " hidden"}>
     <nav class="review-journey" aria-label="Review stages">
-      <button type="button" data-review-stage="understand"><span>1</span><strong>Understand</strong><small>Pull request context</small></button>
+      <button type="button" data-review-stage="understand" aria-current="step"><span>1</span><strong>Understand</strong><small>Pull request context</small></button>
       <button type="button" data-review-stage="validate"><span>2</span><strong>Validate groups</strong><small>Intent and dependencies</small></button>
       <button type="button" data-review-stage="inspect"><span>3</span><strong>Inspect evidence</strong><small>Diff and comments</small></button>
     </nav>
     <div class="pr-cols${hasContext ? "" : " no-context"}">
       ${contextPanel}
-      ${hasContext ? '<div class="col-resizer" title="Drag to resize · double-click for 50/50"></div>' : ""}
+      ${hasContext ? '<div class="col-resizer" title="Drag to resize · double-click for 34/66"></div>' : ""}
       <div class="review-col">
         <div class="review-top" data-review-stage="understand">
           ${aiGlobal}
@@ -695,7 +717,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           </div>
         </div>
         <div class="diff-block" data-review-stage="inspect">
-          <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span>${hasContext ? '<button type="button" class="context-toggle" aria-pressed="false" title="Collapse pull request context">Context</button>' : ""}<button type="button" class="focus-mode-toggle" aria-pressed="false" title="Show only the evidence surface">Focus</button>${changeGroups ? '<button type="button" class="raw-order-toggle" aria-pressed="false" title="Switch between grouped reading order and raw Git order">Git order</button>' : ""}<button type="button" class="dbh-tree" title="File tree (list of changed files)">🗂 Files</button><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
+          <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span>${hasContext ? '<button type="button" class="context-toggle" aria-pressed="false" title="Collapse pull request context">Context</button>' : ""}<button type="button" class="focus-mode-toggle" aria-pressed="false" title="Show only the evidence surface">Focus</button>${changeGroups || (Array.isArray(pr.groups) && pr.groups.length) ? '<button type="button" class="raw-order-toggle" aria-pressed="false" title="Switch between grouped reading order and raw Git order">Git order</button>' : ""}<button type="button" class="dbh-tree" title="File tree (list of changed files)">🗂 Files</button><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
           ${warnHtml}
           <div class="files">${filesHtml}</div>
         </div>

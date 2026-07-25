@@ -29,6 +29,9 @@
   /* dark, applied when the OS prefers dark AND the user has not overridden */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
+      --surface-canvas:#0e1418; --surface-subtle:#141c22; --surface-raised:#161f26;
+      --text-strong:#edf4f7; --text-default:#c8d2d8; --text-muted:#8fa0a8;
+      --semantic-info:#62bddc; --semantic-warning:#e3a454; --semantic-danger:#e47772; --semantic-success:#58bb78;
       --bg:#0e1418; --panel:#141c22; --card:#161f26; --text:#c8d2d8; --muted:#7d8b93;
       --border:#243038; --header:#0b2b38; --header-text:#daeff8;
       --add-bg:#132a1d; --add-word:#1f6f38; --del-bg:#30191e; --del-word:#8a2a33;
@@ -39,6 +42,9 @@
   }
   /* explicit manual override (session only) */
   :root[data-theme="dark"] {
+    --surface-canvas:#0e1418; --surface-subtle:#141c22; --surface-raised:#161f26;
+    --text-strong:#edf4f7; --text-default:#c8d2d8; --text-muted:#8fa0a8;
+    --semantic-info:#62bddc; --semantic-warning:#e3a454; --semantic-danger:#e47772; --semantic-success:#58bb78;
     --bg:#0e1418; --panel:#141c22; --card:#161f26; --text:#c8d2d8; --muted:#7d8b93;
     --border:#243038; --header:#0b2b38; --header-text:#daeff8;
     --add-bg:#0f2a17; --add-word:#1f6f38; --del-bg:#3a1418; --del-word:#8a2a33;
@@ -85,6 +91,8 @@
   .review-journey { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--space-2); max-width:860px; margin:0 auto var(--space-4); }
   .review-journey button { display:grid; grid-template-columns:28px 1fr; column-gap:var(--space-2); text-align:left; color:var(--text-muted); background:transparent; border:0; border-bottom:2px solid var(--border); padding:var(--space-2) var(--space-3); cursor:pointer; }
   .review-journey button:hover { color:var(--text-strong); border-bottom-color:var(--semantic-info); }
+  .review-journey button[aria-current="step"] { color:var(--semantic-info); border-bottom-color:var(--semantic-info); }
+  .review-journey button[aria-current="step"] > span { color:var(--surface-raised); background:var(--semantic-info); border-color:var(--semantic-info); }
   .review-journey button > span { grid-row:span 2; width:24px; height:24px; display:grid; place-items:center; border:1px solid var(--border); border-radius:50%; font:600 .72rem var(--font-heading); }
   .review-journey strong { font:.78rem var(--font-heading); color:var(--text-strong); }
   .review-journey small { font-size:.68rem; }
@@ -102,6 +110,11 @@
   .col-resizer::before { content:""; position:absolute; left:7px; top:0; bottom:0; width:2px; background:var(--border); border-radius:2px; transition:background .1s,width .1s; }
   .col-resizer:hover::before, .col-resizer.active::before { background:var(--primary); width:4px; left:6px; }
   .review-col { flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:16px; }
+  .pr[data-active-stage="understand"] .diff-block { display:none; }
+  .pr[data-active-stage="validate"] .review-top { display:none; }
+  .pr[data-active-stage="validate"] [data-order-view="grouped"] .file-body { display:none; }
+  .pr[data-active-stage="inspect"] .review-top { display:none; }
+  .pr[data-active-stage="inspect"] .group-intent-card { display:none; }
   .pr-cols.context-collapsed .pr-context, .pr-cols.context-collapsed .col-resizer { display:none; }
   .pr-cols.focus-mode .pr-context, .pr-cols.focus-mode .col-resizer, .pr-cols.focus-mode .review-top, .pr-cols.focus-mode ~ .overall-bar { display:none; }
   .context-toggle, .focus-mode-toggle, .raw-order-toggle { background:var(--card); border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; font:500 .74rem var(--font-heading); color:var(--muted); padding:5px 9px; white-space:nowrap; }
@@ -166,6 +179,10 @@
   .verdict-comment { background:var(--secondary-light,#5894AC); color:#fff; }
   .verdict-request-changes { background:var(--red); color:#fff; }
   .finding-list { display:flex; flex-direction:column; gap:6px; max-height:280px; overflow:auto; }
+  .findings-panel { margin-top:var(--space-3); border-top:1px solid var(--border); padding-top:var(--space-3); }
+  .findings-panel > summary { display:flex; align-items:center; gap:var(--space-2); cursor:pointer; color:var(--text-muted); font:600 .78rem var(--font-heading); text-transform:uppercase; letter-spacing:.03em; }
+  .findings-panel > summary small { margin-left:auto; color:var(--text-muted); font-size:.68rem; font-weight:400; text-transform:none; letter-spacing:0; }
+  .findings-panel[open] > summary { margin-bottom:var(--space-2); color:var(--semantic-info); }
   .finding-item { text-align:left; background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--primary); border-radius:4px; padding:6px 8px; cursor:pointer; font:inherit; color:var(--text); }
   .finding-item:hover { border-color:var(--primary); }
   .finding-item.done { opacity:.55; }
@@ -879,7 +896,9 @@
       if(fileEl){ fileEl.classList.remove("collapsed"); fileEl.scrollIntoView({ block:"start", behavior:"smooth" }); fileNoteBox(fileEl, (state.files[it.dataset.pr+" "+it.dataset.file]||{}).text||"", true); }
       return;
     }
-    const g = sec.querySelector('.gutter[data-key="'+cssEsc(it.dataset.key)+'"][data-file="'+cssEsc(it.dataset.file)+'"]');
+    const g = visibleEvidenceFiles(sec)
+      .map(file=>file.querySelector('.gutter[data-key="'+cssEsc(it.dataset.key)+'"][data-file="'+cssEsc(it.dataset.file)+'"]'))
+      .find(Boolean);
     if(!g) return;
     const file = g.closest(".file"); if(file) file.classList.remove("collapsed");
     const group = g.closest(".group"); if(group) group.classList.remove("collapsed");
@@ -929,12 +948,15 @@
     return ta;
   }
   function setViewed(fileEl, viewed, persist){
-    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.change || fileEl.dataset.file, id = pr + " " + file;
-    fileEl.classList.toggle("viewed", viewed);
-    fileEl.classList.toggle("collapsed", viewed);
-    const cb = fileEl.querySelector(".viewed-cb"); if(cb) cb.checked = viewed;
+    const sec=fileEl.closest("section.pr"), pr=sec.dataset.pr, file=fileEl.dataset.file, id=pr+" "+file;
+    const related=[...sec.querySelectorAll(".file")].filter(candidate=>candidate.dataset.file===file);
+    related.forEach(candidate=>{
+      candidate.classList.toggle("viewed", viewed);
+      candidate.classList.toggle("collapsed", viewed);
+      const cb=candidate.querySelector(".viewed-cb"); if(cb) cb.checked=viewed;
+    });
     if(persist){ if(viewed) state.viewed[id]=true; else delete state.viewed[id]; save(); updateCounts(); }
-    const grp = fileEl.closest(".group"); if(grp) syncGroupCb(grp);
+    new Set(related.map(candidate=>candidate.closest(".group")).filter(Boolean)).forEach(syncGroupCb);
     refreshTree();
   }
   // scroll a file's (now-collapsed) header just under the sticky bars, so the
@@ -962,7 +984,8 @@
     cb.indeterminate = n>0 && n<files.length;
   }
   document.querySelectorAll(".file").forEach(fileEl=>{
-    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.change || fileEl.dataset.file, id = pr + " " + file;
+    const pr = fileEl.closest("section.pr").dataset.pr, file = fileEl.dataset.file, id = pr + " " + file;
+    const legacyId = pr + " " + (fileEl.dataset.change || file);
     const fileNoteId = pr + " " + fileEl.dataset.file;
     const fileAttachId = attachmentId("file",pr,fileEl.dataset.file,"");
     const btn = fileEl.querySelector(".file-note-btn");
@@ -970,7 +993,7 @@
     const cb = fileEl.querySelector(".viewed-cb");
     if(cb) cb.addEventListener("change", ()=>{ setViewed(fileEl, cb.checked, true); if(cb.checked) scrollFileToTop(fileEl); });
     if(state.files[fileNoteId] && hasCommentContent(state.files[fileNoteId].text,fileAttachId)){ fileNoteBox(fileEl, state.files[fileNoteId].text, false); if(btn) btn.classList.add("has-note"); }
-    if(state.viewed[id]) setViewed(fileEl, true, false);
+    if(state.viewed[id] || state.viewed[legacyId]) setViewed(fileEl, true, false);
   });
 
   // ---- change groups: collapse + one "Reviewed" that clears the whole group ----
@@ -1210,9 +1233,26 @@
   });
 
   // ---- staged journey + adaptive evidence workspace ----
+  function setOrderView(sec,raw){
+    const button=sec.querySelector(".raw-order-toggle");
+    if(button){
+      button.setAttribute("aria-pressed",String(raw));
+      button.textContent=raw ? "Grouped order" : "Git order";
+    }
+    sec.querySelectorAll("[data-order-view]").forEach(view=>{ view.hidden=view.dataset.orderView!==(raw?"raw":"grouped"); });
+    const readingOrder=sec.querySelector(".reading-order"); if(readingOrder) readingOrder.hidden=raw;
+    refreshTree();
+    updateProgress();
+  }
   document.querySelectorAll(".review-journey button").forEach(button=>{
     button.addEventListener("click", ()=>{
       const sec=button.closest("section.pr"), stage=button.dataset.reviewStage;
+      sec.dataset.activeStage=stage;
+      sec.querySelectorAll(".review-journey button").forEach(candidate=>{
+        if(candidate===button) candidate.setAttribute("aria-current","step");
+        else candidate.removeAttribute("aria-current");
+      });
+      if(stage==="validate") setOrderView(sec,false);
       const target = stage==="understand"
         ? sec.querySelector(".pr-context, .review-top")
         : stage==="validate"
@@ -1241,12 +1281,7 @@
     button.addEventListener("click", ()=>{
       const sec=button.closest("section.pr");
       const raw=button.getAttribute("aria-pressed")!=="true";
-      button.setAttribute("aria-pressed", String(raw));
-      button.textContent=raw ? "Grouped order" : "Git order";
-      sec.querySelectorAll("[data-order-view]").forEach(view=>{ view.hidden=view.dataset.orderView!==(raw?"raw":"grouped"); });
-      const readingOrder=sec.querySelector(".reading-order"); if(readingOrder) readingOrder.hidden=raw;
-      refreshTree();
-      updateProgress();
+      setOrderView(sec,raw);
     });
   });
 

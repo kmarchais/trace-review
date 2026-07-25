@@ -260,6 +260,10 @@ test("builder consumes group files and emits correction controls", (t) => {
   assert.match(html, /Dependent changes/);
   assert.match(html, /Definition preview/);
   assert.match(html, /export function parse\(value\) \{/);
+  const consumerStart = html.indexOf('class="group-title">Consumers');
+  const consumerEnd = html.indexOf('class="group gk-', consumerStart + 1);
+  assert.ok(consumerStart > -1, "consumer group should render");
+  assert.match(html.slice(consumerStart, consumerEnd), /<code>parse<\/code>/);
   assert.match(html, /data-order-view="grouped"/);
   assert.match(html, /data-order-view="raw"/);
   assert.match(html, /class="raw-order-toggle"/);

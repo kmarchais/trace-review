@@ -69,6 +69,7 @@ test("LM-analysis fixture renders its global assessment and line finding", (t) =
   assert.match(html, /Should the returned name be part of the public compatibility contract/);
   assert.match(html, /Math\.round\(c\.confidence\*100\).*% confidence/);
   assert.match(html, /The return value is exposed by a public header/);
+  assert.match(html, /class="findings-panel"/);
 });
 
 test("generator reports malformed JSON without a stack trace", (t) => {
@@ -152,12 +153,18 @@ test("Phase 4 renders a staged, adaptive review experience", (t) => {
   assert.match(html, /data-review-stage="understand"/);
   assert.match(html, /data-review-stage="validate"/);
   assert.match(html, /data-review-stage="inspect"/);
+  assert.match(html, /data-active-stage="understand"/);
+  assert.match(html, /aria-current="step"/);
   assert.match(html, /class="context-toggle"/);
   assert.match(html, /class="focus-mode-toggle"/);
+  assert.match(html, /class="raw-order-toggle"/);
   assert.match(html, /aria-pressed="false"/);
   assert.match(html, /:focus-visible/);
   assert.match(html, /class="overall-bar collapsed"/);
   assert.match(html, /function visibleEvidenceFiles/);
+  assert.match(html, /file=fileEl\.dataset\.file/);
+  assert.match(html, /visibleEvidenceFiles\(sec\)[\s\S]*?file=>file\.querySelector/);
+  assert.match(html, /--surface-canvas:#0e1418/);
 });
 
 test("large-diff generation stays within the Phase 0 performance budget", (t) => {
