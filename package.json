@@ -5,6 +5,8 @@
   "scripts": {
     "test": "node --test",
     "validate:example": "node scripts/validate-review-spec.mjs --spec examples/review-spec.json",
+    "validate:reference": "node scripts/validate-review-spec.mjs --spec examples/cpp-reference/review-spec.json",
+    "build:reference": "node scripts/build-review.mjs --spec examples/cpp-reference/review-spec.json --out examples/cpp-reference/review.html",
     "groups": "node scripts/detect-mechanical-groups.mjs",
     "groups:finalize": "node scripts/finalize-lm-groups.mjs",
     "analysis:prepare": "node scripts/prepare-lm-analysis.mjs",

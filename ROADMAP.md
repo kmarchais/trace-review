@@ -58,7 +58,7 @@
 
 **Delivered:** a calm, diff-first review workspace with change-specific semantic groups, independent decision progress, raw-order verification, and 58 passing tests.
 
-## Phase 5 — Robustness on Real Pull Requests
+## Phase 5 — Robustness on Real Pull Requests ✅ Complete
 
 - [x] Anchor comments to a diff fingerprint and display orphaned comments.
 - [x] Sanitize links and SVG, then test untrusted pull-request content.
@@ -71,12 +71,17 @@
 allowlisted links and SVG, strict Mermaid rendering, bounded word-level
 comparison, progressive diff mounting, and privacy-preserving real-PR metrics.
 
-## Phase 6 — Finish and Distribution
+## Phase 6 — Finish and Distribution ✅ Complete
 
-- [ ] Update documentation, examples, and screenshots for the new workflow.
-- [ ] Add per-repository configuration guidance: risk rules, test conventions, and generated-file detection.
-- [ ] Document known limitations and offline behavior.
-- [ ] Prepare a reference demo using a C++ pull request with includes, CMake, tests, and a behavioral change.
-- [ ] Define release criteria: schema validation, passing tests, accessibility, performance target, and manual interface review.
+- [x] Update documentation, examples, and screenshots for the new workflow.
+- [x] Add per-repository configuration guidance: risk rules, test conventions, and generated-file detection.
+- [x] Document known limitations and offline behavior.
+- [x] Prepare a reference demo using a C++ pull request with includes, CMake, tests, and a behavioral change.
+- [x] Define release criteria: schema validation, passing tests, accessibility, performance target, and manual interface review.
 
 **Expected outcome:** a skill ready for installation, team adoption, and regular use.
+
+**Delivered:** refreshed workflow documentation and imagery, honest
+repository-policy and offline guidance, a reproducible C++/CMake reference
+review with semantic groups and an LM finding, and measurable automated plus
+manual release gates.
