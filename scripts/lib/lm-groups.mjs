@@ -1,7 +1,7 @@
 import { validateGrouping } from "./change-groups.mjs";
 
 const GENERIC_TITLE_RE =
-  /\b(definitions?|consumers?|associated tests?|configuration(?: and build integration)?|needs inspection|unclassified|imports? and includes?|formatting-only changes?|generated dependency locks?|renames? without content changes?)\b/i;
+  /^(definitions?|consumers?|definitions? and consumers?|associated tests?|configuration and build integration|needs inspection|unclassified|imports? and includes?|formatting-only changes?|generated dependency locks?|renames? without content changes?)$/i;
 
 function candidateChanges(candidates) {
   const changes = new Map();
@@ -243,12 +243,32 @@ export function finalizeLmGrouping(result, candidates) {
     }
   }
   const edgeMap = new Map();
-  for (const edge of [...explicitEdges, ...inferredEdges]) {
-    edgeMap.set(`${edge.from}\u0000${edge.to}\u0000${edge.reason}`, edge);
+  const outgoing = new Map(groups.map((group) => [group.id, new Set()]));
+  const addEdge = (edge) => {
+    const key = `${edge.from}\u0000${edge.to}\u0000${edge.reason}`;
+    if (edgeMap.has(key)) return;
+    edgeMap.set(key, edge);
+    outgoing.get(edge.from)?.add(edge.to);
+  };
+  const hasPath = (from, to, seen = new Set()) => {
+    if (from === to) return true;
+    if (seen.has(from)) return false;
+    seen.add(from);
+    return [...(outgoing.get(from) || [])].some((next) => hasPath(next, to, seen));
+  };
+  explicitEdges.forEach(addEdge);
+  for (const edge of inferredEdges) {
+    if (!hasPath(edge.to, edge.from)) addEdge(edge);
   }
   const edges = [...edgeMap.values()];
+  const linkedDefinitions = new Map(groups.map((group) => [group.id, new Set()]));
+  for (const edge of edges) {
+    if (edge.reason === "definition-usage" && edge.evidence) {
+      linkedDefinitions.get(edge.from)?.add(edge.evidence);
+    }
+  }
   const dependencies = new Map(groups.map((group) => [group.id, new Set()]));
-  for (const edge of explicitEdges) dependencies.get(edge.to)?.add(edge.from);
+  for (const edge of edges) dependencies.get(edge.to)?.add(edge.from);
   const suggestedOrder = [];
   const remaining = new Set(groups.map((group) => group.id));
   while (remaining.size) {
@@ -277,11 +297,7 @@ export function finalizeLmGrouping(result, candidates) {
       nodes: groups.map((group) => {
         return {
           id: group.id,
-          definitions: [
-            ...new Set(
-              group.changes.flatMap((change) => change.definitions || []),
-            ),
-          ],
+          definitions: [...(linkedDefinitions.get(group.id) || [])],
           role: group.kind,
         };
       }),
