@@ -92,6 +92,13 @@ export function assessAnalysisRisk(context) {
   return { level: medium.length ? "medium" : "low", reasons: medium };
 }
 
+function findingBudget(context) {
+  return Math.min(
+    12,
+    Math.max(3, Math.ceil((context.changeGroups?.inventory?.length || 0) / 5)),
+  );
+}
+
 export function prepareAnalysisInput(context, options = {}) {
   const mode = options.mode || "lm-analysis";
   if (!ANALYSIS_MODES.includes(mode)) {
@@ -106,6 +113,9 @@ export function prepareAnalysisInput(context, options = {}) {
     schemaVersion: ANALYSIS_INPUT_VERSION,
     mode,
     risk,
+    ...(mode === "deep-audit"
+      ? { deepAuditAdmission: risk.level === "high" ? "high-risk" : "explicit-request" }
+      : {}),
     target: compactTarget(context),
     diff: diffReference(context, options),
     facts: {
@@ -113,10 +123,7 @@ export function prepareAnalysisInput(context, options = {}) {
       changeGroups: context.changeGroups,
     },
     findingContract: {
-      maxFindings: Math.min(
-        12,
-        Math.max(3, Math.ceil((context.changeGroups?.inventory?.length || 0) / 5)),
-      ),
+      maxFindings: findingBudget(context),
       required: [...REQUIRED_FINDING_FIELDS],
       guidance: "Emit only actionable, verifiable findings. An empty findings array is valid.",
     },
@@ -134,10 +141,25 @@ function requireValidAnalysisInput(input) {
   if (problems.length) {
     throw new Error(`Invalid analysis input: ${problems.join("; ")}.`);
   }
-  requireDeterministicFacts({
+  const context = {
     preflight: input.facts?.preflight,
     changeGroups: input.facts?.changeGroups,
-  });
+  };
+  requireDeterministicFacts(context);
+  const expectedBudget = findingBudget(context);
+  if (input.findingContract?.maxFindings !== expectedBudget) {
+    problems.push(`findingContract.maxFindings must be ${expectedBudget}`);
+  }
+  if (input.mode === "deep-audit") {
+    const risk = assessAnalysisRisk(context);
+    const expectedAdmission = risk.level === "high" ? "high-risk" : "explicit-request";
+    if (input.deepAuditAdmission !== expectedAdmission) {
+      problems.push(`deep-audit admission must be '${expectedAdmission}'`);
+    }
+  }
+  if (problems.length) {
+    throw new Error(`Invalid analysis input: ${problems.join("; ")}.`);
+  }
 }
 
 export function validateAnalysisResult(result, input) {

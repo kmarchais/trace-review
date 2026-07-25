@@ -126,6 +126,13 @@ test("finalization rejects legacy or malformed analysis inputs", () => {
     () => analysisResultToReview(result, { ...input, facts: {} }),
     /valid preflight fact pack/i,
   );
+  assert.throws(
+    () => analysisResultToReview(result, {
+      ...input,
+      findingContract: { ...input.findingContract, maxFindings: 100_000 },
+    }),
+    /Invalid analysis input.*maxFindings/i,
+  );
 });
 
 test("focused analysis rejects missing or invalid deterministic facts", () => {
@@ -257,6 +264,29 @@ test("deep audit opens for a high-risk group or an explicit request", () => {
     }).mode,
     "deep-audit",
   );
+});
+
+test("finalization rechecks deep-audit admission", () => {
+  const result = { verdict: "approve", global: "Audited.", findings: [] };
+  const explicit = prepareAnalysisInput(context, {
+    mode: "deep-audit",
+    explicitDeepAudit: true,
+  });
+  assert.equal(explicit.deepAuditAdmission, "explicit-request");
+  assert.doesNotThrow(() => analysisResultToReview(result, explicit));
+  assert.throws(
+    () => analysisResultToReview(result, {
+      ...explicit,
+      deepAuditAdmission: undefined,
+    }),
+    /Invalid analysis input.*deep-audit admission/i,
+  );
+
+  const highRisk = structuredClone(context);
+  highRisk.changeGroups.groups[0].risk = "high";
+  const admittedByRisk = prepareAnalysisInput(highRisk, { mode: "deep-audit" });
+  assert.equal(admittedByRisk.deepAuditAdmission, "high-risk");
+  assert.doesNotThrow(() => analysisResultToReview(result, admittedByRisk));
 });
 
 test("prepare-lm-analysis CLI writes the validated focused fact pack", (t) => {
