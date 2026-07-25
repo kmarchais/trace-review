@@ -108,6 +108,26 @@ test("legacy focused-analysis names are rejected", () => {
   }
 });
 
+test("finalization rejects legacy or malformed analysis inputs", () => {
+  const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
+  const result = { verdict: "approve", global: "Done.", findings: [] };
+
+  for (const mode of ["ai-analysis", "review"]) {
+    assert.throws(
+      () => analysisResultToReview(result, { ...input, mode }),
+      /Invalid analysis input.*mode/i,
+    );
+  }
+  assert.throws(
+    () => analysisResultToReview(result, { ...input, schemaVersion: 2 }),
+    /Invalid analysis input.*schemaVersion/i,
+  );
+  assert.throws(
+    () => analysisResultToReview(result, { ...input, facts: {} }),
+    /valid preflight fact pack/i,
+  );
+});
+
 test("focused analysis rejects missing or invalid deterministic facts", () => {
   assert.throws(
     () => prepareAnalysisInput({}, { mode: "lm-analysis" }),
@@ -137,6 +157,26 @@ test("LM findings require confidence and a brief rationale", () => {
   assert.equal(validation.valid, false);
   assert.ok(validation.diagnostics.some((item) => item.path === "findings[0].confidence"));
   assert.ok(validation.diagnostics.some((item) => item.path === "findings[0].rationale"));
+});
+
+test("LM findings reject fields outside the review-spec contract", () => {
+  const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
+  const validation = validateAnalysisResult({
+    verdict: "comment",
+    global: "One issue needs attention.",
+    findings: [{
+      file: "src/widget.js",
+      line: 3,
+      severity: "concern",
+      body: "Malformed records can still pass.",
+      confidence: 0.9,
+      rationale: "The validation branch is skipped.",
+      suggestion: "Add validation.",
+    }],
+  }, input);
+
+  assert.equal(validation.valid, false);
+  assert.ok(validation.diagnostics.some((item) => item.code === "unknown-finding-field"));
 });
 
 test("focused analysis rejects findings beyond its fact-derived budget", () => {

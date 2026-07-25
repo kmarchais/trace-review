@@ -8,6 +8,7 @@ const REQUIRED_FINDING_FIELDS = Object.freeze([
   "confidence",
   "rationale",
 ]);
+const FINDING_FIELDS = new Set(REQUIRED_FINDING_FIELDS);
 const FINDING_SEVERITIES = new Set([
   "nit",
   "suggestion",
@@ -122,6 +123,23 @@ export function prepareAnalysisInput(context, options = {}) {
   };
 }
 
+function requireValidAnalysisInput(input) {
+  const problems = [];
+  if (input?.schemaVersion !== ANALYSIS_INPUT_VERSION) {
+    problems.push(`schemaVersion must be ${ANALYSIS_INPUT_VERSION}`);
+  }
+  if (!ANALYSIS_MODES.includes(input?.mode)) {
+    problems.push(`mode must be one of: ${ANALYSIS_MODES.join(", ")}`);
+  }
+  if (problems.length) {
+    throw new Error(`Invalid analysis input: ${problems.join("; ")}.`);
+  }
+  requireDeterministicFacts({
+    preflight: input.facts?.preflight,
+    changeGroups: input.facts?.changeGroups,
+  });
+}
+
 export function validateAnalysisResult(result, input) {
   const diagnostics = [];
   const add = (code, path, message) => diagnostics.push({
@@ -150,6 +168,15 @@ export function validateAnalysisResult(result, input) {
   }
   findings.forEach((finding, index) => {
     const root = `findings[${index}]`;
+    for (const field of Object.keys(finding || {})) {
+      if (!FINDING_FIELDS.has(field)) {
+        add(
+          "unknown-finding-field",
+          `${root}.${field}`,
+          `Finding field '${field}' is not part of the review-spec contract.`,
+        );
+      }
+    }
     if (typeof finding?.file !== "string" || !finding.file.trim()) {
       add("missing-finding-field", `${root}.file`, "A finding must identify a file.");
     }
@@ -195,6 +222,7 @@ export function validateAnalysisResult(result, input) {
 }
 
 export function analysisResultToReview(result, input) {
+  requireValidAnalysisInput(input);
   const validation = validateAnalysisResult(result, input);
   if (!validation.valid) {
     const detail = validation.diagnostics

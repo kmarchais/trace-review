@@ -159,7 +159,7 @@ npm test
 The dependency-free suite covers collection and preflight, review-spec
 validation, small and large generation, HTML landmarks, the checked-in visual
 contract, C++, CMake, renames, binaries, generated files, groups, and LM
-LM comments.
+comments.
 
 ## Layout
 
