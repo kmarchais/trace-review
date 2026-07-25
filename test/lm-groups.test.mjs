@@ -288,6 +288,7 @@ test("grouped rendering shows a multi-hunk file once per semantic group", (t) =>
   assert.match(html, /function viewedId\(fileEl\)/);
   assert.match(html, /grouped \? "Items" : "Files"/);
   assert.match(html, /delete state\.viewed\[legacyId\]/);
+  assert.match(html, /filter\(candidate=>candidate\.dataset\.viewKey\)/);
   assert.doesNotMatch(html, /state\.viewed\[id\] \|\| state\.viewed\[legacyId\]/);
   assert.doesNotMatch(
     grouped,

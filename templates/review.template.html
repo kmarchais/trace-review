@@ -1022,7 +1022,10 @@
     files.forEach(file=>{
       const legacyId=pr+" "+file;
       if(!state.viewed[legacyId]) return;
-      groupedOccurrences(sec,file).forEach(candidate=>storeViewed(candidate,true));
+      const scoped=groupedOccurrences(sec,file)
+        .filter(candidate=>candidate.dataset.viewKey);
+      if(!scoped.length) return;
+      scoped.forEach(candidate=>storeViewed(candidate,true));
       rawOccurrences(sec,file).forEach(candidate=>storeViewed(candidate,true));
       delete state.viewed[legacyId];
       migratedViewedState=true;
