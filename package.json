@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "bundle:skill": "node scripts/build-skill-bundle.mjs",
     "validate:example": "node scripts/validate-review-spec.mjs --spec examples/review-spec.json",
     "validate:reference": "node scripts/validate-review-spec.mjs --spec examples/cpp-reference/review-spec.json",
     "build:reference": "node scripts/build-review.mjs --spec examples/cpp-reference/review-spec.json --out examples/cpp-reference/review.html",

@@ -9,6 +9,7 @@ Run from the repository root:
 
 ```bash
 npm test
+npm run bundle:skill
 npm run validate:example
 node scripts/validate-review-spec.mjs \
   --spec examples/cpp-reference/review-spec.json
@@ -21,6 +22,7 @@ node scripts/build-review.mjs \
 Required results:
 
 - the complete test suite passes;
+- `dist/trace-review-skill.zip` builds and its isolated smoke test passes;
 - the general example and C++ reference spec pass schema validation;
 - malicious-content, comment-orphan, grouping, and LM finding tests remain
   green;
@@ -52,8 +54,9 @@ exceptions in the release PR.
 
 ## Distribution check
 
-Install the candidate into a clean skills directory and run one workspace
-review plus one LM-analysis review in a disposable repository. Confirm that the
-documented Node, Git, and optional GitHub CLI requirements are sufficient and
-that no repository contents are written outside `.review/` unless the user
-chooses another output path.
+Publish the release, confirm that `trace-review-skill.zip` is attached, and
+extract it into a clean skills directory. Run one workspace review plus one
+LM-analysis review in a disposable repository. Confirm that the documented
+Node, Git, and optional GitHub CLI requirements are sufficient and that no
+repository contents are written outside `.review/` unless the user chooses
+another output path.
