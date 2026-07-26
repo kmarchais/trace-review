@@ -25,15 +25,14 @@
 
 ## Offline behavior
 
-The generated HTML, diff, summaries, comments, groups, progress, export, and
-inline SVG work offline. System fonts and plain code rendering are used when
-CDN resources are unavailable.
+The generated HTML, diff, summaries, comments, groups, progress, export, system
+fonts, and inline SVG work offline. Plain code rendering is used when CDN
+resources are unavailable.
 
 The following enhancements need network access:
 
-- highlight.js syntax colors;
-- Mermaid rendering; and
-- hosted web fonts.
+- highlight.js syntax colors; and
+- Mermaid rendering.
 
 Prefer sanitized inline SVG for diagrams that must work offline. If Mermaid is
 unavailable, its source remains visible rather than blocking the review.

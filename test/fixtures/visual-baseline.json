@@ -1,12 +1,13 @@
 {
   "palette": {
-    "surface-canvas": "#f5f7f8",
+    "surface-canvas": "#ffffff",
     "surface-raised": "#ffffff",
-    "text-strong": "#172126",
-    "semantic-info": "#277b9b",
-    "semantic-warning": "#b96b12",
-    "semantic-danger": "#b6423d",
-    "semantic-success": "#218244"
+    "text-strong": "#1f2328",
+    "semantic-info": "#0969da",
+    "semantic-warning": "#9a6700",
+    "semantic-danger": "#d1242f",
+    "semantic-success": "#1a7f37",
+    "success-emphasis": "#1f883d"
   },
   "layout": {
     "review-journey": "display:grid",
@@ -14,7 +15,7 @@
     "pr-context": "position:sticky",
     "review-col": "display:flex",
     "diff-block-head": "position:sticky",
-    "group-intent-card": "background:var(--surface-subtle)",
+    "group-intent-card": "background:var(--card)",
     "overall-bar": "position:fixed"
   },
   "landmarks": [
