@@ -172,6 +172,7 @@ export function validateReviewSpec(spec: unknown, options: ValidationOptions = {
         "title",
         "url",
         "summary",
+        "github",
         "diff",
         "diffFile",
         "diagrams",
@@ -188,6 +189,39 @@ export function validateReviewSpec(spec: unknown, options: ValidationOptions = {
     optionalString(pr.id, `${root}.id`);
     optionalString(pr.url, `${root}.url`);
     optionalString(pr.summary, `${root}.summary`, { allowEmpty: true });
+    if (pr.github !== undefined) {
+      if (!isObject(pr.github)) {
+        add("expected-object", `${root}.github`, `${root}.github must be an object.`);
+      } else {
+        rejectUnknown(
+          pr.github,
+          new Set(["repository", "pullRequest", "headSha"]),
+          `${root}.github`,
+        );
+        if (
+          requireString(pr.github.repository, `${root}.github.repository`) &&
+          !/^[^/\s]+\/[^/\s]+$/.test(pr.github.repository)
+        ) {
+          add(
+            "invalid-repository",
+            `${root}.github.repository`,
+            "GitHub repositories must use the owner/name form.",
+          );
+        }
+        if (
+          typeof pr.github.pullRequest !== "number" ||
+          !Number.isInteger(pr.github.pullRequest) ||
+          pr.github.pullRequest <= 0
+        ) {
+          add(
+            "invalid-pr-number",
+            `${root}.github.pullRequest`,
+            "GitHub pull-request numbers must be positive integers.",
+          );
+        }
+        requireString(pr.github.headSha, `${root}.github.headSha`);
+      }
+    }
 
     if (typeof pr.id === "string" && pr.id) {
       if (ids.has(pr.id))

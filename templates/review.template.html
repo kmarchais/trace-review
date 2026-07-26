@@ -438,6 +438,11 @@
   .modal-body { padding:16px 18px; overflow:auto; }
   .modal-body textarea { min-height:300px; font-family:var(--mono); font-size:.82rem; }
   .modal-foot { padding:12px 18px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; }
+  .export-tabs { display:flex; gap:4px; padding:8px 18px 0; border-bottom:1px solid var(--border); }
+  .export-tabs button { border:0; border-bottom:2px solid transparent; background:none; color:var(--muted); padding:8px 10px; cursor:pointer; }
+  .export-tabs button[aria-selected="true"] { color:var(--text); border-bottom-color:var(--semantic-info); font-weight:600; }
+  #githubReviewPreview { min-height:180px; max-height:320px; overflow:auto; padding:12px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--panel); font:12px/1.5 var(--mono); white-space:pre-wrap; }
+  .publish-command { padding:8px 10px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--panel); font-family:var(--mono); overflow-wrap:anywhere; }
   .warn { background:rgba(216,84,79,.12); border:1px solid var(--red); color:var(--red); border-radius:6px; padding:8px 12px; margin-bottom:14px; font-size:.85rem; }
   .hint { color:var(--muted); font-size:.82rem; margin:0 0 10px; }
   .copied { color:var(--green); font-size:.8rem; align-self:center; margin-right:auto; }
@@ -521,7 +526,7 @@
     <span class="badge" id="commentCount">0 comments</span>
     <button class="icon-btn" id="themeBtn" title="Theme: system">◐</button>
     <button class="btn btn-header" id="copyCommentsBtn">Copy comments</button>
-    <button class="btn btn-primary" id="exportBtn">Export comments</button>
+    <button class="btn btn-primary" id="exportBtn">Share review</button>
   </div>
 </header>
 
@@ -531,15 +536,28 @@
 
 <div class="modal" id="exportModal" hidden>
   <div class="modal-card">
-    <div class="modal-head"><h3>Review comments</h3><button class="icon-btn" id="closeModal">✕</button></div>
-    <div class="modal-body">
+    <div class="modal-head"><h3>Share review</h3><button class="icon-btn" id="closeModal">✕</button></div>
+    <div class="export-tabs" role="tablist">
+      <button type="button" id="markdownReviewTab" role="tab" aria-selected="true">Markdown report</button>
+      <button type="button" id="githubReviewTab" role="tab" aria-selected="false" hidden>GitHub review</button>
+    </div>
+    <div class="modal-body" id="markdownReviewPanel" role="tabpanel">
       <p class="hint">Copy this report into the pull request discussion, or download it as Markdown to share with the author.</p>
       <textarea id="exportText" readonly></textarea>
     </div>
-    <div class="modal-foot">
+    <div class="modal-body" id="githubReviewPanel" role="tabpanel" hidden>
+      <p class="hint">Preview which comments will become native threads and which will remain in the review summary. The publisher command rechecks authentication and the PR head, then asks for confirmation before writing to GitHub.</p>
+      <pre id="githubReviewPreview">Native threads: 0
+Summary fallbacks: 0</pre>
+      <p class="publish-command">node &lt;skill-dir&gt;/scripts/publish-github-review.mjs --plan &lt;downloaded-plan.json&gt;</p>
+    </div>
+    <div class="modal-foot" id="markdownReviewActions">
       <span class="copied" id="copiedMsg" hidden>Copied ✓</span>
       <button class="btn btn-primary" id="copyBtn">Copy to clipboard</button>
       <button class="btn" id="downloadBtn" style="background:var(--secondary);color:#fff">Download .md</button>
+    </div>
+    <div class="modal-foot" id="githubReviewActions" hidden>
+      <button class="btn btn-primary" id="downloadGithubPlanBtn">Download publication plan</button>
     </div>
   </div>
 </div>
@@ -561,6 +579,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cmake.min.js"></script>
 <script id="review-data" type="application/json">{{DATA}}</script>
 <script id="ai-review-data" type="application/json">{{AIREVIEW}}</script>
+<script id="github-review-data" type="application/json">{{GITHUB_REVIEW}}</script>
 <script>{{CLIENT_SCRIPT}}</script>
 {{MERMAID}}
 </body>

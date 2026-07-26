@@ -27,6 +27,7 @@
         "title": { "type": "string", "minLength": 1 },
         "url": { "type": "string", "minLength": 1 },
         "summary": { "type": "string" },
+        "github": { "$ref": "#/$defs/github" },
         "diff": { "type": "string" },
         "diffFile": { "type": "string", "minLength": 1 },
         "diagrams": {
@@ -60,6 +61,19 @@
         { "required": ["diff"], "not": { "required": ["diffFile"] } },
         { "required": ["diffFile"], "not": { "required": ["diff"] } }
       ]
+    },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "pullRequest", "headSha"],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[^/\\\\s]+/[^/\\\\s]+$"
+        },
+        "pullRequest": { "type": "integer", "minimum": 1 },
+        "headSha": { "type": "string", "minLength": 1 }
+      }
     },
     "diagram": {
       "type": "object",
