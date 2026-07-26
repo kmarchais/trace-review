@@ -7,7 +7,8 @@
       name="description"
       content="A realistic Trace Review preview: a pull request read by decisions, dependencies, and evidence."
     />
-    <meta name="theme-color" content="#347995" />
+    <meta name="theme-color" content="#f6f8fa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)" />
     <title>Trace Review — Interactive PR preview</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -58,12 +59,18 @@
             <span></span><span></span><span></span>
             <div>trace-review.local / harden-auth-flow</div>
           </div>
-          <img
-            src="./assets/review-interface.png"
-            alt="Trace Review showing a C++ pull request summary, an LM review finding, and an interactive code diff"
-            width="1560"
-            height="1118"
-          />
+          <picture>
+            <source
+              media="(prefers-color-scheme: dark)"
+              srcset="./assets/review-interface-dark.png"
+            />
+            <img
+              src="./assets/review-interface.png"
+              alt="Trace Review showing a C++ pull request summary, an LM review finding, and an interactive code diff"
+              width="1560"
+              height="1118"
+            />
+          </picture>
           <figcaption>
             <span>Trace Review turns a diff into a review workspace—without sending the full patch into the conversation.</span>
             <a href="#how-it-works">How it works ↓</a>

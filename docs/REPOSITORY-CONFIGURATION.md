@@ -19,7 +19,7 @@ Adapt this example rather than copying it blindly:
 - Treat authentication, authorization, migrations, public API changes, money,
   and concurrency as high risk.
 - Require tests for behavior changes. Unit tests live in `test/`; integration
-  tests live in `integration/`; `npm test` runs the supported suite.
+  tests live in `integration/`; `bun run test` runs the supported suite.
 - Treat `src/generated/`, `vendor/`, `*.generated.ts`, and files containing
   `@generated` or `DO NOT EDIT` as generated. Review their source definition
   before the generated output.

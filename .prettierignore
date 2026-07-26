@@ -1,9 +1,10 @@
 dist/
 node_modules/
+.playwright-cli/
+output/
 templates/
 docs/
 examples/
 *.md
 schemas/
 test/fixtures/
-NEXT-WORK.md

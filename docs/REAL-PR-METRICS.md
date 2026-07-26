@@ -7,7 +7,7 @@ telemetry.
 Generate the review and its measurement together:
 
 ```bash
-node scripts/build-review.mjs \
+bun run review -- \
   --spec .review/spec.json \
   --out .review/review.html \
   --metrics-out .review/metrics.json
