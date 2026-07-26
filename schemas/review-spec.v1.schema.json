@@ -10,7 +10,6 @@
     "mode": { "enum": ["workspace", "lm-analysis", "deep-audit"] },
     "title": { "type": "string", "minLength": 1 },
     "reviewId": { "type": "string", "minLength": 1 },
-    "reviewer": { "type": "string", "minLength": 1 },
     "generated": { "type": "string", "minLength": 1 },
     "prs": {
       "type": "array",

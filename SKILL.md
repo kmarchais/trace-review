@@ -46,11 +46,11 @@ absolute paths for `--spec`/`--out` when in doubt.
   emits a warning and falls back to a local diff.
 - The skill workflow needs a compatible agent host (Claude Code or Codex), but
   the scripts and generated HTML do not. They can be run or opened standalone.
-- The doc pulls three things from CDNs when opened (so ideally online, but each
+- The doc pulls two things from CDNs when opened (so ideally online, but each
   degrades gracefully offline): **syntax highlighting** (highlight.js — falls
-  back to plain, still diff-colored), **Mermaid** diagrams (SVG diagrams need
-  nothing), and the **fonts** (system fallback). The diff, comments, viewed
-  state, and export are fully offline.
+  back to plain, still diff-colored) and **Mermaid** diagrams (SVG diagrams need
+  nothing). System fonts, the diff, comments, viewed state, and export are fully
+  offline.
 
 Before grouping, read repository-local agent instructions for risk rules, test
 conventions, generated outputs, and regeneration commands. Apply those rules
@@ -259,9 +259,9 @@ used when the summary has room.
 ### Automatic LM findings (`lm-analysis` and `deep-audit` only)
 
 Only when the user asked for LM analysis, add a `review` object to every PR.
-Skip it entirely in workspace mode. The review is attributed to a neutral
-**"LM"** by default — set the top-level `reviewer` (e.g. `"Claude"`, `"GPT-5"`,
-a person's name) to relabel the card, pills, findings, and export.
+Skip it entirely in workspace mode. The review is always attributed to the
+neutral label **"LM"**. Do not ask the model to identify itself, infer a model
+variant or reasoning effort, or add provider-specific attribution to the spec.
 
 ```json
 "review": {
@@ -390,7 +390,6 @@ accepted findings and their own comments; leave dismissed ones alone.
 | `mode` | top | Required. `workspace`, `lm-analysis`, or `deep-audit`. |
 | `title` | top | Document title (default `Code Review`). |
 | `reviewId` | top | localStorage key for comments (default: slug of title). Keep stable. |
-| `reviewer` | top | Display name for the LM reviewer (default `LM`) — labels the review card, pills, findings, export. |
 | `generated` | top | Free-text date/context line (default: today). |
 | `prs[].title` | per PR | Tab label + summary heading. |
 | `prs[].url` | per PR | Optional link to the PR/branch, shown in the summary head. |
@@ -410,11 +409,10 @@ counts.
 
 ## What the output looks like
 
-See [examples/screenshot.png](examples/screenshot.png). The workspace follows
-three explicit stages: **Understand** the pull request, **Validate groups** and
-their relationships, then **Inspect evidence** in the diff. It opens on
-**Inspect evidence**, so the reviewer sees the code immediately; the other
-stages remain available for focused context and group rationale.
+See [examples/screenshot.png](examples/screenshot.png). The workspace opens on
+**Review changes**, with the diff, findings, comments, and pull-request context
+visible immediately. **Review groups** is an optional second view for checking
+change intent, dependencies, and reading order.
 
 - **Left — the PR** (only when there's context: `url`, `summary`, `diagrams`,
   or `blocks`): a sticky panel with the title, `+/-` stats, PR link, and your
@@ -443,12 +441,12 @@ stages remain available for focused context and group rationale.
 The context column is **adaptive, resizable, and collapsible** — drag the divider
 between it and the evidence surface (default **34/66**, double-click resets),
 use **Context** to collapse it, or use **Focus** to remove surrounding review
-chrome. On narrow screens the context panel stacks on top. The design system
-uses Inter for interface text, JetBrains Mono for code, quiet neutral surfaces,
-semantic state colors, a shared spacing scale, and visible keyboard focus.
+chrome. On narrow screens the context panel stacks on top. The Primer-inspired
+design system uses native system and monospace fonts, functional light/dark
+tokens, compact controls, familiar diff states, and visible keyboard focus.
 
 Viewer controls:
-- **File tree** — a **🗂 Files** button on the "Changes" bar opens a slide-in
+- **File tree** — a **Files** button on the "Files changed" bar opens a slide-in
   tree of the changed files (directory chains compacted, per-file `+/-`, viewed
   files struck through). Click a file to jump to it — it expands its group if
   needed and scrolls it under the sticky header. Built for big diffs.

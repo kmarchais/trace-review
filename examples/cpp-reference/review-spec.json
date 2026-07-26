@@ -3,7 +3,6 @@
   "mode": "lm-analysis",
   "title": "Reference review: capped retry backoff",
   "reviewId": "reference-cpp-retry-backoff",
-  "reviewer": "LM",
   "generated": "Reference C++ pull request",
   "prs": [
     {

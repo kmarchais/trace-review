@@ -580,7 +580,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           <span class="file-badge" data-file-count="${esc(d.path)}" hidden></span>
           <span class="stats"><span class="stat-add">+${d.add}</span> <span class="stat-del">-${d.del}</span></span>
           <span class="file-actions">
-            <button type="button" class="file-note-btn" title="Comment on this file">💬</button>
+            <button type="button" class="file-note-btn" title="Comment on this file">Comment</button>
             <label class="viewed-label"><input type="checkbox" class="viewed-cb"> Viewed</label>
           </span>
         </div>
@@ -801,7 +801,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   const hasContext = hasBlocks || !!pr.url;
   const contextPanel = hasContext
     ? `
-      <aside class="pr-context" data-review-stage="understand">
+      <aside class="pr-context">
         <div class="summary-head">
           <h2>${esc(pr.title || prId)}</h2>
           <div class="pr-meta">${stat} · ${filesLabel}${link}</div>
@@ -830,15 +830,14 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   return `
   <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}" data-active-stage="inspect"${single ? "" : " hidden"}>
     <nav class="review-journey" aria-label="Review stages">
-      <button type="button" data-review-stage="understand"><span>1</span><strong>Understand</strong><small>Pull request context</small></button>
-      <button type="button" data-review-stage="validate"><span>2</span><strong>Validate groups</strong><small>Intent and dependencies</small></button>
-      <button type="button" data-review-stage="inspect" aria-current="step"><span>3</span><strong>Inspect evidence</strong><small>Diff and comments</small></button>
+      <button type="button" data-review-stage="inspect" aria-current="step"><span>1</span><strong>Review changes</strong><small>Diff and comments</small></button>
+      <button type="button" data-review-stage="validate"><span>2</span><strong>Review groups</strong><small>Optional intent check</small></button>
     </nav>
     <div class="pr-cols${hasContext ? "" : " no-context"}">
       ${contextPanel}
       ${hasContext ? '<div class="col-resizer" title="Drag to resize · double-click for 34/66"></div>' : ""}
       <div class="review-col">
-        <div class="review-top${review ? " has-lm-review" : ""}" data-review-stage="understand">
+        <div class="review-top${review ? " has-lm-review" : ""}">
           ${aiGlobal}
           ${findingsList}
           <div class="cl-wrap">
@@ -847,7 +846,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           </div>
         </div>
         <div class="diff-block" data-review-stage="inspect">
-          <div class="diff-block-head"><span class="dbh-title">Changes</span><span class="dbh-right"><span class="dbh-meta">${filesLabel} · ${stat}</span>${hasContext ? '<button type="button" class="context-toggle" aria-pressed="false" title="Collapse pull request context">Context</button>' : ""}<button type="button" class="focus-mode-toggle" aria-pressed="false" title="Show only the evidence surface">Focus</button>${changeGroups || (Array.isArray(pr.groups) && pr.groups.length) ? '<button type="button" class="raw-order-toggle" aria-pressed="false" title="Switch between grouped reading order and raw Git order">Git order</button>' : ""}<button type="button" class="dbh-tree" title="File tree (list of changed files)">🗂 Files</button><div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)">⛶</button></span></div>
+          <div class="diff-block-head"><span class="dbh-left"><button type="button" class="dbh-tree" title="Show changed files">Files</button><span class="dbh-title">Files changed</span><span class="dbh-meta">${filesLabel} · ${stat}</span></span><span class="dbh-right">${hasContext ? '<button type="button" class="context-toggle" aria-pressed="false" title="Collapse pull request context">Context</button>' : ""}<button type="button" class="focus-mode-toggle" aria-pressed="false" title="Show only the evidence surface">Focus</button>${changeGroups || (Array.isArray(pr.groups) && pr.groups.length) ? '<button type="button" class="raw-order-toggle" aria-pressed="false" title="Switch between grouped reading order and raw Git order">Git order</button>' : ""}<div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)" aria-label="Fullscreen diff">⛶</button></span></div>
           ${warnHtml}
           <details class="orphan-panel" hidden>
             <summary>Orphaned comments <span class="orphan-count">0</span></summary>
@@ -919,7 +918,7 @@ function main() {
         })
         .join("");
 
-  const reviewer = spec.reviewer || "LM";
+  const reviewer = "LM";
   const dataBag = {};
   const reviewBag = {};
   const sections = prs

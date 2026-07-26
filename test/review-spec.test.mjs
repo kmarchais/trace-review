@@ -39,6 +39,22 @@ test("legacy focused-analysis mode names are rejected", () => {
   }
 });
 
+test("provider-specific reviewer attribution is rejected", () => {
+  const result = validateReviewSpec({
+    schemaVersion: 1,
+    mode: "lm-analysis",
+    reviewer: "A model-provided identity",
+    prs: [{
+      title: "Neutral attribution",
+      diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+      review: { verdict: "approve", global: "Done.", comments: [] },
+    }],
+  });
+
+  assert.equal(result.valid, false);
+  assert.ok(result.diagnostics.some((item) => item.code === "unknown-field" && item.path === "reviewer"));
+});
+
 test("portable block and diagram schemas enforce the runtime contract", () => {
   const schema = JSON.parse(fs.readFileSync(path.join(root, "schemas", "review-spec.v1.schema.json"), "utf8"));
   const diagram = schema.$defs.diagram;
