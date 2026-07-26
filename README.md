@@ -25,7 +25,8 @@ git diff
 ```
 
 The patch stays on disk instead of being reproduced in the conversation. Every mode uses the same
-GitHub-inspired light/dark interface, diff controls, comments, review progress, and Markdown export.
+GitHub-inspired light/dark interface, diff controls, comments, review progress,
+Markdown export, and optional confirmed publication as one native GitHub review.
 
 | Mode          | LM usage                                           |
 | ------------- | -------------------------------------------------- |
@@ -92,6 +93,10 @@ runtime scripts, the template, schema, operational references, license, and a co
 - `/trace-review lm-analysis` adds focused LM findings.
 - Ask for a **deep audit** when broader high-risk analysis is warranted.
 - Or ask your agent to review a branch or pull request with Trace Review.
+- For a GitHub-backed review, use **Share review → GitHub review** to preview
+  native threads versus summary fallbacks, download the plan, and run the
+  packaged publisher. It rechecks authentication and the PR head and requires
+  confirmation before publishing.
 
 See the installable [SKILL.md](skills/trace-review/SKILL.md) for the workflow,
 [REVIEW-SPEC.md](REVIEW-SPEC.md) for the schema, and

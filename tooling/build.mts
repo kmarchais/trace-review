@@ -17,7 +17,7 @@ for (const relativePath of ["schemas/review-spec.v1.schema.json"]) {
 const clientBuild = await Bun.build({
   entrypoints: [path.join(root, "src", "review-client.ts")],
   target: "browser",
-  format: "iife",
+  format: "esm",
   minify: false,
 });
 if (!clientBuild.success) {
@@ -25,7 +25,8 @@ if (!clientBuild.success) {
 }
 const clientOutput = clientBuild.outputs[0];
 if (!clientOutput) throw new Error("The browser build did not produce an output.");
-const clientScript = await clientOutput.text();
+const clientModule = (await clientOutput.text()).replace(/\r\n?/g, "\n").trimEnd();
+const clientScript = `(() => {\n${clientModule}\n})();\n`;
 const templateSource = fs.readFileSync(
   path.join(root, "templates", "review.template.html"),
   "utf8",

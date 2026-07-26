@@ -1,0 +1,325 @@
+export type GithubDiffSide = "LEFT" | "RIGHT";
+export type GithubAnchorStatus = "current" | "orphaned" | "stale";
+
+export interface GithubPublicationContext {
+  repository: string;
+  pullRequest: number;
+  headSha: string;
+  url: string;
+}
+
+export interface ReviewDraftComment {
+  kind: "general" | "file" | "line";
+  body: string;
+  path?: string;
+  side?: GithubDiffSide;
+  line?: number;
+  startSide?: GithubDiffSide;
+  startLine?: number;
+  anchorStatus?: GithubAnchorStatus;
+  fallbackReason?: string;
+}
+
+export interface GithubReviewDraft {
+  summary: string;
+  comments: ReviewDraftComment[];
+}
+
+export interface GithubNativeComment {
+  path: string;
+  body: string;
+  side: GithubDiffSide;
+  line: number;
+  start_side?: GithubDiffSide;
+  start_line?: number;
+}
+
+export interface GithubFallbackComment {
+  kind: ReviewDraftComment["kind"];
+  body: string;
+  path?: string;
+  location?: string;
+  reason: string;
+}
+
+export interface GithubReviewPlan {
+  schemaVersion: 1;
+  target: GithubPublicationContext;
+  summary: string;
+  nativeComments: GithubNativeComment[];
+  fallbackComments: GithubFallbackComment[];
+}
+
+export interface GithubReviewRequest {
+  commit_id: string;
+  event: "COMMENT";
+  body: string;
+  comments: GithubNativeComment[];
+}
+
+export interface GithubPublisher {
+  isAuthenticated(): Promise<boolean>;
+  currentHead(target: GithubPublicationContext): Promise<string>;
+  createReview(
+    target: GithubPublicationContext,
+    request: GithubReviewRequest,
+  ): Promise<{ url?: string }>;
+}
+
+export interface GithubPublicationOptions {
+  publisher: GithubPublisher;
+  confirm(plan: GithubReviewPlan, preview: string): Promise<boolean>;
+}
+
+export interface GithubPublicationResult {
+  status: "cancelled" | "published";
+  url?: string;
+  nativeComments: number;
+  fallbackComments: number;
+}
+
+export class GithubReviewPublicationError extends Error {
+  constructor(
+    public readonly code: "authentication-required" | "stale-head" | "publication-failed",
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "GithubReviewPublicationError";
+  }
+}
+
+function objectValue(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+function fallbackReason(comment: ReviewDraftComment): string {
+  if (comment.fallbackReason) return comment.fallbackReason;
+  if (comment.kind !== "line") return `${comment.kind} comments do not have a diff anchor`;
+  if (comment.anchorStatus === "orphaned") return "the saved diff anchor is no longer present";
+  if (comment.anchorStatus === "stale") return "the saved diff anchor belongs to an older PR head";
+  return "the comment does not have a complete GitHub diff anchor";
+}
+
+function fallbackLocation(comment: ReviewDraftComment): string | undefined {
+  if (!comment.path) return undefined;
+  if (!positiveInteger(comment.line)) return comment.path;
+  const range =
+    positiveInteger(comment.startLine) && comment.startLine !== comment.line
+      ? `${comment.startLine}-${comment.line}`
+      : String(comment.line);
+  return `${comment.path}:${range} (${comment.side || "unknown side"})`;
+}
+
+function nativeComment(comment: ReviewDraftComment): GithubNativeComment | null {
+  if (
+    comment.kind !== "line" ||
+    Boolean(comment.fallbackReason) ||
+    comment.anchorStatus !== "current" ||
+    !comment.path ||
+    !comment.body.trim() ||
+    !positiveInteger(comment.line) ||
+    (comment.side !== "LEFT" && comment.side !== "RIGHT") ||
+    (comment.startLine !== undefined &&
+      (!positiveInteger(comment.startLine) ||
+        comment.startLine > comment.line ||
+        (comment.startSide !== undefined && comment.startSide !== comment.side)))
+  ) {
+    return null;
+  }
+
+  const native: GithubNativeComment = {
+    path: comment.path,
+    body: comment.body.trim(),
+    side: comment.side,
+    line: comment.line,
+  };
+  if (positiveInteger(comment.startLine) && comment.startLine !== comment.line) {
+    native.start_side = comment.startSide || comment.side;
+    native.start_line = comment.startLine;
+  }
+  return native;
+}
+
+export function parseGithubReviewPlan(value: unknown): GithubReviewPlan {
+  if (!objectValue(value) || value.schemaVersion !== 1) {
+    throw new Error("The publication plan must use schemaVersion 1.");
+  }
+  const target = value.target;
+  if (
+    !objectValue(target) ||
+    typeof target.repository !== "string" ||
+    !/^[^/\s]+\/[^/\s]+$/.test(target.repository) ||
+    !positiveInteger(target.pullRequest) ||
+    typeof target.headSha !== "string" ||
+    !target.headSha.trim() ||
+    typeof target.url !== "string" ||
+    !target.url.trim()
+  ) {
+    throw new Error("The publication plan has an invalid GitHub target.");
+  }
+  if (
+    typeof value.summary !== "string" ||
+    !Array.isArray(value.nativeComments) ||
+    !Array.isArray(value.fallbackComments)
+  ) {
+    throw new Error("The publication plan must contain a summary and comment arrays.");
+  }
+
+  for (const [index, comment] of value.nativeComments.entries()) {
+    if (
+      !objectValue(comment) ||
+      typeof comment.path !== "string" ||
+      !comment.path.trim() ||
+      typeof comment.body !== "string" ||
+      !comment.body.trim() ||
+      (comment.side !== "LEFT" && comment.side !== "RIGHT") ||
+      !positiveInteger(comment.line) ||
+      (comment.start_line !== undefined && !positiveInteger(comment.start_line)) ||
+      (positiveInteger(comment.start_line) && comment.start_line > comment.line) ||
+      (comment.start_side !== undefined &&
+        comment.start_side !== "LEFT" &&
+        comment.start_side !== "RIGHT") ||
+      (comment.start_side !== undefined && comment.start_side !== comment.side)
+    ) {
+      throw new Error(`Native comment ${index + 1} has an invalid diff anchor.`);
+    }
+  }
+  for (const [index, comment] of value.fallbackComments.entries()) {
+    if (
+      !objectValue(comment) ||
+      !["general", "file", "line"].includes(String(comment.kind)) ||
+      typeof comment.body !== "string" ||
+      !comment.body.trim() ||
+      typeof comment.reason !== "string" ||
+      !comment.reason.trim()
+    ) {
+      throw new Error(`Fallback comment ${index + 1} is invalid.`);
+    }
+  }
+  if (
+    !value.summary.trim() &&
+    value.nativeComments.length === 0 &&
+    value.fallbackComments.length === 0
+  ) {
+    throw new Error("The publication plan does not contain a review.");
+  }
+  return value as unknown as GithubReviewPlan;
+}
+
+export function prepareGithubReview(
+  context: GithubPublicationContext,
+  draft: GithubReviewDraft,
+): GithubReviewPlan {
+  const nativeComments: GithubNativeComment[] = [];
+  const fallbackComments: GithubFallbackComment[] = [];
+
+  for (const comment of draft.comments) {
+    const native = nativeComment(comment);
+    if (native) {
+      nativeComments.push(native);
+      continue;
+    }
+    if (!comment.body.trim()) continue;
+    fallbackComments.push({
+      kind: comment.kind,
+      body: comment.body.trim(),
+      ...(comment.path ? { path: comment.path } : {}),
+      ...(fallbackLocation(comment) ? { location: fallbackLocation(comment) } : {}),
+      reason: fallbackReason(comment),
+    });
+  }
+
+  return {
+    schemaVersion: 1,
+    target: context,
+    summary: draft.summary.trim(),
+    nativeComments,
+    fallbackComments,
+  };
+}
+
+export function githubReviewPreview(plan: GithubReviewPlan): string {
+  const lines = [
+    `Target: ${plan.target.repository}#${plan.target.pullRequest}`,
+    `Head: ${plan.target.headSha}`,
+    `Native threads: ${plan.nativeComments.length}`,
+    `Summary fallbacks: ${plan.fallbackComments.length}`,
+  ];
+  for (const comment of plan.nativeComments) {
+    const range = comment.start_line
+      ? `${comment.start_line}-${comment.line}`
+      : String(comment.line);
+    lines.push(`  native ${comment.path}:${range} (${comment.side})`);
+  }
+  for (const comment of plan.fallbackComments) {
+    lines.push(`  fallback ${comment.location || "overall"} — ${comment.reason}`);
+  }
+  return lines.join("\n");
+}
+
+export function githubReviewBody(plan: GithubReviewPlan): string {
+  let body = plan.summary;
+  if (plan.fallbackComments.length) {
+    body += `${body ? "\n\n" : ""}## Comments included in this summary\n`;
+    for (const comment of plan.fallbackComments) {
+      const location = comment.location ? `**${comment.location}** — ` : "";
+      body += `\n- ${location}${comment.body}\n  _Fallback: ${comment.reason}._`;
+    }
+  }
+  return body.trim() || "Inline review comments.";
+}
+
+export async function publishGithubReview(
+  plan: GithubReviewPlan,
+  options: GithubPublicationOptions,
+): Promise<GithubPublicationResult> {
+  if (!(await options.publisher.isAuthenticated())) {
+    throw new GithubReviewPublicationError(
+      "authentication-required",
+      "GitHub authentication is required before publishing a review.",
+    );
+  }
+
+  const currentHead = await options.publisher.currentHead(plan.target);
+  if (currentHead !== plan.target.headSha) {
+    throw new GithubReviewPublicationError(
+      "stale-head",
+      `The pull request head changed from ${plan.target.headSha} to ${currentHead}. Regenerate the review before publishing.`,
+    );
+  }
+
+  const preview = githubReviewPreview(plan);
+  if (!(await options.confirm(plan, preview))) {
+    return {
+      status: "cancelled",
+      nativeComments: plan.nativeComments.length,
+      fallbackComments: plan.fallbackComments.length,
+    };
+  }
+
+  try {
+    const published = await options.publisher.createReview(plan.target, {
+      commit_id: plan.target.headSha,
+      event: "COMMENT",
+      body: githubReviewBody(plan),
+      comments: plan.nativeComments,
+    });
+    return {
+      status: "published",
+      ...(published.url ? { url: published.url } : {}),
+      nativeComments: plan.nativeComments.length,
+      fallbackComments: plan.fallbackComments.length,
+    };
+  } catch (error) {
+    throw new GithubReviewPublicationError(
+      "publication-failed",
+      `GitHub rejected the review: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}

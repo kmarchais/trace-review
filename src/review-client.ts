@@ -1,3 +1,11 @@
+import {
+  githubReviewPreview,
+  prepareGithubReview,
+  type GithubPublicationContext,
+  type GithubReviewPlan,
+  type ReviewDraftComment,
+} from "../scripts/lib/github-review.mjs";
+
 type UiElement = HTMLElement & { dataset: Record<string, string> };
 
 declare global {
@@ -88,7 +96,9 @@ interface StoredLineComment {
   pr: string;
   file: string;
   key: string;
+  startKey?: string;
   lineno?: string;
+  startLineno?: string;
   code?: string;
   text: string;
   fingerprint?: string;
@@ -157,6 +167,7 @@ interface MarkdownFile {
 
 type ClientData = Record<string, ClientFile>;
 type ReviewData = Record<string, AutomatedReview>;
+type GithubData = Record<string, GithubPublicationContext>;
 
 function parseEmbeddedJson<T>(elementId: string): T {
   return JSON.parse(document.getElementById(elementId).textContent || "{}") as T;
@@ -175,6 +186,7 @@ function eventElement(event: Event): UiElement | null {
   const SUBTITLE = document.querySelector(".app-header .subtitle").textContent;
   const DATA = parseEmbeddedJson<ClientData>("review-data");
   const REVIEW = parseEmbeddedJson<ReviewData>("ai-review-data");
+  const GITHUB = parseEmbeddedJson<GithubData>("github-review-data");
   const HAS_REVIEW = Object.keys(REVIEW).length > 0;
   const findingCursor: Record<string, number> = {};
 
@@ -473,6 +485,7 @@ function eventElement(event: Event): UiElement | null {
     const file = g.dataset.file ?? "",
       key = g.dataset.key ?? "";
     const id = uid(pr, file, key);
+    const saved = state.lines[id];
     const attachId = attachmentId("line", pr, file, key);
     const existing = mount.querySelector('.comment-row[data-cid="' + cssEsc(id) + '"]');
     if (existing) {
@@ -487,12 +500,51 @@ function eventElement(event: Event): UiElement | null {
     box.className = "comment-box";
     const meta = document.createElement("div");
     meta.className = "cb-meta";
-    meta.innerHTML =
-      '<span class="who-you">You</span><span>' +
-      escAttr(file) +
-      " · line " +
-      escAttr(g.dataset.lineno) +
-      "</span>";
+    const location = document.createElement("span");
+    const endLine = parseInt(g.dataset.lineno || "", 10);
+    const oldSide = key.startsWith("o");
+    const candidates = new Map<string, string>();
+    let candidateRow: Element | null = tr;
+    while (candidateRow && !candidateRow.classList.contains("hunk")) {
+      candidateRow
+        .querySelectorAll('.gutter[data-file="' + cssEsc(file) + '"][data-key]')
+        .forEach((candidate) => {
+          const candidateKey = candidate.dataset.key || "";
+          const candidateLine = parseInt(candidate.dataset.lineno || "", 10);
+          if (
+            candidateKey &&
+            candidateKey.startsWith("o") === oldSide &&
+            Number.isInteger(candidateLine) &&
+            candidateLine <= endLine
+          ) {
+            candidates.set(candidateKey, String(candidateLine));
+          }
+        });
+      candidateRow = candidateRow.previousElementSibling;
+    }
+    const startSelect = document.createElement("select");
+    startSelect.title = "Start line for a multi-line comment";
+    [...candidates.entries()]
+      .sort((left, right) => Number(left[1]) - Number(right[1]))
+      .forEach(([candidateKey, candidateLine]) => {
+        const option = document.createElement("option");
+        option.value = candidateKey;
+        option.textContent = candidateLine;
+        startSelect.appendChild(option);
+      });
+    startSelect.value = saved?.startKey && candidates.has(saved.startKey) ? saved.startKey : key;
+    const updateLocation = () => {
+      const startLine = candidates.get(startSelect.value) || String(endLine);
+      location.textContent =
+        file +
+        " · " +
+        (startLine === String(endLine) ? "line " + endLine : "lines " + startLine + "–" + endLine);
+    };
+    updateLocation();
+    const who = document.createElement("span");
+    who.className = "who-you";
+    who.textContent = "You";
+    meta.append(who, location);
     const ta = document.createElement("textarea");
     ta.value = prefill || "";
     ta.placeholder = "Comment on this line…";
@@ -500,7 +552,10 @@ function eventElement(event: Event): UiElement | null {
     actions.className = "comment-actions";
     const del = document.createElement("button");
     del.textContent = "Delete";
-    actions.appendChild(del);
+    const rangeLabel = document.createElement("label");
+    rangeLabel.textContent = "Start line ";
+    rangeLabel.appendChild(startSelect);
+    actions.append(rangeLabel, del);
     box.append(meta, ta, actions);
     td.appendChild(box);
     crow.appendChild(td);
@@ -510,7 +565,9 @@ function eventElement(event: Event): UiElement | null {
         pr,
         file,
         key,
+        startKey: startSelect.value,
         lineno: g.dataset.lineno,
+        startLineno: candidates.get(startSelect.value) || g.dataset.lineno,
         code: g.dataset.code,
         text: ta.value,
         fingerprint: g.dataset.fingerprint || "",
@@ -523,6 +580,10 @@ function eventElement(event: Event): UiElement | null {
     };
     bindImagePaste(ta, box, attachId, store);
     ta.addEventListener("input", store);
+    startSelect.addEventListener("change", () => {
+      updateLocation();
+      store();
+    });
     ta.addEventListener("blur", () => {
       if (!hasCommentContent(ta.value, attachId)) {
         delete state.lines[id];
@@ -569,7 +630,16 @@ function eventElement(event: Event): UiElement | null {
             '.gutter[data-key="' + cssEsc(c.key) + '"][data-file="' + cssEsc(c.file) + '"]',
           ));
       if (g) {
+        const rangePrefix = c.pr + "\0" + c.file + "\0";
+        if (
+          c.startKey &&
+          c.startKey !== c.key &&
+          !currentLineAnchors().has(rangePrefix + c.startKey)
+        ) {
+          continue;
+        }
         const currentId = uid(pr, c.file, g.dataset.key);
+        const oldKey = c.key;
         if (id !== currentId) {
           const oldAttachmentId = attachmentId("line", c.pr, c.file, c.key);
           const newAttachmentId = attachmentId("line", pr, c.file, g.dataset.key);
@@ -580,6 +650,10 @@ function eventElement(event: Event): UiElement | null {
           delete state.lines[id];
           c.key = g.dataset.key;
           c.lineno = g.dataset.lineno;
+          if (!c.startKey || c.startKey === oldKey) {
+            c.startKey = g.dataset.key;
+            c.startLineno = g.dataset.lineno;
+          }
           c.code = g.dataset.code;
           c.diffFingerprint = g.dataset.diffFingerprint || "";
           state.lines[currentId] = c;
@@ -634,6 +708,13 @@ function eventElement(event: Event): UiElement | null {
     return Object.entries(state.lines).filter(([, comment]) => {
       if (!comment) return false;
       const prefix = comment.pr + "\0" + comment.file + "\0";
+      if (
+        comment.startKey &&
+        comment.startKey !== comment.key &&
+        !anchors.has(prefix + comment.startKey)
+      ) {
+        return true;
+      }
       if (!comment.fingerprint) return !anchors.has(prefix + comment.key);
       if (current.has(prefix + comment.fingerprint)) return false;
       return !(
@@ -1444,11 +1525,12 @@ function eventElement(event: Event): UiElement | null {
       .map((item, index) => indent + "![Pasted image " + (index + 1) + "](" + item.data + ")")
       .join("\n");
   }
-  function buildMarkdown(): string {
+  function buildMarkdown(prFilter?: string): string {
     let out = "# " + TITLE + "\n_" + SUBTITLE + "_\n";
     let any = false;
     document.querySelectorAll("section.pr").forEach((sec) => {
       const pr = sec.dataset.pr;
+      if (prFilter && pr !== prFilter) return;
       const title =
         sec.querySelector(".summary-head h2")?.textContent ||
         sec.querySelector("h2")?.textContent ||
@@ -1518,7 +1600,9 @@ function eventElement(event: Event): UiElement | null {
           const lineAttachments = attachmentMarkdown(attachmentId("line", pr, c.file, c.key), "  ");
           block +=
             "- **L" +
-            c.lineno +
+            (c.startLineno && c.startLineno !== c.lineno
+              ? c.startLineno + "–" + c.lineno
+              : c.lineno) +
             "** — " +
             (c.text ? c.text.replace(/\n+/g, " ").trim() : "Pasted image") +
             "\n";
@@ -1547,6 +1631,32 @@ function eventElement(event: Event): UiElement | null {
     });
     if (!any) out += "\n_No comments yet._\n";
     return out;
+  }
+  function buildGithubSummary(pr: string): string {
+    const section = document.querySelector('section.pr[data-pr="' + cssEsc(pr) + '"]');
+    const title =
+      section?.querySelector(".summary-head h2")?.textContent ||
+      section?.querySelector("h2")?.textContent ||
+      pr;
+    let summary = `# Review: ${title}\n`;
+    const review = REVIEW[pr];
+    if (review?.comments.length) {
+      summary += `\n**On the ${REVIEWER} review:**\n`;
+      for (const comment of review.comments) {
+        const status = state.aiState[pr + " " + comment.aid] || "open";
+        summary +=
+          `- [${status}] ${comment.file} L${comment.line} — ` +
+          comment.body.replace(/\n+/g, " ").trim() +
+          "\n";
+      }
+    }
+    const general = (state.general[pr] || "").trim();
+    const attachments = attachmentMarkdown(attachmentId("general", pr, "", ""));
+    if (general || attachments) {
+      summary += `\n**Overall:**${general ? " " + general : ""}\n`;
+      if (attachments) summary += attachments + "\n";
+    }
+    return summary.trim();
   }
   const modal = document.getElementById("exportModal");
   const exportText = document.getElementById("exportText");
@@ -1577,6 +1687,8 @@ function eventElement(event: Event): UiElement | null {
   });
   document.getElementById("exportBtn").addEventListener("click", () => {
     exportText.value = buildMarkdown();
+    document.getElementById("githubReviewTab").hidden = !GITHUB[activeSection()?.dataset.pr || ""];
+    setExportTab("markdown");
     modal.hidden = false;
   });
   document.getElementById("closeModal").addEventListener("click", () => (modal.hidden = true));
@@ -1597,6 +1709,97 @@ function eventElement(event: Event): UiElement | null {
     a.download = "review-comments-" + REVIEW_ID + ".md";
     a.click();
     URL.revokeObjectURL(a.href);
+  });
+
+  let activeGithubPlan: GithubReviewPlan | null = null;
+  function githubDraft(pr: string): GithubReviewPlan | null {
+    const context = GITHUB[pr];
+    if (!context) return null;
+    const orphanIds = new Set(orphanedComments().map(([id]) => id));
+    const comments: ReviewDraftComment[] = [];
+    for (const id in state.files) {
+      const comment = state.files[id];
+      if (!comment || comment.pr !== pr) continue;
+      const attachments = attachmentMarkdown(attachmentId("file", pr, comment.file, ""));
+      const body = [comment.text.trim(), attachments].filter(Boolean).join("\n");
+      if (!body) continue;
+      comments.push({
+        kind: "file",
+        path: comment.file,
+        body,
+      });
+    }
+    for (const id in state.lines) {
+      const comment = state.lines[id];
+      if (!comment || comment.pr !== pr) continue;
+      const attachments = attachmentMarkdown(attachmentId("line", pr, comment.file, comment.key));
+      const body = [comment.text.trim(), attachments].filter(Boolean).join("\n");
+      if (!body) continue;
+      const oldSide = comment.key.startsWith("o");
+      const line = parseInt(comment.lineno || comment.key.replace(/^o/, ""), 10);
+      const startLine = parseInt(
+        comment.startLineno || comment.startKey?.replace(/^o/, "") || String(line),
+        10,
+      );
+      comments.push({
+        kind: "line",
+        path: comment.file,
+        body,
+        side: oldSide ? "LEFT" : "RIGHT",
+        line,
+        startSide: oldSide ? "LEFT" : "RIGHT",
+        startLine,
+        anchorStatus: orphanIds.has(id) ? "orphaned" : "current",
+        ...(attachments
+          ? { fallbackReason: "image attachments remain in the review summary" }
+          : {}),
+      });
+    }
+    return prepareGithubReview(context, {
+      summary: buildGithubSummary(pr),
+      comments,
+    });
+  }
+  function activeReviewTarget(): string {
+    return activeSection()?.dataset.pr || "";
+  }
+  function setExportTab(tab: "markdown" | "github"): void {
+    const github = tab === "github";
+    document.getElementById("markdownReviewTab").setAttribute("aria-selected", String(!github));
+    document.getElementById("githubReviewTab").setAttribute("aria-selected", String(github));
+    document.getElementById("markdownReviewPanel").hidden = github;
+    document.getElementById("githubReviewPanel").hidden = !github;
+    document.getElementById("markdownReviewActions").hidden = github;
+    document.getElementById("githubReviewActions").hidden = !github;
+    if (github) {
+      activeGithubPlan = githubDraft(activeReviewTarget());
+      document.getElementById("githubReviewPreview").textContent = activeGithubPlan
+        ? githubReviewPreview(activeGithubPlan)
+        : "GitHub publication is unavailable because this review has no pull-request context.";
+    }
+  }
+  document.getElementById("markdownReviewTab").addEventListener("click", () => {
+    setExportTab("markdown");
+  });
+  document.getElementById("githubReviewTab").addEventListener("click", () => {
+    setExportTab("github");
+  });
+  document.getElementById("downloadGithubPlanBtn").addEventListener("click", () => {
+    activeGithubPlan = githubDraft(activeReviewTarget());
+    if (!activeGithubPlan) return;
+    const blob = new Blob([JSON.stringify(activeGithubPlan, null, 2) + "\n"], {
+      type: "application/json",
+    });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download =
+      "github-review-" +
+      activeGithubPlan.target.repository.replace("/", "-") +
+      "-" +
+      activeGithubPlan.target.pullRequest +
+      ".json";
+    link.click();
+    URL.revokeObjectURL(link.href);
   });
 
   // ---- staged journey + adaptive evidence workspace ----

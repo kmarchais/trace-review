@@ -22,9 +22,10 @@
 - A self-contained review stores comments and viewed state in browser
   `localStorage`. Those decisions are not embedded into the HTML and do not
   travel with a copied file; export them as Markdown.
-- Native GitHub review publishing is not implemented yet; it is tracked in
-  [issue #13](https://github.com/kmarchais/trace-review/issues/13). Copying and
-  downloading Markdown remain the supported handoff paths.
+- The self-contained HTML never receives GitHub credentials. Native publishing
+  uses a downloaded plan plus the packaged publisher command, which requires an
+  authenticated `gh`, a matching live PR head, and explicit confirmation.
+  Markdown copy/download remains available without GitHub.
 
 ## Offline behavior
 

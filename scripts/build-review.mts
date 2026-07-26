@@ -92,6 +92,11 @@ interface ReviewTarget {
   title: string;
   url?: string;
   summary?: string;
+  github?: {
+    repository: string;
+    pullRequest: number;
+    headSha: string;
+  };
   diff?: string;
   diffFile?: string;
   diagrams?: Diagram[];
@@ -196,6 +201,15 @@ type RenderableGrouping = ChangeGrouping & {
 
 type DataBag = Record<string, ClientFileData>;
 type ReviewBag = Record<string, NormalizedReview>;
+type GithubBag = Record<
+  string,
+  {
+    repository: string;
+    pullRequest: number;
+    headSha: string;
+    url: string;
+  }
+>;
 
 interface FileBlock {
   fid: string;
@@ -1320,6 +1334,15 @@ function main(): void {
   const reviewer = "LM";
   const dataBag: DataBag = {};
   const reviewBag: ReviewBag = {};
+  const githubBag: GithubBag = {};
+  prs.forEach((pr, index) => {
+    if (!pr.github) return;
+    const prId = pr.id || `pr-${index + 1}`;
+    githubBag[prId] = {
+      ...pr.github,
+      url: pr.url || `https://github.com/${pr.github.repository}/pull/${pr.github.pullRequest}`,
+    };
+  });
   const sections = prs
     .map((pr, i) =>
       renderPr(
@@ -1343,6 +1366,7 @@ mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', securi
 
   const dataJson = JSON.stringify(dataBag).replace(/</g, "\\u003c");
   const reviewJson = JSON.stringify(reviewBag).replace(/</g, "\\u003c");
+  const githubJson = JSON.stringify(githubBag).replace(/</g, "\\u003c");
 
   let tpl = fs.readFileSync(TEMPLATE, "utf8");
   const repl: Readonly<Record<string, string>> = {
@@ -1354,6 +1378,7 @@ mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', securi
     "{{SECTIONS}}": sections,
     "{{DATA}}": dataJson,
     "{{AIREVIEW}}": reviewJson,
+    "{{GITHUB_REVIEW}}": githubJson,
     "{{REVIEWER}}": esc(reviewer),
     "{{MERMAID}}": mermaid,
   };
