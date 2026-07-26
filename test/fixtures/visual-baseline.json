@@ -10,13 +10,13 @@
     "success-emphasis": "#1f883d"
   },
   "layout": {
-    "review-journey": "display:grid",
+    "review-journey": "display:inline-flex",
     "pr-cols": "display:flex",
     "pr-context": "position:sticky",
     "review-col": "display:flex",
     "diff-block-head": "position:sticky",
     "group-intent-card": "background:var(--card)",
-    "overall-bar": "position:fixed"
+    "overall-bar": "margin-top:var(--space-4)"
   },
   "landmarks": [
     "app-header",
@@ -24,9 +24,9 @@
     "review-journey",
     "pr-cols",
     "pr-context",
+    "overall-bar",
     "review-col",
     "diff-block",
-    "group-intent-card",
-    "overall-bar"
+    "group-intent-card"
   ]
 }
