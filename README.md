@@ -65,13 +65,17 @@ patch tokens. See [the metrics contract](docs/REAL-PR-METRICS.md).
 
 Requires Node 18+, Git, and optionally GitHub CLI for pull-request context.
 
-```bash
-# Codex
-git clone git@github.com:kmarchais/trace-review.git ~/.codex/skills/trace-review
+Download
+[`trace-review-skill.zip`](https://github.com/kmarchais/trace-review/releases/latest/download/trace-review-skill.zip)
+and extract it directly into one of these skill directories:
 
-# Claude Code
-git clone git@github.com:kmarchais/trace-review.git ~/.claude/skills/trace-review
+```bash
+# Codex:       ~/.codex/skills/
+# Claude Code: ~/.claude/skills/
 ```
+
+The archive creates the `trace-review/` directory and contains only runtime
+scripts, the template, schema, operational references, and a compact example.
 
 ## Use
 
@@ -96,6 +100,7 @@ See [SKILL.md](SKILL.md) for the workflow,
 
 ```bash
 npm test
+npm run bundle:skill
 npm run validate:example
 npm run validate:reference
 ```
