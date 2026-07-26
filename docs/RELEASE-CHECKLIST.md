@@ -11,9 +11,9 @@ Run from the repository root:
 bun run check
 bun run bundle:skill
 bun run validate:example
-node dist/runtime/scripts/validate-review-spec.mjs \
+bun run validate -- \
   --spec examples/cpp-reference/review-spec.json
-node dist/runtime/scripts/build-review.mjs \
+bun run review -- \
   --spec examples/cpp-reference/review-spec.json \
   --out examples/cpp-reference/review.html \
   --metrics-out examples/cpp-reference/metrics.json

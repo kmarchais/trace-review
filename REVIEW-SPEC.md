@@ -75,14 +75,14 @@ Removed-line anchors use `o` plus the old line number, such as `"o7"`.
 Severity is `nit`, `suggestion`, `concern`, `question`, `praise`, or `comment`.
 Every finding requires numeric `confidence` between 0 and 1 and a concise,
 verifiable `rationale`. Focused analysis also enforces the fact-derived budget
-written by `prepare-lm-analysis.mjs`.
+written by the `prepare-lm-analysis` CLI.
 
 ## Validation
 
 Validate without generating HTML:
 
 ```bash
-node scripts/validate-review-spec.mjs --spec .review/spec.json
+bun run validate -- --spec .review/spec.json
 ```
 
 Add `--json` for machine-readable diagnostics. Generation runs the same

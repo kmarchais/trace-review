@@ -39,9 +39,9 @@ test("minimal skill bundle is complete, runnable, and excludes repository-only f
   assert.ok(archive.length > 0);
   for (const excluded of [
     "README.md",
-    "NEXT-WORK.md",
     "package.json",
-    "examples/screenshot.png",
+    "docs/assets/review-interface.png",
+    "docs/assets/review-interface-dark.png",
     "test/build-review.test.ts",
     "scripts/build-skill-bundle.mts",
     "scripts/lib/skill-bundle.mts",

@@ -15,6 +15,7 @@ test("review-preflight inventories a patch and flags review hazards", (t) => {
   const diffPath = path.join(tempDir, "mixed.patch");
   const fixture = fs.readFileSync(path.join(root, "test", "fixtures", "mixed.patch"), "utf8");
   const patchText = fixture.replace('+console.log("world");', '+console.log("world");   ');
+  const normalizedPatchText = patchText.replace(/\r\n?/g, "\n");
   fs.writeFileSync(diffPath, patchText);
   const stdout = execFileSync(
     process.execPath,
@@ -28,7 +29,7 @@ test("review-preflight inventories a patch and flags review hazards", (t) => {
     files: 3,
     additions: 2,
     deletions: 1,
-    bytes: Buffer.byteLength(patchText),
+    bytes: Buffer.byteLength(normalizedPatchText),
   });
   assert.equal(result.patch.valid, true);
   assert.equal(result.patch.gitApply.valid, true);
