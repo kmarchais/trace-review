@@ -1,5 +1,3 @@
-export {};
-
 type UiElement = HTMLElement & { dataset: Record<string, string> };
 
 declare global {
