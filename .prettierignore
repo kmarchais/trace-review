@@ -7,4 +7,5 @@ docs/
 examples/
 *.md
 schemas/
+skills/trace-review/
 test/fixtures/

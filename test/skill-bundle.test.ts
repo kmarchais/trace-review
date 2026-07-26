@@ -6,6 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   buildSkillBundle,
+  inspectSkillDistribution,
   listZipEntries,
   readZipEntries,
   SKILL_BUNDLE_FILES,
@@ -13,6 +14,21 @@ import {
 } from "../scripts/lib/skill-bundle.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const binaryExtensions = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp", ".zip"]);
+
+function expectedDistributionData(file: string): Buffer {
+  return binaryExtensions.has(path.extname(file).toLowerCase())
+    ? fs.readFileSync(file)
+    : Buffer.from(fs.readFileSync(file, "utf8").replace(/\r\n?/g, "\n"));
+}
+
+test("checked-in installable skill distribution matches the release inputs", () => {
+  assert.deepEqual(inspectSkillDistribution({ root }), {
+    missing: [],
+    changed: [],
+    unexpected: [],
+  });
+});
 
 test("minimal skill bundle is complete, runnable, and excludes repository-only files", (t) => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-bundle-test-"));
@@ -30,9 +46,13 @@ test("minimal skill bundle is complete, runnable, and excludes repository-only f
     )
       ? path.join(root, "dist", "runtime")
       : root;
+    const sourcePath =
+      relativePath === "SKILL.md"
+        ? path.join(root, "SKILL.source.md")
+        : path.join(sourceRoot, relativePath);
     assert.deepEqual(
       entries.get(`trace-review/${relativePath}`),
-      fs.readFileSync(path.join(sourceRoot, relativePath)),
+      expectedDistributionData(sourcePath),
       `${relativePath} should round-trip through the archive`,
     );
   }

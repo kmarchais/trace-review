@@ -9,12 +9,14 @@ import { analyzePatch } from "../scripts/lib/preflight.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("review-preflight inventories a patch and flags review hazards", (t) => {
+test("review-preflight normalizes a CRLF patch and inventories review hazards", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-preflight-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const diffPath = path.join(tempDir, "mixed.patch");
   const fixture = fs.readFileSync(path.join(root, "test", "fixtures", "mixed.patch"), "utf8");
-  const patchText = fixture.replace('+console.log("world");', '+console.log("world");   ');
+  const patchText = fixture
+    .replace('+console.log("world");', '+console.log("world");   ')
+    .replace(/\r?\n/g, "\r\n");
   const normalizedPatchText = patchText.replace(/\r\n?/g, "\n");
   fs.writeFileSync(diffPath, patchText);
   const stdout = execFileSync(

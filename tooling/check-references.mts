@@ -11,6 +11,7 @@ const ignoredDirectories = new Set([
   "dist",
   "node_modules",
   "output",
+  "skills",
 ]);
 const ignoredFiles = new Set(["review-smoke.html", "review.html"]);
 const referenceExtensions = new Set([".html", ".md"]);
@@ -68,7 +69,8 @@ for (const file of files.filter((candidate) => referenceExtensions.has(path.extn
   for (const match of content.matchAll(/\b(?:href|src|srcset)="([^"]+)"/gu)) {
     if (match[1]) checkReference(file, match[1]);
   }
-  const installedSkillContract = path.basename(file) === "SKILL.md";
+  const installedSkillContract =
+    path.basename(file) === "SKILL.md" || relative(file) === "SKILL.source.md";
   if (!installedSkillContract && /\bnode\s+scripts\/\S+\.mjs\b/u.test(content)) {
     errors.push(`${relative(file)} invokes a removed JavaScript source path`);
   }

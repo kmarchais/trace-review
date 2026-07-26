@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 export const SKILL_BUNDLE_SOURCE_FILES = Object.freeze([
+  "LICENSE",
   "SKILL.md",
   "REVIEW-SPEC.md",
   "docs/LIMITATIONS.md",
@@ -41,9 +42,107 @@ export const SKILL_BUNDLE_FILES = Object.freeze([
   ...SKILL_BUNDLE_RUNTIME_FILES,
 ]);
 
+const SKILL_BUNDLE_SOURCE_PATHS: Readonly<Record<string, string>> = Object.freeze({
+  "SKILL.md": "SKILL.source.md",
+});
+
 interface ZipEntry {
   name: string;
   data: Buffer;
+}
+
+interface SkillFile {
+  relativePath: string;
+  data: Buffer;
+}
+
+const BINARY_DISTRIBUTION_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp", ".zip"]);
+
+export interface SkillDistributionDiff {
+  missing: string[];
+  changed: string[];
+  unexpected: string[];
+}
+
+function walkFiles(directory: string, root = directory): string[] {
+  if (!fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    return entry.isDirectory()
+      ? walkFiles(entryPath, root)
+      : [path.relative(root, entryPath).replaceAll(path.sep, "/")];
+  });
+}
+
+function readSkillFiles(root: string, runtimeRoot: string): SkillFile[] {
+  return SKILL_BUNDLE_FILES.map((relativePath) => {
+    const sourceRoot = SKILL_BUNDLE_RUNTIME_FILES.includes(
+      relativePath as (typeof SKILL_BUNDLE_RUNTIME_FILES)[number],
+    )
+      ? runtimeRoot
+      : root;
+    const source = path.join(sourceRoot, SKILL_BUNDLE_SOURCE_PATHS[relativePath] ?? relativePath);
+    if (!fs.existsSync(source) || !fs.statSync(source).isFile()) {
+      throw new Error(`Missing bundle input: ${relativePath}`);
+    }
+    const data = BINARY_DISTRIBUTION_EXTENSIONS.has(path.extname(source).toLowerCase())
+      ? fs.readFileSync(source)
+      : Buffer.from(fs.readFileSync(source, "utf8").replace(/\r\n?/g, "\n"));
+    return {
+      relativePath,
+      data,
+    };
+  });
+}
+
+export function inspectSkillDistribution({
+  root,
+  runtimeRoot = path.join(root, "dist", "runtime"),
+  skillRoot = path.join(root, "skills", "trace-review"),
+}: {
+  root: string;
+  runtimeRoot?: string;
+  skillRoot?: string;
+}): SkillDistributionDiff {
+  const expected = new Map(
+    readSkillFiles(root, runtimeRoot).map((file) => [file.relativePath, file.data]),
+  );
+  const actual = new Set(walkFiles(skillRoot));
+  const missing: string[] = [];
+  const changed: string[] = [];
+
+  for (const [relativePath, data] of expected) {
+    if (!actual.has(relativePath)) {
+      missing.push(relativePath);
+    } else if (!fs.readFileSync(path.join(skillRoot, relativePath)).equals(data)) {
+      changed.push(relativePath);
+    }
+  }
+
+  return {
+    missing,
+    changed,
+    unexpected: [...actual].filter((relativePath) => !expected.has(relativePath)).sort(),
+  };
+}
+
+export function syncSkillDistribution({
+  root,
+  runtimeRoot = path.join(root, "dist", "runtime"),
+  skillRoot = path.join(root, "skills", "trace-review"),
+}: {
+  root: string;
+  runtimeRoot?: string;
+  skillRoot?: string;
+}): string[] {
+  const files = readSkillFiles(root, runtimeRoot);
+  fs.rmSync(skillRoot, { recursive: true, force: true });
+  for (const file of files) {
+    const destination = path.join(skillRoot, file.relativePath);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, file.data);
+  }
+  return files.map((file) => file.relativePath);
 }
 
 const crcTable = new Uint32Array(256);
@@ -216,22 +315,14 @@ export function buildSkillBundle({
   fs.mkdirSync(bundleRoot);
 
   try {
-    const entries = SKILL_BUNDLE_FILES.map((relativePath): ZipEntry => {
-      const sourceRoot = SKILL_BUNDLE_RUNTIME_FILES.includes(
-        relativePath as (typeof SKILL_BUNDLE_RUNTIME_FILES)[number],
-      )
-        ? runtimeRoot
-        : root;
-      const source = path.join(sourceRoot, relativePath);
-      if (!fs.existsSync(source) || !fs.statSync(source).isFile()) {
-        throw new Error(`Missing bundle input: ${relativePath}`);
-      }
+    const entries = readSkillFiles(root, runtimeRoot).map((file): ZipEntry => {
+      const relativePath = file.relativePath;
       const destination = path.join(bundleRoot, relativePath);
       fs.mkdirSync(path.dirname(destination), { recursive: true });
-      fs.copyFileSync(source, destination);
+      fs.writeFileSync(destination, file.data);
       return {
         name: `trace-review/${relativePath.replaceAll(path.sep, "/")}`,
-        data: fs.readFileSync(source),
+        data: file.data,
       };
     });
 
