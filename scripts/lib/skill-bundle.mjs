@@ -1,0 +1,210 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
+
+export const SKILL_BUNDLE_FILES = Object.freeze([
+  "SKILL.md",
+  "REVIEW-SPEC.md",
+  "docs/LIMITATIONS.md",
+  "docs/REAL-PR-METRICS.md",
+  "docs/REPOSITORY-CONFIGURATION.md",
+  "examples/diagram.svg",
+  "examples/pr-1.groups.json",
+  "examples/pr-1.patch",
+  "examples/review-spec.json",
+  "schemas/review-spec.v1.schema.json",
+  "scripts/build-review.mjs",
+  "scripts/collect-pr-context.mjs",
+  "scripts/detect-mechanical-groups.mjs",
+  "scripts/finalize-lm-analysis.mjs",
+  "scripts/finalize-lm-groups.mjs",
+  "scripts/prepare-lm-analysis.mjs",
+  "scripts/review-preflight.mjs",
+  "scripts/validate-review-spec.mjs",
+  "scripts/lib/change-groups.mjs",
+  "scripts/lib/lm-analysis.mjs",
+  "scripts/lib/lm-groups.mjs",
+  "scripts/lib/pr-context.mjs",
+  "scripts/lib/preflight.mjs",
+  "scripts/lib/review-spec.mjs",
+  "templates/review.template.html",
+]);
+
+const crcTable = new Uint32Array(256);
+for (let n = 0; n < 256; n++) {
+  let value = n;
+  for (let bit = 0; bit < 8; bit++) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+  crcTable[n] = value >>> 0;
+}
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function localHeader(name, data, packed, crc) {
+  const header = Buffer.alloc(30);
+  header.writeUInt32LE(0x04034b50, 0);
+  header.writeUInt16LE(20, 4);
+  header.writeUInt16LE(0x0800, 6);
+  header.writeUInt16LE(8, 8);
+  header.writeUInt16LE(0, 10);
+  header.writeUInt16LE(0x0021, 12);
+  header.writeUInt32LE(crc, 14);
+  header.writeUInt32LE(packed.length, 18);
+  header.writeUInt32LE(data.length, 22);
+  header.writeUInt16LE(name.length, 26);
+  return header;
+}
+
+function centralHeader(name, data, packed, crc, offset) {
+  const header = Buffer.alloc(46);
+  header.writeUInt32LE(0x02014b50, 0);
+  header.writeUInt16LE(20, 4);
+  header.writeUInt16LE(20, 6);
+  header.writeUInt16LE(0x0800, 8);
+  header.writeUInt16LE(8, 10);
+  header.writeUInt16LE(0, 12);
+  header.writeUInt16LE(0x0021, 14);
+  header.writeUInt32LE(crc, 16);
+  header.writeUInt32LE(packed.length, 20);
+  header.writeUInt32LE(data.length, 24);
+  header.writeUInt16LE(name.length, 28);
+  header.writeUInt32LE(offset, 42);
+  return header;
+}
+
+function createZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name, "utf8");
+    const crc = crc32(entry.data);
+    const packed = deflateRawSync(entry.data, { level: 9 });
+    const local = localHeader(name, entry.data, packed, crc);
+    const central = centralHeader(name, entry.data, packed, crc, offset);
+    localParts.push(local, name, packed);
+    centralParts.push(central, name);
+    offset += local.length + name.length + packed.length;
+  }
+
+  const central = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(central.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localParts, central, end]);
+}
+
+export function readZipEntries(buffer) {
+  let endOffset = -1;
+  for (let offset = buffer.length - 22; offset >= Math.max(0, buffer.length - 65_557); offset--) {
+    if (buffer.readUInt32LE(offset) === 0x06054b50) {
+      endOffset = offset;
+      break;
+    }
+  }
+  if (endOffset < 0) throw new Error("Invalid bundle archive: end record not found.");
+
+  const count = buffer.readUInt16LE(endOffset + 10);
+  let offset = buffer.readUInt32LE(endOffset + 16);
+  const entries = new Map();
+  for (let index = 0; index < count; index++) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) {
+      throw new Error("Invalid bundle archive: central directory is malformed.");
+    }
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const method = buffer.readUInt16LE(offset + 10);
+    const expectedCrc = buffer.readUInt32LE(offset + 16);
+    const packedSize = buffer.readUInt32LE(offset + 20);
+    const size = buffer.readUInt32LE(offset + 24);
+    const localOffset = buffer.readUInt32LE(offset + 42);
+    const name = buffer.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+    if (buffer.readUInt32LE(localOffset) !== 0x04034b50) {
+      throw new Error(`Invalid bundle archive: local entry is missing for ${name}.`);
+    }
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+    const packed = buffer.subarray(dataOffset, dataOffset + packedSize);
+    if (method !== 0 && method !== 8) {
+      throw new Error(`Invalid bundle archive: unsupported compression for ${name}.`);
+    }
+    const data = method === 8 ? inflateRawSync(packed) : packed;
+    if (data.length !== size || crc32(data) !== expectedCrc) {
+      throw new Error(`Invalid bundle archive: checksum mismatch for ${name}.`);
+    }
+    entries.set(name, data);
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+export function listZipEntries(buffer) {
+  return [...readZipEntries(buffer).keys()];
+}
+
+function runSmokeTest(bundleRoot) {
+  const spec = path.join(bundleRoot, "examples", "review-spec.json");
+  const outputDir = path.join(bundleRoot, ".smoke");
+  const output = path.join(outputDir, "review.html");
+  fs.mkdirSync(outputDir);
+
+  for (const command of [
+    ["scripts/validate-review-spec.mjs", "--spec", spec],
+    ["scripts/build-review.mjs", "--spec", spec, "--out", output],
+  ]) {
+    const result = spawnSync(process.execPath, [path.join(bundleRoot, command[0]), ...command.slice(1)], {
+      cwd: bundleRoot,
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      throw new Error(`Bundle smoke test failed:\n${result.stdout}${result.stderr}`);
+    }
+  }
+
+  if (!fs.existsSync(output) || fs.statSync(output).size === 0) {
+    throw new Error("Bundle smoke test did not produce a review document.");
+  }
+}
+
+export function buildSkillBundle({ root, outDir }) {
+  const stageParent = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-bundle-"));
+  const bundleRoot = path.join(stageParent, "trace-review");
+  fs.mkdirSync(bundleRoot);
+
+  try {
+    const entries = SKILL_BUNDLE_FILES.map((relativePath) => {
+      const source = path.join(root, relativePath);
+      if (!fs.existsSync(source) || !fs.statSync(source).isFile()) {
+        throw new Error(`Missing bundle input: ${relativePath}`);
+      }
+      const destination = path.join(bundleRoot, relativePath);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(source, destination);
+      return {
+        name: `trace-review/${relativePath.replaceAll(path.sep, "/")}`,
+        data: fs.readFileSync(source),
+      };
+    });
+
+    runSmokeTest(bundleRoot);
+    fs.mkdirSync(outDir, { recursive: true });
+    const archive = path.join(outDir, "trace-review-skill.zip");
+    fs.writeFileSync(archive, createZip(entries));
+    return { archive, entries: entries.map((entry) => entry.name) };
+  } finally {
+    fs.rmSync(stageParent, { recursive: true, force: true });
+  }
+}

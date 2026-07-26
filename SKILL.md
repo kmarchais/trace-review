@@ -409,10 +409,9 @@ counts.
 
 ## What the output looks like
 
-See [examples/screenshot.png](examples/screenshot.png). The workspace opens on
-**Review changes**, with the diff, findings, comments, and pull-request context
-visible immediately. **Review groups** is an optional second view for checking
-change intent, dependencies, and reading order.
+The workspace opens on **Review changes**, with the diff, findings, comments,
+and pull-request context visible immediately. **Review groups** is an optional
+second view for checking change intent, dependencies, and reading order.
 
 - **Left — the PR** (only when there's context: `url`, `summary`, `diagrams`,
   or `blocks`): a sticky panel with the title, `+/-` stats, PR link, and your
@@ -502,22 +501,3 @@ degradation—is documented in
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md). Do not represent a generated review
 as a substitute for the repository's compiler, tests, linters, or security
 tooling.
-
-## Build & test the driver itself
-
-Run the dependency-free test suite, then reproduce the generator smoke test:
-
-```bash
-npm test
-node scripts/build-review.mjs --spec examples/review-spec.json --out review-smoke.html
-```
-
-The suite covers collection, preflight, schema diagnostics, representative
-patches, HTML structure, a checked-in visual contract, and a 300-file
-performance fixture.
-
-Use [examples/cpp-reference/README.md](examples/cpp-reference/README.md) as the
-distribution smoke test. A release candidate must satisfy
-[docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md), including schema,
-tests, accessibility, the five-second 300-file generation budget, offline
-behavior, and a manual interface review.

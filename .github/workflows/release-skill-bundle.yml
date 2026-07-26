@@ -1,0 +1,34 @@
+name: Release skill bundle
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  upload-skill-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 18
+
+      - name: Validate the repository
+        run: npm test
+
+      - name: Build the minimal skill archive
+        run: npm run bundle:skill
+
+      - name: Attach the archive to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/trace-review-skill.zip --clobber
