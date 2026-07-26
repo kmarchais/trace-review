@@ -4,15 +4,22 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { preflightPatch } from "./lib/preflight.mjs";
+import type { CommandRunner, RunOptions } from "./lib/preflight.mjs";
 
-function usage(message) {
+interface Args {
+  diff?: string;
+  out?: string;
+  help?: boolean;
+}
+
+function usage(message?: string): never {
   if (message) console.error(`Error: ${message}`);
   console.error("Usage: node review-preflight.mjs --diff <patch> [--out <json>]");
   process.exit(message ? 1 : 0);
 }
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: readonly string[]): Args {
+  const args: Args = {};
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--diff") args.diff = argv[++index];
@@ -28,7 +35,11 @@ if (args.help) usage();
 if (!args.diff) usage("--diff is required");
 
 const diffPath = path.resolve(args.diff);
-function run(command, commandArgs, options = {}) {
+const run: CommandRunner = (
+  command: string,
+  commandArgs: readonly string[],
+  options: RunOptions = {},
+): string => {
   const check = spawnSync(command, commandArgs, {
     cwd: options.cwd,
     input: options.input,
@@ -42,7 +53,7 @@ function run(command, commandArgs, options = {}) {
     );
   }
   return check.stdout;
-}
+};
 const result = preflightPatch(fs.readFileSync(diffPath, "utf8"), run, process.cwd());
 const json = `${JSON.stringify(result, null, 2)}\n`;
 

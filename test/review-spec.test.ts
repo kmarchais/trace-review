@@ -17,7 +17,9 @@ const fixtures = path.join(root, "test", "fixtures");
 test("review modes and schema version are stable public constants", () => {
   assert.equal(REVIEW_SPEC_VERSION, 1);
   assert.deepEqual(REVIEW_MODES, ["workspace", "lm-analysis", "deep-audit"]);
-  const schema = JSON.parse(fs.readFileSync(path.join(root, "schemas", "review-spec.v1.schema.json"), "utf8"));
+  const schema = JSON.parse(
+    fs.readFileSync(path.join(root, "schemas", "review-spec.v1.schema.json"), "utf8"),
+  );
   assert.equal(schema.properties.schemaVersion.const, 1);
   assert.deepEqual(schema.properties.mode.enum, REVIEW_MODES);
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
@@ -28,11 +30,13 @@ test("legacy focused-analysis mode names are rejected", () => {
     const result = validateReviewSpec({
       schemaVersion: 1,
       mode,
-      prs: [{
-        title: "Legacy mode",
-        diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
-        review: { verdict: "approve", global: "Done.", comments: [] },
-      }],
+      prs: [
+        {
+          title: "Legacy mode",
+          diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+          review: { verdict: "approve", global: "Done.", comments: [] },
+        },
+      ],
     });
     assert.equal(result.valid, false);
     assert.ok(result.diagnostics.some((item) => item.code === "invalid-mode"));
@@ -44,19 +48,25 @@ test("provider-specific reviewer attribution is rejected", () => {
     schemaVersion: 1,
     mode: "lm-analysis",
     reviewer: "A model-provided identity",
-    prs: [{
-      title: "Neutral attribution",
-      diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
-      review: { verdict: "approve", global: "Done.", comments: [] },
-    }],
+    prs: [
+      {
+        title: "Neutral attribution",
+        diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+        review: { verdict: "approve", global: "Done.", comments: [] },
+      },
+    ],
   });
 
   assert.equal(result.valid, false);
-  assert.ok(result.diagnostics.some((item) => item.code === "unknown-field" && item.path === "reviewer"));
+  assert.ok(
+    result.diagnostics.some((item) => item.code === "unknown-field" && item.path === "reviewer"),
+  );
 });
 
 test("portable block and diagram schemas enforce the runtime contract", () => {
-  const schema = JSON.parse(fs.readFileSync(path.join(root, "schemas", "review-spec.v1.schema.json"), "utf8"));
+  const schema = JSON.parse(
+    fs.readFileSync(path.join(root, "schemas", "review-spec.v1.schema.json"), "utf8"),
+  );
   const diagram = schema.$defs.diagram;
   const block = schema.$defs.block;
 
@@ -80,13 +90,19 @@ test("portable block and diagram schemas enforce the runtime contract", () => {
     const result = validateReviewSpec({
       schemaVersion: 1,
       mode: "workspace",
-      prs: [{
-        title: "Invalid block",
-        diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
-        blocks: [invalidBlock],
-      }],
+      prs: [
+        {
+          title: "Invalid block",
+          diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+          blocks: [invalidBlock],
+        },
+      ],
     });
-    assert.equal(result.valid, false, `${invalidBlock.type} specimen should fail runtime validation`);
+    assert.equal(
+      result.valid,
+      false,
+      `${invalidBlock.type} specimen should fail runtime validation`,
+    );
   }
 });
 
@@ -102,11 +118,13 @@ test("deep audit uses the explicit LM finding contract", () => {
   const spec = {
     schemaVersion: 1,
     mode: "deep-audit",
-    prs: [{
-      title: "Audit",
-      diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
-      review: { verdict: "approve", global: "Audited.", comments: [] },
-    }],
+    prs: [
+      {
+        title: "Audit",
+        diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+        review: { verdict: "approve", global: "Audited.", comments: [] },
+      },
+    ],
   };
   assert.equal(validateReviewSpec(spec).valid, true);
 });
@@ -115,19 +133,23 @@ test("LM findings require confidence and rationale in rendered review specs", ()
   const result = validateReviewSpec({
     schemaVersion: 1,
     mode: "lm-analysis",
-    prs: [{
-      title: "Focused analysis",
-      diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
-      review: {
-        verdict: "comment",
-        global: "One finding.",
-        comments: [{ file: "a", line: 1, severity: "concern", body: "Issue." }],
+    prs: [
+      {
+        title: "Focused analysis",
+        diff: "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+        review: {
+          verdict: "comment",
+          global: "One finding.",
+          comments: [{ file: "a", line: 1, severity: "concern", body: "Issue." }],
+        },
       },
-    }],
+    ],
   });
 
   assert.equal(result.valid, false);
-  assert.ok(result.diagnostics.some((item) => item.path === "prs[0].review.comments[0].confidence"));
+  assert.ok(
+    result.diagnostics.some((item) => item.path === "prs[0].review.comments[0].confidence"),
+  );
   assert.ok(result.diagnostics.some((item) => item.path === "prs[0].review.comments[0].rationale"));
 });
 
@@ -135,37 +157,66 @@ test("validator returns actionable paths and hints for contract violations", () 
   const result = validateReviewSpec({
     schemaVersion: 2,
     mode: "workspace",
-    prs: [{
-      id: "same",
-      title: "",
-      diff: "patch",
-      diffFile: "also.patch",
-      groups: [
-        { id: "one", title: "One", files: ["src/a.js"] },
-        { id: "two", title: "Two", files: ["src/a.js"] },
-      ],
-      review: { comments: [{ file: "src/a.js", line: 0, body: "" }] },
-      surprise: true,
-    }],
+    prs: [
+      {
+        id: "same",
+        title: "",
+        diff: "patch",
+        diffFile: "also.patch",
+        groups: [
+          { id: "one", title: "One", files: ["src/a.js"] },
+          { id: "two", title: "Two", files: ["src/a.js"] },
+        ],
+        review: { comments: [{ file: "src/a.js", line: 0, body: "" }] },
+        surprise: true,
+      },
+    ],
   });
 
   assert.equal(result.valid, false);
-  assert.ok(result.diagnostics.some((item) => item.code === "unsupported-schema-version" && item.path === "schemaVersion" && item.hint));
-  assert.ok(result.diagnostics.some((item) => item.code === "invalid-diff-source" && item.path === "prs[0]"));
-  assert.ok(result.diagnostics.some((item) => item.code === "overlapping-groups" && item.path === "prs[0].groups[1].files[0]"));
-  assert.ok(result.diagnostics.some((item) => item.code === "review-not-allowed" && item.path === "prs[0].review"));
+  assert.ok(
+    result.diagnostics.some(
+      (item) =>
+        item.code === "unsupported-schema-version" && item.path === "schemaVersion" && item.hint,
+    ),
+  );
+  assert.ok(
+    result.diagnostics.some(
+      (item) => item.code === "invalid-diff-source" && item.path === "prs[0]",
+    ),
+  );
+  assert.ok(
+    result.diagnostics.some(
+      (item) => item.code === "overlapping-groups" && item.path === "prs[0].groups[1].files[0]",
+    ),
+  );
+  assert.ok(
+    result.diagnostics.some(
+      (item) => item.code === "review-not-allowed" && item.path === "prs[0].review",
+    ),
+  );
   assert.ok(result.diagnostics.some((item) => item.code === "invalid-line-anchor"));
-  assert.ok(result.diagnostics.some((item) => item.code === "unknown-field" && item.path === "prs[0].surprise"));
+  assert.ok(
+    result.diagnostics.some(
+      (item) => item.code === "unknown-field" && item.path === "prs[0].surprise",
+    ),
+  );
 });
 
 test("validation CLI emits machine-readable diagnostics and exits 2", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-spec-"));
   const specPath = path.join(tempDir, "invalid.json");
   fs.writeFileSync(specPath, JSON.stringify({ schemaVersion: 1, mode: "workspace", prs: [] }));
-  const result = spawnSync(process.execPath, [
-    path.join(root, "scripts", "validate-review-spec.mjs"),
-    "--spec", specPath, "--json",
-  ], { cwd: root, encoding: "utf8" });
+  const result = spawnSync(
+    process.execPath,
+    [
+      path.join(root, "dist", "runtime", "scripts", "validate-review-spec.mjs"),
+      "--spec",
+      specPath,
+      "--json",
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
 
   assert.equal(result.status, 2);
   const validation = JSON.parse(result.stdout);
@@ -174,9 +225,14 @@ test("validation CLI emits machine-readable diagnostics and exits 2", () => {
 });
 
 test("validation CLI accepts the comprehensive workspace fixture", () => {
-  const output = execFileSync(process.execPath, [
-    path.join(root, "scripts", "validate-review-spec.mjs"),
-    "--spec", path.join(fixtures, "workspace-spec.json"),
-  ], { cwd: root, encoding: "utf8" });
+  const output = execFileSync(
+    process.execPath,
+    [
+      path.join(root, "dist", "runtime", "scripts", "validate-review-spec.mjs"),
+      "--spec",
+      path.join(fixtures, "workspace-spec.json"),
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
   assert.equal(JSON.parse(output).valid, true);
 });

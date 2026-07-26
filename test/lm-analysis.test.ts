@@ -42,31 +42,37 @@ const context = {
   },
   changeGroups: {
     schemaVersion: 1,
-    groups: [{
-      id: "g1",
-      title: "Definitions",
-      intent: "Change widget parsing.",
-      evidence: ["One definition changed."],
-      risk: "medium",
-      confidence: 0.82,
-      reviewerChecks: ["Check malformed records."],
-      changes: [{
+    groups: [
+      {
+        id: "g1",
+        title: "Definitions",
+        intent: "Change widget parsing.",
+        evidence: ["One definition changed."],
+        risk: "medium",
+        confidence: 0.82,
+        reviewerChecks: ["Check malformed records."],
+        changes: [
+          {
+            id: "src/widget.js#h0",
+            file: "src/widget.js",
+            hunk: 0,
+            topic: "parseWidget",
+            oldRange: { start: 1, end: 3, count: 3 },
+            newRange: { start: 1, end: 5, count: 5 },
+          },
+        ],
+      },
+    ],
+    dependencyGraph: { nodes: [], edges: [], suggestedOrder: ["g1"] },
+    inventory: [
+      {
         id: "src/widget.js#h0",
         file: "src/widget.js",
         hunk: 0,
-        topic: "parseWidget",
         oldRange: { start: 1, end: 3, count: 3 },
         newRange: { start: 1, end: 5, count: 5 },
-      }],
-    }],
-    dependencyGraph: { nodes: [], edges: [], suggestedOrder: ["g1"] },
-    inventory: [{
-      id: "src/widget.js#h0",
-      file: "src/widget.js",
-      hunk: 0,
-      oldRange: { start: 1, end: 3, count: 3 },
-      newRange: { start: 1, end: 5, count: 5 },
-    }],
+      },
+    ],
     validation: { valid: true, diagnostics: [] },
   },
   diff: {
@@ -127,10 +133,11 @@ test("finalization rejects legacy or malformed analysis inputs", () => {
     /valid preflight fact pack/i,
   );
   assert.throws(
-    () => analysisResultToReview(result, {
-      ...input,
-      findingContract: { ...input.findingContract, maxFindings: 100_000 },
-    }),
+    () =>
+      analysisResultToReview(result, {
+        ...input,
+        findingContract: { ...input.findingContract, maxFindings: 100_000 },
+      }),
     /Invalid analysis input.*maxFindings/i,
   );
 });
@@ -150,16 +157,21 @@ test("focused analysis rejects missing or invalid deterministic facts", () => {
 
 test("LM findings require confidence and a brief rationale", () => {
   const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
-  const validation = validateAnalysisResult({
-    verdict: "comment",
-    global: "One issue needs attention.",
-    findings: [{
-      file: "src/widget.js",
-      line: 3,
-      severity: "concern",
-      body: "Malformed records can still pass.",
-    }],
-  }, input);
+  const validation = validateAnalysisResult(
+    {
+      verdict: "comment",
+      global: "One issue needs attention.",
+      findings: [
+        {
+          file: "src/widget.js",
+          line: 3,
+          severity: "concern",
+          body: "Malformed records can still pass.",
+        },
+      ],
+    },
+    input,
+  );
 
   assert.equal(validation.valid, false);
   assert.ok(validation.diagnostics.some((item) => item.path === "findings[0].confidence"));
@@ -168,19 +180,24 @@ test("LM findings require confidence and a brief rationale", () => {
 
 test("LM findings reject fields outside the review-spec contract", () => {
   const input = prepareAnalysisInput(context, { mode: "lm-analysis" });
-  const validation = validateAnalysisResult({
-    verdict: "comment",
-    global: "One issue needs attention.",
-    findings: [{
-      file: "src/widget.js",
-      line: 3,
-      severity: "concern",
-      body: "Malformed records can still pass.",
-      confidence: 0.9,
-      rationale: "The validation branch is skipped.",
-      suggestion: "Add validation.",
-    }],
-  }, input);
+  const validation = validateAnalysisResult(
+    {
+      verdict: "comment",
+      global: "One issue needs attention.",
+      findings: [
+        {
+          file: "src/widget.js",
+          line: 3,
+          severity: "concern",
+          body: "Malformed records can still pass.",
+          confidence: 0.9,
+          rationale: "The validation branch is skipped.",
+          suggestion: "Add validation.",
+        },
+      ],
+    },
+    input,
+  );
 
   assert.equal(validation.valid, false);
   assert.ok(validation.diagnostics.some((item) => item.code === "unknown-finding-field"));
@@ -196,11 +213,14 @@ test("focused analysis rejects findings beyond its fact-derived budget", () => {
     confidence: 0.9,
     rationale: "The new branch returns before validating the record shape.",
   };
-  const validation = validateAnalysisResult({
-    verdict: "request-changes",
-    global: "Too many findings.",
-    findings: Array.from({ length: 4 }, () => ({ ...finding })),
-  }, input);
+  const validation = validateAnalysisResult(
+    {
+      verdict: "request-changes",
+      global: "Too many findings.",
+      findings: Array.from({ length: 4 }, () => ({ ...finding })),
+    },
+    input,
+  );
 
   assert.equal(validation.valid, false);
   assert.ok(validation.diagnostics.some((item) => item.code === "finding-budget-exceeded"));
@@ -211,14 +231,16 @@ test("finding anchors must resolve to an actual changed hunk range", () => {
   const result = {
     verdict: "request-changes",
     global: "One issue needs attention.",
-    findings: [{
-      file: "src/widget.js",
-      line: 999,
-      severity: "concern",
-      body: "This anchor is outside the change.",
-      confidence: 0.9,
-      rationale: "The line does not exist in any changed hunk.",
-    }],
+    findings: [
+      {
+        file: "src/widget.js",
+        line: 999,
+        severity: "concern",
+        body: "This anchor is outside the change.",
+        confidence: 0.9,
+        rationale: "The line does not exist in any changed hunk.",
+      },
+    ],
   };
 
   const validation = validateAnalysisResult(result, input);
@@ -253,10 +275,7 @@ test("deep audit opens for a high-risk group or an explicit request", () => {
   const highRisk = structuredClone(context);
   highRisk.changeGroups.groups[0].risk = "high";
 
-  assert.equal(
-    prepareAnalysisInput(highRisk, { mode: "deep-audit" }).risk.level,
-    "high",
-  );
+  assert.equal(prepareAnalysisInput(highRisk, { mode: "deep-audit" }).risk.level, "high");
   assert.equal(
     prepareAnalysisInput(context, {
       mode: "deep-audit",
@@ -275,10 +294,11 @@ test("finalization rechecks deep-audit admission", () => {
   assert.equal(explicit.deepAuditAdmission, "explicit-request");
   assert.doesNotThrow(() => analysisResultToReview(result, explicit));
   assert.throws(
-    () => analysisResultToReview(result, {
-      ...explicit,
-      deepAuditAdmission: undefined,
-    }),
+    () =>
+      analysisResultToReview(result, {
+        ...explicit,
+        deepAuditAdmission: undefined,
+      }),
     /Invalid analysis input.*deep-audit admission/i,
   );
 
@@ -296,11 +316,17 @@ test("prepare-lm-analysis CLI writes the validated focused fact pack", (t) => {
   const outputPath = path.join(tempDir, "analysis", "analysis-input.json");
   fs.writeFileSync(contextPath, JSON.stringify(context));
 
-  const result = spawnSync(process.execPath, [
-    path.join(root, "scripts", "prepare-lm-analysis.mjs"),
-    "--context", contextPath,
-    "--out", outputPath,
-  ], { cwd: root, encoding: "utf8" });
+  const result = spawnSync(
+    process.execPath,
+    [
+      path.join(root, "dist", "runtime", "scripts", "prepare-lm-analysis.mjs"),
+      "--context",
+      contextPath,
+      "--out",
+      outputPath,
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
 
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(fs.readFileSync(outputPath, "utf8"));
@@ -315,14 +341,16 @@ test("a validated analysis result converts directly to a review-spec review", ()
   const result = {
     verdict: "request-changes",
     global: "One issue needs attention.",
-    findings: [{
-      file: "src/widget.js",
-      line: 3,
-      severity: "concern",
-      body: "Malformed records can still pass.",
-      confidence: 0.9,
-      rationale: "The new branch returns before validating the record shape.",
-    }],
+    findings: [
+      {
+        file: "src/widget.js",
+        line: 3,
+        severity: "concern",
+        body: "Malformed records can still pass.",
+        confidence: 0.9,
+        rationale: "The new branch returns before validating the record shape.",
+      },
+    ],
   };
 
   assert.deepEqual(analysisResultToReview(result, input), {
@@ -347,12 +375,19 @@ test("finalize-lm-analysis CLI rejects noise and writes review-spec output", (t)
   fs.writeFileSync(inputPath, JSON.stringify(input));
   fs.writeFileSync(resultPath, JSON.stringify(result));
 
-  const cli = spawnSync(process.execPath, [
-    path.join(root, "scripts", "finalize-lm-analysis.mjs"),
-    "--input", inputPath,
-    "--result", resultPath,
-    "--out", outputPath,
-  ], { cwd: root, encoding: "utf8" });
+  const cli = spawnSync(
+    process.execPath,
+    [
+      path.join(root, "dist", "runtime", "scripts", "finalize-lm-analysis.mjs"),
+      "--input",
+      inputPath,
+      "--result",
+      resultPath,
+      "--out",
+      outputPath,
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
 
   assert.equal(cli.status, 0, cli.stderr);
   assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, "utf8")), {

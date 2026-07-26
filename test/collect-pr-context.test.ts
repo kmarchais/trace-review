@@ -66,8 +66,7 @@ test("auto mode collects and validates complete pull request context", () => {
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
     "git apply --numstat -": "1\t0\tsrc/app.js\n1\t1\tpackage-lock.json\n-\t-\tassets/logo.png\n",
-    "gh pr view --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments":
-      `${JSON.stringify(prJson)}\n`,
+    "gh pr view --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments": `${JSON.stringify(prJson)}\n`,
     "gh api --paginate --slurp repos/acme/widgets/pulls/42/comments": `${JSON.stringify([
       [
         {
@@ -142,7 +141,10 @@ test("none mode intentionally skips GitHub and collects the local branch diff", 
   assert.equal(context.git.baseRef, "origin/main");
   assert.equal(context.git.dirty, true);
   assert.equal(context.preflight.totals.files, 3);
-  assert.equal(run.calls.some((call) => call.startsWith("gh ")), false);
+  assert.equal(
+    run.calls.some((call) => call.startsWith("gh ")),
+    false,
+  );
   assert.deepEqual(context.collectionDiagnostics, []);
   assert.deepEqual(context.validation, { valid: true, diagnostics: [] });
 });
@@ -206,8 +208,7 @@ test("explicit mode passes a pull request URL to GitHub selection", () => {
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
     "git apply --numstat -": "1\t0\tsrc/app.js\n1\t1\tpackage-lock.json\n-\t-\tassets/logo.png\n",
-    [`gh pr view ${selector} --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments`]:
-      `${JSON.stringify({ ...prJson, url: selector })}\n`,
+    [`gh pr view ${selector} --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments`]: `${JSON.stringify({ ...prJson, url: selector })}\n`,
     "gh api --paginate --slurp repos/other/project/pulls/42/comments": "[]\n",
     [`gh pr diff ${selector} --patch`]: patch,
   });
@@ -216,7 +217,10 @@ test("explicit mode passes a pull request URL to GitHub selection", () => {
 
   assert.deepEqual(context.selection, { mode: "explicit", requested: selector });
   assert.equal(context.pullRequest.number, 42);
-  assert.equal(run.calls.some((call) => call.startsWith(`gh pr view ${selector} `)), true);
+  assert.equal(
+    run.calls.some((call) => call.startsWith(`gh pr view ${selector} `)),
+    true,
+  );
   assert.equal(run.calls.includes(`gh pr diff ${selector} --patch`), true);
 });
 

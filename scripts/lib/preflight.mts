@@ -1,6 +1,63 @@
 import path from "node:path";
 
-const TYPE_BY_EXTENSION = {
+export type DiagnosticLevel = "error" | "warning";
+
+export interface Diagnostic {
+  level: DiagnosticLevel;
+  code: string;
+  message: string;
+  file?: string;
+}
+
+export interface PreflightFile {
+  path: string;
+  oldPath: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  generated: boolean;
+  type: string;
+}
+
+interface MutablePreflightFile extends PreflightFile {
+  _addedLines: string[];
+}
+
+export interface WhitespaceError {
+  file: string;
+  line: number;
+  kind: "trailing-whitespace";
+}
+
+export interface PatchAnalysis {
+  schemaVersion: 1;
+  totals: {
+    files: number;
+    additions: number;
+    deletions: number;
+    bytes: number;
+  };
+  patch: {
+    valid: boolean;
+    diagnostics: Diagnostic[];
+    gitApply?: { valid: boolean; numstat: string };
+  };
+  files: PreflightFile[];
+  whitespaceErrors: WhitespaceError[];
+}
+
+export interface RunOptions {
+  cwd?: string;
+  input?: string;
+}
+
+export type CommandRunner = (
+  command: string,
+  args: readonly string[],
+  options?: RunOptions,
+) => string;
+
+const TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
   ".c": "c",
   ".cc": "cpp",
   ".cpp": "cpp",
@@ -32,11 +89,11 @@ const GENERATED_PATHS = [
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export function decodeGitPath(token) {
+export function decodeGitPath(token: string): string {
   if (!token.startsWith('"') || !token.endsWith('"')) return token;
   const input = token.slice(1, -1);
-  const bytes = [];
-  const escapes = {
+  const bytes: number[] = [];
+  const escapes: Readonly<Record<string, number>> = {
     a: 0x07,
     b: 0x08,
     t: 0x09,
@@ -48,6 +105,7 @@ export function decodeGitPath(token) {
   for (let index = 0; index < input.length; index++) {
     if (input[index] !== "\\") {
       const codePoint = input.codePointAt(index);
+      if (codePoint === undefined) break;
       bytes.push(...textEncoder.encode(String.fromCodePoint(codePoint)));
       if (codePoint > 0xffff) index++;
       continue;
@@ -58,60 +116,62 @@ export function decodeGitPath(token) {
       bytes.push(Number.parseInt(octal[0], 8));
       index += octal[0].length - 1;
     } else {
-      const escaped = input[index];
-      if (escaped in escapes) bytes.push(escapes[escaped]);
+      const escaped = input[index] ?? "";
+      const escapedByte = escapes[escaped];
+      if (escapedByte !== undefined) bytes.push(escapedByte);
       else bytes.push(...textEncoder.encode(escaped));
     }
   }
   return textDecoder.decode(Uint8Array.from(bytes));
 }
 
-export function parseDiffPaths(line) {
+export function parseDiffPaths(line: string): { oldPath: string; path: string } | null {
   const unquoted = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
   if (unquoted) return { oldPath: unquoted[1], path: unquoted[2] };
-  const quoted =
-    /^diff --git ("(?:\\.|[^"])*") ("(?:\\.|[^"])*")$/.exec(line);
+  const quoted = /^diff --git ("(?:\\.|[^"])*") ("(?:\\.|[^"])*")$/.exec(line);
   if (!quoted) return null;
   const oldPath = decodeGitPath(quoted[1]).replace(/^a\//, "");
   const newPath = decodeGitPath(quoted[2]).replace(/^b\//, "");
   return { oldPath, path: newPath };
 }
 
-function parseMarkerPath(line, marker) {
+function parseMarkerPath(line: string, marker: string): string | null {
   if (!line.startsWith(marker)) return null;
   const decoded = decodeGitPath(line.slice(marker.length));
   if (decoded === "/dev/null") return decoded;
   return decoded.replace(/^[ab]\//, "");
 }
 
-function fileType(file) {
+function fileType(file: string): string {
   const basename = path.posix.basename(file).toLowerCase();
   if (basename === "cmakelists.txt" || basename.endsWith(".cmake")) return "cmake";
   if (basename === "makefile") return "makefile";
   return TYPE_BY_EXTENSION[path.posix.extname(basename)] || "other";
 }
 
-function isGenerated(file, addedLines) {
+function isGenerated(file: string, addedLines: readonly string[]): boolean {
   if (GENERATED_PATHS.some((pattern) => pattern.test(file))) return true;
   return addedLines
     .slice(0, 5)
-    .some((line) => /(@generated|generated (file|code)|do not edit|automatically generated)/i.test(line));
+    .some((line) =>
+      /(@generated|generated (file|code)|do not edit|automatically generated)/i.test(line),
+    );
 }
 
-function finishFile(file) {
+function finishFile(file: MutablePreflightFile | null): PreflightFile | null {
   if (!file) return null;
   file.type = fileType(file.path);
   file.generated = isGenerated(file.path, file._addedLines);
-  delete file._addedLines;
-  return file;
+  const { _addedLines: _, ...finished } = file;
+  return finished;
 }
 
-export function analyzePatch(text) {
+export function analyzePatch(text: string): PatchAnalysis {
   const normalized = String(text).replace(/\r\n?/g, "\n");
-  const files = [];
-  const whitespaceErrors = [];
-  const diagnostics = [];
-  let current = null;
+  const files: PreflightFile[] = [];
+  const whitespaceErrors: WhitespaceError[] = [];
+  const diagnostics: Diagnostic[] = [];
+  let current: MutablePreflightFile | null = null;
   let newLine = 0;
 
   const pushCurrent = () => {
@@ -179,7 +239,12 @@ export function analyzePatch(text) {
     });
   }
   for (const file of files) {
-    if (!file.binary && file.additions === 0 && file.deletions === 0 && file.oldPath === file.path) {
+    if (
+      !file.binary &&
+      file.additions === 0 &&
+      file.deletions === 0 &&
+      file.oldPath === file.path
+    ) {
       diagnostics.push({
         level: "warning",
         code: "empty-file-diff",
@@ -206,7 +271,7 @@ export function analyzePatch(text) {
   };
 }
 
-export function preflightPatch(text, run, cwd) {
+export function preflightPatch(text: string, run: CommandRunner, cwd: string): PatchAnalysis {
   const result = analyzePatch(text);
   try {
     const numstat = run("git", ["apply", "--numstat", "-"], { cwd, input: text });
@@ -214,13 +279,13 @@ export function preflightPatch(text, run, cwd) {
       valid: true,
       numstat: String(numstat || "").trim(),
     };
-  } catch (error) {
+  } catch (error: unknown) {
     result.patch.valid = false;
     result.patch.gitApply = { valid: false, numstat: "" };
     result.patch.diagnostics.push({
       level: "error",
       code: "git-apply-check-failed",
-      message: error.message || "Git rejected the patch.",
+      message: error instanceof Error ? error.message : "Git rejected the patch.",
     });
   }
   return result;

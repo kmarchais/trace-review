@@ -2,12 +2,11 @@
 
 > **Review more code with fewer LM tokens.**
 
-Trace Review turns a working-tree diff, branch range, or pull request into a
-self-contained interactive HTML review.
+Trace Review turns a working-tree diff, branch range, or pull request into a self-contained
+interactive HTML review.
 
-Local scripts collect facts, parse diffs, validate LM output, and build the
-interface. The LM receives compact evidence and writes only the semantic result
-needed by the selected review mode.
+Local scripts collect facts, parse diffs, validate LM output, and build the interface. The LM
+receives compact evidence and writes only the semantic result needed by the selected review mode.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="examples/screenshot-dark.png">
@@ -25,24 +24,22 @@ git diff
   → local review.html
 ```
 
-The patch stays on disk instead of being reproduced in the conversation. Every
-mode uses the same GitHub-inspired light/dark interface, diff controls,
-comments, review progress, and Markdown export.
+The patch stays on disk instead of being reproduced in the conversation. Every mode uses the same
+GitHub-inspired light/dark interface, diff controls, comments, review progress, and Markdown export.
 
-| Mode | LM usage |
-|------|----------|
-| `workspace` | No automatic findings |
-| `lm-analysis` | Sparse, budgeted findings from compact facts |
-| `deep-audit` | Broader analysis for explicit or high-risk reviews |
+| Mode          | LM usage                                           |
+| ------------- | -------------------------------------------------- |
+| `workspace`   | No automatic findings                              |
+| `lm-analysis` | Sparse, budgeted findings from compact facts       |
+| `deep-audit`  | Broader analysis for explicit or high-risk reviews |
 
 ## Proof
 
-The reproducible [C++ reference review](examples/cpp-reference/README.md)
-includes the patch, deterministic candidates, LM output, validated groups, and
-final review spec.
+The reproducible [C++ reference review](examples/cpp-reference/README.md) includes the patch,
+deterministic candidates, LM output, validated groups, and final review spec.
 
-For example, the LM-generated
-[`grouping-result.json`](examples/cpp-reference/grouping-result.json) contains:
+For example, the LM-generated [`grouping-result.json`](examples/cpp-reference/grouping-result.json)
+contains:
 
 ```json
 {
@@ -58,8 +55,8 @@ For example, the LM-generated
 }
 ```
 
-Use `--metrics-out .review/metrics.json` to estimate spec tokens and avoided
-patch tokens. See [the metrics contract](docs/REAL-PR-METRICS.md).
+Use `--metrics-out .review/metrics.json` to estimate spec tokens and avoided patch tokens. See
+[the metrics contract](docs/REAL-PR-METRICS.md).
 
 ## Install
 
@@ -74,8 +71,8 @@ and extract it directly into one of these skill directories:
 # Claude Code: ~/.claude/skills/
 ```
 
-The archive creates the `trace-review/` directory and contains only runtime
-scripts, the template, schema, operational references, and a compact example.
+The archive creates the `trace-review/` directory and contains only runtime scripts, the template,
+schema, operational references, and a compact example.
 
 ## Use
 
@@ -84,7 +81,7 @@ scripts, the template, schema, operational references, and a compact example.
 - Ask for a **deep audit** when broader high-risk analysis is warranted.
 - Or ask your agent to review a branch or pull request with Trace Review.
 
-The scripts also run directly:
+The release scripts also run directly:
 
 ```bash
 node scripts/collect-pr-context.mjs
@@ -92,15 +89,16 @@ node scripts/validate-review-spec.mjs --spec spec.json
 node scripts/build-review.mjs --spec spec.json --out review.html --open
 ```
 
-See [SKILL.md](SKILL.md) for the workflow,
-[REVIEW-SPEC.md](REVIEW-SPEC.md) for the schema, and
+See [SKILL.md](SKILL.md) for the workflow, [REVIEW-SPEC.md](REVIEW-SPEC.md) for the schema, and
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for operational boundaries.
 
-## Validate
+## Develop
+
+The repository uses strict TypeScript, Bun, ESLint, and Prettier. The release bundle contains
+compiled, Node 18-compatible JavaScript, so installing the skill does not require Bun.
 
 ```bash
-npm test
-npm run bundle:skill
-npm run validate:example
-npm run validate:reference
+bun install
+bun run check
+bun run bundle:skill
 ```

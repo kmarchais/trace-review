@@ -35,7 +35,7 @@ test("CLI writes validated local context and patch files", (t) => {
   execFileSync(
     process.execPath,
     [
-      path.join(root, "scripts", "collect-pr-context.mjs"),
+      path.join(root, "dist", "runtime", "scripts", "collect-pr-context.mjs"),
       "--repo",
       repo,
       "--pr",
