@@ -33,19 +33,19 @@ Invoking `/trace-review` (or `… no-review`) stays in workspace mode
 silently selected. See [REVIEW-SPEC.md](REVIEW-SPEC.md) for the versioned
 contract.
 
-Paths below are relative to the skill directory
-(`.claude/skills/trace-review/`). Run commands from any working directory; pass
-absolute paths for `--spec`/`--out` when in doubt.
+Paths below are relative to the installed `trace-review/` skill directory. Run
+commands from any working directory; pass absolute paths for
+`--spec`/`--out` when in doubt.
 
 ## Prerequisites
 
-- **Node 18+** (`node --version`) — required; no npm install, zero dependencies.
+- **Node 22+** (`node --version`) — required; no npm install, zero dependencies.
 - **Git** — required for repository facts and local diffs.
 - **`gh`** — optional in automatic/local mode and required for explicit PR
   selection. If it is missing, unauthenticated, or unavailable, automatic mode
   emits a warning and falls back to a local diff.
-- The skill workflow needs a compatible agent host (Claude Code or Codex), but
-  the scripts and generated HTML do not. They can be run or opened standalone.
+- The skill workflow needs a compatible coding-agent host, but the scripts and
+  generated HTML do not. They can be run or opened standalone.
 - The doc pulls two things from CDNs when opened (so ideally online, but each
   degrades gracefully offline): **syntax highlighting** (highlight.js — falls
   back to plain, still diff-colored) and **Mermaid** diagrams (SVG diagrams need
@@ -348,7 +348,7 @@ files** (a rename, an added `#include`, a signature tweak). Add a `groups` array
 ### 5. Build and open
 
 ```bash
-node .claude/skills/trace-review/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --metrics-out .review/metrics.json --open
+node <skill-dir>/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --metrics-out .review/metrics.json --open
 ```
 
 `--metrics-out` is recommended for real pull requests. It records generation
