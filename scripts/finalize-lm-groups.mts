@@ -3,8 +3,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import { finalizeLmGrouping } from "./lib/lm-groups.mjs";
+import type { ChangeGrouping } from "./lib/change-groups.mjs";
+import type { LmGroupingResult } from "./lib/lm-groups.mjs";
+import { errorMessage, parseJson } from "./lib/cli.mjs";
 
-function usage(message) {
+interface Args {
+  candidates?: string;
+  result?: string;
+  out?: string;
+  help?: boolean;
+}
+
+function usage(message?: string): never {
   if (message) console.error(`Error: ${message}`);
   console.error(`Usage:
   node finalize-lm-groups.mjs --candidates <candidates.json>
@@ -12,8 +22,8 @@ function usage(message) {
   process.exit(message ? 1 : 0);
 }
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: readonly string[]): Args {
+  const args: Args = {};
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--candidates") args.candidates = argv[++index];
@@ -34,16 +44,14 @@ if (process.argv.includes("--out") && !args.out) usage("--out requires a value")
 try {
   const candidatesPath = path.resolve(args.candidates);
   const resultPath = path.resolve(args.result);
-  const candidates = JSON.parse(fs.readFileSync(candidatesPath, "utf8"));
-  const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+  const candidates = parseJson(fs.readFileSync(candidatesPath, "utf8")) as ChangeGrouping;
+  const result = parseJson(fs.readFileSync(resultPath, "utf8")) as LmGroupingResult;
   const grouping = finalizeLmGrouping(result, candidates);
-  const outputPath = path.resolve(
-    args.out || path.join(path.dirname(resultPath), "groups.json"),
-  );
+  const outputPath = path.resolve(args.out || path.join(path.dirname(resultPath), "groups.json"));
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(grouping, null, 2)}\n`, "utf8");
   console.log(`Wrote ${outputPath}`);
-} catch (error) {
-  console.error(`Error: ${error.message}`);
+} catch (error: unknown) {
+  console.error(`Error: ${errorMessage(error)}`);
   process.exit(2);
 }

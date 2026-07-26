@@ -1,26 +1,91 @@
 import { validateGrouping } from "./change-groups.mjs";
+import type {
+  ChangeGroup,
+  ChangeGroupKind,
+  ChangeGrouping,
+  ChangeRisk,
+  DependencyGraph,
+  GroupedChange,
+  GroupingDiagnostic,
+  GroupingValidation,
+} from "./change-groups.mjs";
+
+export interface LmTitleEvidence {
+  changeIds: string[];
+  rationale: string;
+}
+
+export interface LmGroup {
+  title: string;
+  kind?: ChangeGroupKind;
+  intent: string;
+  risk: ChangeRisk;
+  confidence: number;
+  evidence: string[];
+  reviewerChecks: string[];
+  titleEvidence: LmTitleEvidence;
+  changeIds: string[];
+  changes?: GroupedChange[];
+  readAfter?: string[];
+}
+
+export interface LmGroupingResult {
+  groups: LmGroup[];
+}
+
+export interface LmGroupingCandidateGroup {
+  title?: string;
+  kind?: ChangeGroupKind;
+  intent?: string;
+  risk?: ChangeRisk;
+  confidence?: number;
+  evidence?: string[];
+  reviewerChecks?: string[];
+  titleEvidence?: Partial<LmTitleEvidence>;
+  changeIds?: string[];
+  changes?: GroupedChange[];
+  readAfter?: string[];
+}
+
+export interface LmGroupingCandidate {
+  groups?: LmGroupingCandidateGroup[];
+}
+
+export interface FinalizedLmGrouping extends Omit<ChangeGrouping, "groups" | "dependencyGraph"> {
+  provenance: "lm";
+  groups: Array<ChangeGroup & { titleEvidence: LmTitleEvidence }>;
+  dependencyGraph: DependencyGraph;
+}
 
 const GENERIC_TITLE_RE =
   /^(definitions?|consumers?|definitions? and consumers?|associated tests?|configuration and build integration|needs inspection|unclassified|imports? and includes?|formatting-only changes?|generated dependency locks?|renames? without content changes?)$/i;
 
-function candidateChanges(candidates) {
-  const changes = new Map();
+function candidateChanges(candidates: ChangeGrouping): Map<string, GroupedChange> {
+  const changes = new Map<string, GroupedChange>();
   for (const group of candidates.groups || []) {
     for (const change of group.changes || []) changes.set(change.id, change);
   }
   for (const change of candidates.inventory || []) {
-    if (!changes.has(change.id)) changes.set(change.id, change);
+    if (!changes.has(change.id)) {
+      changes.set(change.id, {
+        ...change,
+        label: change.hunk === null ? "metadata" : `hunk ${change.hunk + 1}`,
+        topic: "Changed lines",
+        definitions: [],
+      });
+    }
   }
   return changes;
 }
 
-export function validateLmGroupingResult(result, candidates) {
-  const diagnostics = [];
-  const expected = new Map(
-    (candidates.inventory || []).map((change) => [change.id, change]),
-  );
-  const assigned = new Map();
-  const titles = new Map();
+export function validateLmGroupingResult(
+  result: LmGroupingCandidate,
+  candidates: Pick<ChangeGrouping, "inventory">,
+): GroupingValidation {
+  const diagnostics: GroupingDiagnostic[] = [];
+  const expected = new Map((candidates.inventory || []).map((change) => [change.id, change]));
+  const assigned = new Map<string, string>();
+  const titles = new Map<string, LmGroupingCandidateGroup>();
   const groups = Array.isArray(result?.groups) ? result.groups : [];
 
   if (!groups.length) {
@@ -62,7 +127,8 @@ export function validateLmGroupingResult(result, candidates) {
 
     if (
       !String(group?.intent || "").trim() ||
-      !["low", "medium", "high"].includes(group?.risk) ||
+      typeof group?.risk !== "string" ||
+      !["low", "medium", "high"].includes(group.risk) ||
       typeof group?.confidence !== "number" ||
       group.confidence < 0 ||
       group.confidence > 1 ||
@@ -132,12 +198,13 @@ export function validateLmGroupingResult(result, candidates) {
         });
         continue;
       }
-      if (assigned.has(changeId)) {
+      const previousGroup = assigned.get(changeId);
+      if (previousGroup !== undefined) {
         diagnostics.push({
           level: "error",
           code: "overlapping-change",
           change: changeId,
-          groups: [assigned.get(changeId), groupLabel],
+          groups: [previousGroup, groupLabel],
           message: `Change '${changeId}' is assigned more than once.`,
         });
       } else {
@@ -172,7 +239,10 @@ export function validateLmGroupingResult(result, candidates) {
   return { valid: diagnostics.length === 0, diagnostics };
 }
 
-export function finalizeLmGrouping(result, candidates) {
+export function finalizeLmGrouping(
+  result: LmGroupingResult,
+  candidates: ChangeGrouping,
+): FinalizedLmGrouping {
   const semanticValidation = validateLmGroupingResult(result, candidates);
   if (!semanticValidation.valid) {
     const details = semanticValidation.diagnostics
@@ -185,7 +255,7 @@ export function finalizeLmGrouping(result, candidates) {
   const groupIds = new Map(
     result.groups.map((group, index) => [group.title.toLowerCase(), `g${index + 1}`]),
   );
-  const groups = result.groups.map((group, index) => ({
+  const groups: FinalizedLmGrouping["groups"] = result.groups.map((group, index) => ({
     id: `g${index + 1}`,
     title: group.title,
     kind: group.kind || "feature",
@@ -195,32 +265,38 @@ export function finalizeLmGrouping(result, candidates) {
     evidence: group.evidence,
     reviewerChecks: group.reviewerChecks,
     titleEvidence: group.titleEvidence,
-    changes: group.changeIds.map((changeId) => changes.get(changeId)),
+    changes: (group.changeIds ?? []).map((changeId) => {
+      const change = changes.get(changeId);
+      if (!change) throw new Error(`Validated change '${changeId}' is missing.`);
+      return change;
+    }),
   }));
-  const explicitEdges = result.groups.flatMap((group) =>
-    (group.readAfter || []).map((prerequisite) => ({
-      from: groupIds.get(prerequisite.toLowerCase()),
-      to: groupIds.get(group.title.toLowerCase()),
-      reason: "semantic-prerequisite",
-      evidence: `${group.title} is easier to review after ${prerequisite}.`,
-    })),
+  const explicitEdges: DependencyGraph["edges"] = result.groups.flatMap((group) =>
+    (group.readAfter || []).map((prerequisite) => {
+      const from = groupIds.get(prerequisite.toLowerCase());
+      const to = groupIds.get(group.title.toLowerCase());
+      if (!from || !to) throw new Error("Validated group dependency is missing.");
+      return {
+        from,
+        to,
+        reason: "semantic-prerequisite",
+        evidence: `${group.title} is easier to review after ${prerequisite}.`,
+      };
+    }),
   );
-  const finalGroupByChange = new Map();
+  const finalGroupByChange = new Map<string, string>();
   for (const group of groups) {
     for (const change of group.changes) finalGroupByChange.set(change.id, group.id);
   }
-  const candidateGroups = new Map(
-    (candidates.groups || []).map((group) => [group.id, group]),
-  );
-  const finalGroupsForCandidate = (candidateGroupId) =>
-    [
-      ...new Set(
-        (candidateGroups.get(candidateGroupId)?.changes || [])
-          .map((change) => finalGroupByChange.get(change.id))
-          .filter(Boolean),
-      ),
-    ];
-  const inferredEdges = [];
+  const candidateGroups = new Map((candidates.groups || []).map((group) => [group.id, group]));
+  const finalGroupsForCandidate = (candidateGroupId: string): string[] => [
+    ...new Set(
+      (candidateGroups.get(candidateGroupId)?.changes || [])
+        .map((change) => finalGroupByChange.get(change.id))
+        .filter((groupId): groupId is string => groupId !== undefined),
+    ),
+  ];
+  const inferredEdges: DependencyGraph["edges"] = [];
   for (const edge of candidates.dependencyGraph?.edges || []) {
     for (const from of finalGroupsForCandidate(edge.from)) {
       for (const to of finalGroupsForCandidate(edge.to)) {
@@ -228,15 +304,15 @@ export function finalizeLmGrouping(result, candidates) {
       }
     }
   }
-  const edgeMap = new Map();
-  const outgoing = new Map(groups.map((group) => [group.id, new Set()]));
-  const addEdge = (edge) => {
+  const edgeMap = new Map<string, DependencyGraph["edges"][number]>();
+  const outgoing = new Map(groups.map((group) => [group.id, new Set<string>()]));
+  const addEdge = (edge: DependencyGraph["edges"][number]): void => {
     const key = `${edge.from}\u0000${edge.to}\u0000${edge.reason}`;
     if (edgeMap.has(key)) return;
     edgeMap.set(key, edge);
     outgoing.get(edge.from)?.add(edge.to);
   };
-  const hasPath = (from, to, seen = new Set()) => {
+  const hasPath = (from: string, to: string, seen = new Set<string>()): boolean => {
     if (from === to) return true;
     if (seen.has(from)) return false;
     seen.add(from);
@@ -247,15 +323,15 @@ export function finalizeLmGrouping(result, candidates) {
     if (!hasPath(edge.to, edge.from)) addEdge(edge);
   }
   const edges = [...edgeMap.values()];
-  const linkedDefinitions = new Map(groups.map((group) => [group.id, new Set()]));
+  const linkedDefinitions = new Map(groups.map((group) => [group.id, new Set<string>()]));
   for (const edge of edges) {
     if (edge.reason === "definition-usage" && edge.evidence) {
       linkedDefinitions.get(edge.from)?.add(edge.evidence);
     }
   }
-  const dependencies = new Map(groups.map((group) => [group.id, new Set()]));
+  const dependencies = new Map(groups.map((group) => [group.id, new Set<string>()]));
   for (const edge of edges) dependencies.get(edge.to)?.add(edge.from);
-  const suggestedOrder = [];
+  const suggestedOrder: string[] = [];
   const remaining = new Set(groups.map((group) => group.id));
   while (remaining.size) {
     const ready = groups
@@ -263,19 +339,19 @@ export function finalizeLmGrouping(result, candidates) {
       .filter(
         (id) =>
           remaining.has(id) &&
-          [...(dependencies.get(id) || [])].every(
-            (dependency) => !remaining.has(dependency),
-          ),
+          [...(dependencies.get(id) || [])].every((dependency) => !remaining.has(dependency)),
       );
     if (!ready.length) {
-      throw new Error("Invalid LM grouping result: dependency-cycle: Group prerequisites contain a cycle.");
+      throw new Error(
+        "Invalid LM grouping result: dependency-cycle: Group prerequisites contain a cycle.",
+      );
     }
     for (const id of ready) {
       suggestedOrder.push(id);
       remaining.delete(id);
     }
   }
-  const grouping = {
+  const grouping: FinalizedLmGrouping = {
     schemaVersion: 1,
     provenance: "lm",
     groups,
@@ -291,6 +367,7 @@ export function finalizeLmGrouping(result, candidates) {
       suggestedOrder,
     },
     inventory: candidates.inventory,
+    validation: { valid: false, diagnostics: [] },
   };
   grouping.validation = validateGrouping(grouping, candidates.inventory);
   return grouping;

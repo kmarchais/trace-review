@@ -9,6 +9,7 @@ import {
   listZipEntries,
   readZipEntries,
   SKILL_BUNDLE_FILES,
+  SKILL_BUNDLE_RUNTIME_FILES,
 } from "../scripts/lib/skill-bundle.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,9 +25,14 @@ test("minimal skill bundle is complete, runnable, and excludes repository-only f
 
   assert.deepEqual(listZipEntries(archive).sort(), expected);
   for (const relativePath of SKILL_BUNDLE_FILES) {
+    const sourceRoot = SKILL_BUNDLE_RUNTIME_FILES.includes(
+      relativePath as (typeof SKILL_BUNDLE_RUNTIME_FILES)[number],
+    )
+      ? path.join(root, "dist", "runtime")
+      : root;
     assert.deepEqual(
       entries.get(`trace-review/${relativePath}`),
-      fs.readFileSync(path.join(root, relativePath)),
+      fs.readFileSync(path.join(sourceRoot, relativePath)),
       `${relativePath} should round-trip through the archive`,
     );
   }
@@ -36,10 +42,13 @@ test("minimal skill bundle is complete, runnable, and excludes repository-only f
     "NEXT-WORK.md",
     "package.json",
     "examples/screenshot.png",
-    "test/build-review.test.mjs",
-    "scripts/build-skill-bundle.mjs",
-    "scripts/lib/skill-bundle.mjs",
+    "test/build-review.test.ts",
+    "scripts/build-skill-bundle.mts",
+    "scripts/lib/skill-bundle.mts",
   ]) {
-    assert.ok(!expected.includes(`trace-review/${excluded}`), `${excluded} must stay out of the bundle`);
+    assert.ok(
+      !expected.includes(`trace-review/${excluded}`),
+      `${excluded} must stay out of the bundle`,
+    );
   }
 });

@@ -3,8 +3,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { analysisResultToReview } from "./lib/lm-analysis.mjs";
+import type { AnalysisInput, AnalysisResult } from "./lib/lm-analysis.mjs";
+import { errorMessage, parseJson } from "./lib/cli.mjs";
 
-function usage(message) {
+interface Args {
+  input?: string;
+  result?: string;
+  out?: string;
+  help?: boolean;
+}
+
+function usage(message?: string): never {
   if (message) console.error(`Error: ${message}`);
   console.error(`Usage:
   node finalize-lm-analysis.mjs --input <analysis-input.json>
@@ -12,8 +21,8 @@ function usage(message) {
   process.exit(message ? 1 : 0);
 }
 
-function parseArgs(argv) {
-  const args = {};
+function parseArgs(argv: readonly string[]): Args {
+  const args: Args = {};
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--input") args.input = argv[++index];
@@ -34,16 +43,14 @@ if (process.argv.includes("--out") && !args.out) usage("--out requires a value")
 try {
   const inputPath = path.resolve(args.input);
   const resultPath = path.resolve(args.result);
-  const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
-  const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+  const input = parseJson(fs.readFileSync(inputPath, "utf8")) as AnalysisInput;
+  const result = parseJson(fs.readFileSync(resultPath, "utf8")) as AnalysisResult;
   const review = analysisResultToReview(result, input);
-  const outputPath = path.resolve(
-    args.out || path.join(path.dirname(resultPath), "review.json"),
-  );
+  const outputPath = path.resolve(args.out || path.join(path.dirname(resultPath), "review.json"));
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(review, null, 2)}\n`, "utf8");
   console.log(`Wrote ${outputPath}`);
-} catch (error) {
-  console.error(`Error: ${error.message}`);
+} catch (error: unknown) {
+  console.error(`Error: ${errorMessage(error)}`);
   process.exit(2);
 }

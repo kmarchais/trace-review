@@ -2,15 +2,31 @@
   "name": "trace-review",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.3.14",
   "scripts": {
-    "test": "node --test",
-    "bundle:skill": "node scripts/build-skill-bundle.mjs",
-    "validate:example": "node scripts/validate-review-spec.mjs --spec examples/review-spec.json",
-    "validate:reference": "node scripts/validate-review-spec.mjs --spec examples/cpp-reference/review-spec.json",
-    "build:reference": "node scripts/build-review.mjs --spec examples/cpp-reference/review-spec.json --out examples/cpp-reference/review.html",
-    "groups": "node scripts/detect-mechanical-groups.mjs",
-    "groups:finalize": "node scripts/finalize-lm-groups.mjs",
-    "analysis:prepare": "node scripts/prepare-lm-analysis.mjs",
-    "analysis:finalize": "node scripts/finalize-lm-analysis.mjs"
+    "build": "bun tooling/build.mts && tsc --project tsconfig.build.json",
+    "test": "bun run build && bun test",
+    "typecheck": "tsc --project tsconfig.json",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun run test",
+    "bundle:skill": "bun run build && bun scripts/build-skill-bundle.mts",
+    "validate:example": "bun run build && node dist/runtime/scripts/validate-review-spec.mjs --spec examples/review-spec.json",
+    "validate:reference": "bun run build && node dist/runtime/scripts/validate-review-spec.mjs --spec examples/cpp-reference/review-spec.json",
+    "build:reference": "bun run build && node dist/runtime/scripts/build-review.mjs --spec examples/cpp-reference/review-spec.json --out examples/cpp-reference/review.html",
+    "groups": "bun scripts/detect-mechanical-groups.mts",
+    "groups:finalize": "bun scripts/finalize-lm-groups.mts",
+    "analysis:prepare": "bun scripts/prepare-lm-analysis.mts",
+    "analysis:finalize": "bun scripts/finalize-lm-analysis.mts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/bun": "^1.3.14",
+    "@types/node": "^26.1.1",
+    "eslint": "^10.8.0",
+    "prettier": "^3.9.6",
+    "typescript": ">=6.0.0 <6.1.0",
+    "typescript-eslint": "^8.65.0"
   }
 }

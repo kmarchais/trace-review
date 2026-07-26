@@ -6,10 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { detectChangeGroups } from "../scripts/lib/change-groups.mjs";
-import {
-  finalizeLmGrouping,
-  validateLmGroupingResult,
-} from "../scripts/lib/lm-groups.mjs";
+import { finalizeLmGrouping, validateLmGroupingResult } from "../scripts/lib/lm-groups.mjs";
 import { analyzePatch } from "../scripts/lib/preflight.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -83,10 +80,10 @@ test("LM grouping uses change-specific names and keeps same-group hunks together
   assert.equal(validateLmGroupingResult(result, facts).valid, true);
   const grouping = finalizeLmGrouping(result, facts);
   assert.equal(grouping.provenance, "lm");
-  assert.deepEqual(grouping.groups.map((group) => group.title), [
-    "Session lifecycle contract",
-    "Lifecycle verification",
-  ]);
+  assert.deepEqual(
+    grouping.groups.map((group) => group.title),
+    ["Session lifecycle contract", "Lifecycle verification"],
+  );
   assert.equal(
     grouping.groups[0].changes.filter((change) => change.file === "src/session.js").length,
     3,
@@ -104,9 +101,7 @@ test("LM grouping allows one file to participate in distinct semantic groups", (
   const [firstSource, secondSource, thirdSource] = facts.inventory.filter(
     (change) => change.file === "src/session.js",
   );
-  const [testChange] = facts.inventory.filter(
-    (change) => change.file === "test/session.test.js",
-  );
+  const [testChange] = facts.inventory.filter((change) => change.file === "test/session.test.js");
   const result = {
     groups: [
       {
@@ -264,7 +259,7 @@ test("grouped rendering shows a multi-hunk file once per semantic group", (t) =>
   execFileSync(
     process.execPath,
     [
-      path.join(root, "scripts", "build-review.mjs"),
+      path.join(root, "dist", "runtime", "scripts", "build-review.mjs"),
       "--spec",
       specPath,
       "--out",
@@ -277,10 +272,7 @@ test("grouped rendering shows a multi-hunk file once per semantic group", (t) =>
     html.indexOf('data-order-view="grouped"'),
     html.indexOf('data-order-view="raw"'),
   );
-  assert.equal(
-    [...grouped.matchAll(/data-file="src\/session\.js"/g)].length,
-    2,
-  );
+  assert.equal([...grouped.matchAll(/data-file="src\/session\.js"/g)].length, 2);
   assert.match(grouped, /2 change units/);
   assert.match(grouped, /data-view-key="g1::src\/session\.js"/);
   assert.match(grouped, /data-view-key="g2::src\/session\.js"/);
@@ -288,12 +280,9 @@ test("grouped rendering shows a multi-hunk file once per semantic group", (t) =>
   assert.match(html, /function viewedId\(fileEl\)/);
   assert.match(html, /grouped \? "Items" : "Files"/);
   assert.match(html, /delete state\.viewed\[legacyId\]/);
-  assert.match(html, /filter\(candidate=>candidate\.dataset\.viewKey\)/);
+  assert.match(html, /filter\(\(candidate\)\s*=>\s*candidate\.dataset\.viewKey\)/);
   assert.doesNotMatch(html, /state\.viewed\[id\] \|\| state\.viewed\[legacyId\]/);
-  assert.doesNotMatch(
-    grouped,
-    /class="file collapsed"[^>]*data-file="src\/session\.js"/,
-  );
+  assert.doesNotMatch(grouped, /class="file collapsed"[^>]*data-file="src\/session\.js"/);
 });
 
 test("declared prerequisites determine suggested reading order", () => {

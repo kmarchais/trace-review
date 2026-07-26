@@ -1,5 +1,92 @@
+import type { ChangeGrouping } from "./change-groups.mjs";
+import type { PatchAnalysis } from "./preflight.mjs";
+
 export const ANALYSIS_INPUT_VERSION = 1;
-export const ANALYSIS_MODES = Object.freeze(["lm-analysis", "deep-audit"]);
+export const ANALYSIS_MODES = Object.freeze(["lm-analysis", "deep-audit"] as const);
+export type AnalysisMode = (typeof ANALYSIS_MODES)[number];
+export type AnalysisRiskLevel = "low" | "medium" | "high";
+export type FindingSeverity = "nit" | "suggestion" | "concern" | "question" | "praise" | "comment";
+export type ReviewVerdict = "approve" | "comment" | "request-changes";
+
+interface RepositoryContext {
+  nameWithOwner?: string;
+  owner?: string;
+  name?: string;
+  branch?: string;
+  headSha?: string;
+}
+
+interface PullRequestContext {
+  number?: number;
+  url?: string;
+  title?: string;
+  body?: string;
+  labels?: unknown[];
+  checks?: unknown[];
+  reviews?: unknown[];
+  comments?: unknown[];
+  reviewComments?: unknown[];
+}
+
+export interface ReviewContext {
+  source?: string;
+  repository?: RepositoryContext;
+  pullRequest?: PullRequestContext | null;
+  diff?: { path?: string; source?: string; bytes?: number };
+  preflight: PatchAnalysis;
+  changeGroups: ChangeGrouping;
+}
+
+export interface AnalysisOptions {
+  mode?: AnalysisMode;
+  explicitDeepAudit?: boolean;
+  diffPath?: string;
+}
+
+export interface AnalysisRisk {
+  level: AnalysisRiskLevel;
+  reasons: string[];
+}
+
+export interface AnalysisInput {
+  schemaVersion: 1;
+  mode: AnalysisMode;
+  risk: AnalysisRisk;
+  deepAuditAdmission?: "high-risk" | "explicit-request";
+  target: ReturnType<typeof compactTarget>;
+  diff: ReturnType<typeof diffReference>;
+  facts: {
+    preflight: PatchAnalysis;
+    changeGroups: ChangeGrouping;
+  };
+  findingContract: {
+    maxFindings: number;
+    required: string[];
+    guidance: string;
+  };
+}
+
+export interface AnalysisFinding {
+  file: string;
+  line: number | `o${number}`;
+  severity: FindingSeverity;
+  body: string;
+  confidence: number;
+  rationale: string;
+}
+
+export interface AnalysisResult {
+  verdict: ReviewVerdict;
+  global: string;
+  findings: AnalysisFinding[];
+}
+
+export interface AnalysisDiagnostic {
+  level: "error";
+  code: string;
+  path: string;
+  message: string;
+}
 const REQUIRED_FINDING_FIELDS = Object.freeze([
   "file",
   "line",
@@ -19,10 +106,25 @@ const FINDING_SEVERITIES = new Set([
 ]);
 const VERDICTS = new Set(["approve", "comment", "request-changes"]);
 
-function compactTarget(context) {
+function compactTarget(context: ReviewContext): {
+  repository: string;
+  branch: string;
+  headSha: string;
+  number: number | null;
+  url: string;
+  title: string;
+  description: string;
+  labels: unknown[];
+  checks: unknown[];
+  reviews: unknown[];
+  comments: unknown[];
+  reviewComments: unknown[];
+} {
   const pullRequest = context.pullRequest || {};
   return {
-    repository: context.repository?.nameWithOwner || "",
+    repository:
+      context.repository?.nameWithOwner ||
+      [context.repository?.owner, context.repository?.name].filter(Boolean).join("/"),
     branch: context.repository?.branch || "",
     headSha: context.repository?.headSha || "",
     number: pullRequest.number ?? null,
@@ -37,7 +139,10 @@ function compactTarget(context) {
   };
 }
 
-function diffReference(context, options) {
+function diffReference(
+  context: ReviewContext,
+  options: AnalysisOptions,
+): { path: string | undefined; source: string | undefined; bytes: number } {
   if (context.diff && typeof context.diff === "object") {
     return {
       path: options.diffPath || context.diff.path,
@@ -52,7 +157,9 @@ function diffReference(context, options) {
   };
 }
 
-function requireDeterministicFacts(context) {
+function requireDeterministicFacts(
+  context: Pick<ReviewContext, "preflight" | "changeGroups">,
+): void {
   const preflight = context?.preflight;
   if (
     !preflight ||
@@ -74,32 +181,35 @@ function requireDeterministicFacts(context) {
   }
 }
 
-export function assessAnalysisRisk(context) {
-  const reasons = [];
+export function assessAnalysisRisk(context: ReviewContext): AnalysisRisk {
+  const reasons: string[] = [];
   const groups = context.changeGroups?.groups || [];
   const files = context.preflight?.files || [];
   const totals = context.preflight?.totals || {};
   if (context.preflight?.patch?.valid === false) reasons.push("Patch validation failed.");
-  if (groups.some((group) => group.risk === "high")) reasons.push("At least one candidate group is high risk.");
+  if (groups.some((group) => group.risk === "high"))
+    reasons.push("At least one candidate group is high risk.");
   if (files.some((file) => file.binary)) reasons.push("The change includes binary content.");
   if (files.some((file) => file.generated)) reasons.push("The change includes generated content.");
   if ((totals.files || 0) > 100) reasons.push("The change touches more than 100 files.");
-  if ((totals.additions || 0) + (totals.deletions || 0) > 3000) reasons.push("The textual change exceeds 3,000 lines.");
+  if ((totals.additions || 0) + (totals.deletions || 0) > 3000)
+    reasons.push("The textual change exceeds 3,000 lines.");
   if (reasons.length) return { level: "high", reasons };
-  const medium = [];
-  if (groups.some((group) => group.risk === "medium")) medium.push("At least one candidate group is medium risk.");
+  const medium: string[] = [];
+  if (groups.some((group) => group.risk === "medium"))
+    medium.push("At least one candidate group is medium risk.");
   if ((totals.files || 0) > 30) medium.push("The change touches more than 30 files.");
   return { level: medium.length ? "medium" : "low", reasons: medium };
 }
 
-function findingBudget(context) {
-  return Math.min(
-    12,
-    Math.max(3, Math.ceil((context.changeGroups?.inventory?.length || 0) / 5)),
-  );
+function findingBudget(context: Pick<ReviewContext, "changeGroups">): number {
+  return Math.min(12, Math.max(3, Math.ceil((context.changeGroups?.inventory?.length || 0) / 5)));
 }
 
-export function prepareAnalysisInput(context, options = {}) {
+export function prepareAnalysisInput(
+  context: ReviewContext,
+  options: AnalysisOptions = {},
+): AnalysisInput {
   const mode = options.mode || "lm-analysis";
   if (!ANALYSIS_MODES.includes(mode)) {
     throw new Error(`Analysis mode must be one of: ${ANALYSIS_MODES.join(", ")}.`);
@@ -130,8 +240,8 @@ export function prepareAnalysisInput(context, options = {}) {
   };
 }
 
-function requireValidAnalysisInput(input) {
-  const problems = [];
+function requireValidAnalysisInput(input: AnalysisInput): void {
+  const problems: string[] = [];
   if (input?.schemaVersion !== ANALYSIS_INPUT_VERSION) {
     problems.push(`schemaVersion must be ${ANALYSIS_INPUT_VERSION}`);
   }
@@ -162,14 +272,18 @@ function requireValidAnalysisInput(input) {
   }
 }
 
-export function validateAnalysisResult(result, input) {
-  const diagnostics = [];
-  const add = (code, path, message) => diagnostics.push({
-    level: "error",
-    code,
-    path,
-    message,
-  });
+export function validateAnalysisResult(
+  result: AnalysisResult,
+  input: AnalysisInput,
+): { valid: boolean; diagnostics: AnalysisDiagnostic[] } {
+  const diagnostics: AnalysisDiagnostic[] = [];
+  const add = (code: string, path: string, message: string): number =>
+    diagnostics.push({
+      level: "error",
+      code,
+      path,
+      message,
+    });
   const findings = Array.isArray(result?.findings) ? result.findings : [];
   if (!VERDICTS.has(result?.verdict)) {
     add("invalid-verdict", "verdict", "Use approve, comment, or request-changes.");
@@ -203,14 +317,18 @@ export function validateAnalysisResult(result, input) {
       add("missing-finding-field", `${root}.file`, "A finding must identify a file.");
     }
     const validLine =
-      (Number.isInteger(finding?.line) && finding.line > 0) ||
+      (typeof finding?.line === "number" && Number.isInteger(finding.line) && finding.line > 0) ||
       (typeof finding?.line === "string" && /^o[1-9]\d*$/.test(finding.line));
     if (!validLine) {
-      add("invalid-line-anchor", `${root}.line`, "Use a positive new line or an old-line anchor such as 'o7'.");
+      add(
+        "invalid-line-anchor",
+        `${root}.line`,
+        "Use a positive new line or an old-line anchor such as 'o7'.",
+      );
     } else {
       const oldSide = typeof finding.line === "string";
-      const line = Number(oldSide ? finding.line.slice(1) : finding.line);
-      const rangeKey = oldSide ? "oldRange" : "newRange";
+      const line = typeof finding.line === "string" ? Number(finding.line.slice(1)) : finding.line;
+      const rangeKey: "oldRange" | "newRange" = oldSide ? "oldRange" : "newRange";
       const anchored = (input?.facts?.changeGroups?.inventory || []).some(
         (change) =>
           change.file === finding.file &&
@@ -233,23 +351,36 @@ export function validateAnalysisResult(result, input) {
     if (typeof finding?.body !== "string" || !finding.body.trim()) {
       add("missing-finding-field", `${root}.body`, "A finding must explain the actionable issue.");
     }
-    if (typeof finding?.confidence !== "number" || finding.confidence < 0 || finding.confidence > 1) {
-      add("invalid-confidence", `${root}.confidence`, "Finding confidence must be a number from 0 to 1.");
+    if (
+      typeof finding?.confidence !== "number" ||
+      finding.confidence < 0 ||
+      finding.confidence > 1
+    ) {
+      add(
+        "invalid-confidence",
+        `${root}.confidence`,
+        "Finding confidence must be a number from 0 to 1.",
+      );
     }
     if (typeof finding?.rationale !== "string" || !finding.rationale.trim()) {
-      add("missing-rationale", `${root}.rationale`, "A finding must include a brief, verifiable rationale.");
+      add(
+        "missing-rationale",
+        `${root}.rationale`,
+        "A finding must include a brief, verifiable rationale.",
+      );
     }
   });
   return { valid: diagnostics.length === 0, diagnostics };
 }
 
-export function analysisResultToReview(result, input) {
+export function analysisResultToReview(
+  result: AnalysisResult,
+  input: AnalysisInput,
+): { verdict: ReviewVerdict; global: string; comments: AnalysisFinding[] } {
   requireValidAnalysisInput(input);
   const validation = validateAnalysisResult(result, input);
   if (!validation.valid) {
-    const detail = validation.diagnostics
-      .map((item) => `${item.path}: ${item.message}`)
-      .join("; ");
+    const detail = validation.diagnostics.map((item) => `${item.path}: ${item.message}`).join("; ");
     throw new Error(`Invalid LM analysis result: ${detail}`);
   }
   return {

@@ -1,5 +1,89 @@
 import path from "node:path";
 import { decodeGitPath, parseDiffPaths } from "./preflight.mjs";
+import type { PatchAnalysis, PreflightFile } from "./preflight.mjs";
+
+export interface LineRange {
+  start: number;
+  end: number;
+  count: number;
+}
+
+export interface PatchChange {
+  id: string;
+  file: string;
+  oldFile: string;
+  hunk: number | null;
+  header: string;
+  oldRange: LineRange | null;
+  newRange: LineRange | null;
+  added: string[];
+  deleted: string[];
+  binary: boolean;
+  generated: boolean;
+  fileType: string;
+  renamed: boolean;
+}
+
+export type ChangeGroupKind =
+  "mechanical" | "refactor" | "feature" | "fix" | "test" | "docs" | "other";
+export type ChangeRisk = "low" | "medium" | "high";
+
+export interface GroupedChange {
+  id: string;
+  file: string;
+  hunk: number | null;
+  oldRange: LineRange | null;
+  newRange: LineRange | null;
+  label: string;
+  topic: string;
+  definitions: string[];
+}
+
+export interface ChangeGroup {
+  id: string;
+  title: string;
+  kind: ChangeGroupKind;
+  intent: string;
+  evidence: string[];
+  risk: ChangeRisk;
+  confidence: number;
+  reviewerChecks: string[];
+  changes: GroupedChange[];
+}
+
+export interface DependencyGraph {
+  nodes: Array<{
+    id: string;
+    definitions: string[];
+    role: string;
+  }>;
+  edges: Array<{ from: string; to: string; reason: string; evidence: string }>;
+  suggestedOrder: string[];
+}
+
+export interface GroupingDiagnostic {
+  level: "error";
+  code: string;
+  message: string;
+  group?: string;
+  change?: string;
+  groups?: string[];
+}
+
+export interface GroupingValidation {
+  valid: boolean;
+  diagnostics: GroupingDiagnostic[];
+}
+
+export interface ChangeGrouping {
+  schemaVersion: 1;
+  groups: ChangeGroup[];
+  dependencyGraph: DependencyGraph;
+  inventory: Array<Pick<PatchChange, "id" | "file" | "hunk" | "oldRange" | "newRange">>;
+  validation: GroupingValidation;
+}
+
+type PreflightLike = Pick<PatchAnalysis, "files"> | { files?: PreflightFile[] };
 
 const LOCKFILES = new Set([
   "package-lock.json",
@@ -12,15 +96,17 @@ const LOCKFILES = new Set([
   "gemfile.lock",
 ]);
 
-const CONFIG_RE = /(^|\/)(cmakelists\.txt|makefile|dockerfile|[^/]+\.(cmake|ya?ml|toml|json|ini|cfg))$/i;
+const CONFIG_RE =
+  /(^|\/)(cmakelists\.txt|makefile|dockerfile|[^/]+\.(cmake|ya?ml|toml|json|ini|cfg))$/i;
 const TEST_RE = /(^|\/)(__tests__|tests?|specs?)(\/|$)|\.(test|spec)\.[^.]+$/i;
-const IMPORT_RE = /^\s*(#\s*include\b|import\b|export\s+.+\s+from\b|from\s+\S+\s+import\b|require\s*\(|using\s+[\w:]+|use\s+[\w:]+|mod\s+\w+)/;
+const IMPORT_RE =
+  /^\s*(#\s*include\b|import\b|export\s+.+\s+from\b|from\s+\S+\s+import\b|require\s*\(|using\s+[\w:]+|use\s+[\w:]+|mod\s+\w+)/;
 
-function normalizePath(value) {
+function normalizePath(value: string | null | undefined): string {
   return String(value || "").replaceAll("\\", "/");
 }
 
-function parseRange(start, count) {
+function parseRange(start: string, count: string | undefined): LineRange {
   const length = count === undefined ? 1 : Number(count);
   return {
     start: Number(start),
@@ -29,17 +115,21 @@ function parseRange(start, count) {
   };
 }
 
-function changeKey(change) {
+function changeKey(change: Pick<PatchChange, "file" | "hunk">): string {
   return `${change.file}\u0000${change.hunk ?? "meta"}`;
 }
 
-export function parsePatchChanges(text, preflight = {}) {
-  const filesByPath = new Map((preflight.files || []).map((file) => [normalizePath(file.path), file]));
-  const changes = [];
-  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
-  let file = null;
-  let oldPath = null;
-  let hunk = null;
+export function parsePatchChanges(text: string, preflight: PreflightLike = {}): PatchChange[] {
+  const filesByPath = new Map(
+    (preflight.files || []).map((file) => [normalizePath(file.path), file]),
+  );
+  const changes: PatchChange[] = [];
+  const lines = String(text || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  let file: string | null = null;
+  let oldPath: string | null = null;
+  let hunk: PatchChange | null = null;
   let hunkIndex = -1;
   let binary = false;
   let renamed = false;
@@ -52,7 +142,7 @@ export function parsePatchChanges(text, preflight = {}) {
   const pushMetadata = () => {
     pushHunk();
     if (!file || changes.some((change) => change.file === file)) return;
-    const facts = filesByPath.get(file) || {};
+    const facts = filesByPath.get(file);
     changes.push({
       id: `${file}#meta`,
       file,
@@ -63,9 +153,9 @@ export function parsePatchChanges(text, preflight = {}) {
       newRange: null,
       added: [],
       deleted: [],
-      binary: binary || !!facts.binary,
-      generated: !!facts.generated,
-      fileType: facts.type || "other",
+      binary: binary || Boolean(facts?.binary),
+      generated: Boolean(facts?.generated),
+      fileType: facts?.type ?? "other",
       renamed,
     });
   };
@@ -100,7 +190,7 @@ export function parsePatchChanges(text, preflight = {}) {
     if ((match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(line))) {
       pushHunk();
       hunkIndex++;
-      const facts = filesByPath.get(file) || {};
+      const facts = filesByPath.get(file);
       hunk = {
         id: `${file}#h${hunkIndex}`,
         file,
@@ -112,8 +202,8 @@ export function parsePatchChanges(text, preflight = {}) {
         added: [],
         deleted: [],
         binary: false,
-        generated: !!facts.generated,
-        fileType: facts.type || "other",
+        generated: Boolean(facts?.generated),
+        fileType: facts?.type ?? "other",
         renamed,
       };
       continue;
@@ -126,56 +216,68 @@ export function parsePatchChanges(text, preflight = {}) {
   return changes;
 }
 
-function isLockfile(file) {
+function isLockfile(file: string): boolean {
   return LOCKFILES.has(path.posix.basename(file).toLowerCase());
 }
 
-function isFormatting(change) {
+function isFormatting(change: PatchChange): boolean {
   if (!change.added.length || !change.deleted.length) return false;
-  const visibleLines = (lines) =>
+  const visibleLines = (lines: readonly string[]): string[] =>
     lines.map((line) => line.trimStart()).filter((line) => line.trim());
   const added = visibleLines(change.added);
   const deleted = visibleLines(change.deleted);
-  return (
-    added.length === deleted.length &&
-    added.every((line, index) => line === deleted[index])
-  );
+  return added.length === deleted.length && added.every((line, index) => line === deleted[index]);
 }
 
-function changedLines(change) {
+function changedLines(change: PatchChange): string[] {
   return [...change.added, ...change.deleted].filter((line) => line.trim());
 }
 
-function isImportOnly(change) {
+function isImportOnly(change: PatchChange): boolean {
   const lines = changedLines(change);
   return lines.length > 0 && lines.every((line) => IMPORT_RE.test(line));
 }
 
-function includeSignatures(change) {
-  return [...new Set(change.added.map((line) => line.trim()).filter((line) => /^#\s*include\b/.test(line)))];
+function includeSignatures(change: PatchChange): string[] {
+  return [
+    ...new Set(
+      change.added.map((line) => line.trim()).filter((line) => /^#\s*include\b/.test(line)),
+    ),
+  ];
 }
 
-function rangeLabel(change) {
+function rangeLabel(change: PatchChange): string {
   if (!change.newRange) return "metadata";
   return `new lines ${change.newRange.start}-${change.newRange.end}`;
 }
 
-function topicOf(change) {
+function topicOf(change: PatchChange): string {
   if (change.header) return change.header;
-  const candidate = [...change.added, ...change.deleted]
-    .map((line) => line.trim())
-    .find(Boolean);
+  const candidate = [...change.added, ...change.deleted].map((line) => line.trim()).find(Boolean);
   if (!candidate) return change.hunk === null ? "File metadata" : "Changed lines";
   return candidate.length > 88 ? `${candidate.slice(0, 85)}…` : candidate;
 }
 
-function groupFacts(group) {
+function groupFacts(group: { changes: PatchChange[] }): { files: string[]; lines: number } {
   const files = [...new Set(group.changes.map((change) => change.file))];
-  const lines = group.changes.reduce((sum, change) => sum + change.added.length + change.deleted.length, 0);
+  const lines = group.changes.reduce(
+    (sum, change) => sum + change.added.length + change.deleted.length,
+    0,
+  );
   return { files, lines };
 }
 
-function makeGroup(id, title, kind, intent, risk, confidence, reviewerChecks, changes, evidence = []) {
+function makeGroup(
+  id: string,
+  title: string,
+  kind: ChangeGroupKind,
+  intent: string,
+  risk: ChangeRisk,
+  confidence: number,
+  reviewerChecks: string[],
+  changes: PatchChange[],
+  evidence: string[] = [],
+): ChangeGroup {
   const facts = groupFacts({ changes });
   return {
     id,
@@ -202,8 +304,8 @@ function makeGroup(id, title, kind, intent, risk, confidence, reviewerChecks, ch
   };
 }
 
-export function extractDefinedSymbols(lines) {
-  const definitions = new Set();
+export function extractDefinedSymbols(lines: readonly string[]): string[] {
+  const definitions = new Set<string>();
   for (const line of lines) {
     const patterns = [
       /\b(?:class|interface|enum|struct|def|function)\s+([A-Za-z_$][\w$]*)/,
@@ -218,14 +320,22 @@ export function extractDefinedSymbols(lines) {
   return [...definitions];
 }
 
-function extractDefinitions(change) {
+function extractDefinitions(change: PatchChange): string[] {
   return extractDefinedSymbols(change.added);
 }
 
-function buildDependencyGraph(groups, changesById) {
-  const nodeFacts = new Map();
+function buildDependencyGraph(
+  groups: ChangeGroup[],
+  changesById: ReadonlyMap<string, PatchChange>,
+): DependencyGraph {
+  const nodeFacts = new Map<
+    string,
+    { definitions: string[]; text: string; config: boolean; test: boolean }
+  >();
   for (const group of groups) {
-    const changes = group.changes.map((change) => changesById.get(change.id)).filter(Boolean);
+    const changes = group.changes
+      .map((change) => changesById.get(change.id))
+      .filter((change): change is PatchChange => change !== undefined);
     const test = changes.every((change) => TEST_RE.test(change.file));
     nodeFacts.set(group.id, {
       // Test helpers are implementation details of verification, not concepts
@@ -237,9 +347,9 @@ function buildDependencyGraph(groups, changesById) {
     });
   }
 
-  const edges = [];
-  const seen = new Set();
-  const addEdge = (from, to, reason, evidence) => {
+  const edges: DependencyGraph["edges"] = [];
+  const seen = new Set<string>();
+  const addEdge = (from: string, to: string, reason: string, evidence: string): void => {
     if (from === to) return;
     const key = `${from}\u0000${to}\u0000${reason}`;
     if (seen.has(key)) return;
@@ -255,15 +365,31 @@ function buildDependencyGraph(groups, changesById) {
       }
     }
   }
-  const substantive = groups.filter((group) => !nodeFacts.get(group.id).config && !nodeFacts.get(group.id).test);
+  const factsFor = (
+    groupId: string,
+  ): { definitions: string[]; text: string; config: boolean; test: boolean } => {
+    const facts = nodeFacts.get(groupId);
+    if (!facts) throw new Error(`Missing dependency facts for '${groupId}'.`);
+    return facts;
+  };
+  const substantive = groups.filter((group) => {
+    const facts = factsFor(group.id);
+    return !facts.config && !facts.test;
+  });
   for (const group of groups) {
-    const facts = nodeFacts.get(group.id);
-    if (facts.config) substantive.forEach((target) => addEdge(target.id, group.id, "related-configuration", "Configuration/build integration"));
-    if (facts.test) substantive.forEach((target) => addEdge(target.id, group.id, "associated-tests", "Verification follows implementation"));
+    const facts = factsFor(group.id);
+    if (facts.config)
+      substantive.forEach((target) =>
+        addEdge(target.id, group.id, "related-configuration", "Configuration/build integration"),
+      );
+    if (facts.test)
+      substantive.forEach((target) =>
+        addEdge(target.id, group.id, "associated-tests", "Verification follows implementation"),
+      );
   }
 
-  const weight = (group) => {
-    const facts = nodeFacts.get(group.id);
+  const weight = (group: ChangeGroup): number => {
+    const facts = factsFor(group.id);
     if (facts.test) return 4;
     if (facts.config) return 3;
     if (facts.definitions.length) return 0;
@@ -272,25 +398,43 @@ function buildDependencyGraph(groups, changesById) {
   };
   const suggestedOrder = groups
     .slice()
-    .sort((a, b) => weight(a) - weight(b) || b.confidence - a.confidence || a.title.localeCompare(b.title))
+    .sort(
+      (a, b) =>
+        weight(a) - weight(b) || b.confidence - a.confidence || a.title.localeCompare(b.title),
+    )
     .map((group) => group.id);
   return {
     nodes: groups.map((group) => ({
       id: group.id,
-      definitions: nodeFacts.get(group.id).definitions,
-      role: nodeFacts.get(group.id).test ? "tests" : nodeFacts.get(group.id).config ? "integration" : nodeFacts.get(group.id).definitions.length ? "definition" : "consumer",
+      definitions: factsFor(group.id).definitions,
+      role: factsFor(group.id).test
+        ? "tests"
+        : factsFor(group.id).config
+          ? "integration"
+          : factsFor(group.id).definitions.length
+            ? "definition"
+            : "consumer",
     })),
     edges,
     suggestedOrder,
   };
 }
 
-export function validateGrouping(grouping, inventory = []) {
-  const diagnostics = [];
+export function validateGrouping(
+  grouping: Pick<ChangeGrouping, "groups">,
+  inventory: Array<Pick<PatchChange, "file" | "hunk">> = [],
+): GroupingValidation {
+  const diagnostics: GroupingDiagnostic[] = [];
   const expected = new Set(inventory.map(changeKey));
-  const assigned = new Map();
+  const assigned = new Map<string, string>();
   for (const group of grouping.groups || []) {
-    if (!group.intent || !group.evidence?.length || !group.risk || typeof group.confidence !== "number" || !group.reviewerChecks?.length) {
+    if (
+      !group.intent ||
+      !group.evidence?.length ||
+      !group.risk ||
+      typeof group.confidence !== "number" ||
+      !group.reviewerChecks?.length
+    ) {
       diagnostics.push({
         level: "error",
         code: "incomplete-group-rationale",
@@ -300,13 +444,14 @@ export function validateGrouping(grouping, inventory = []) {
     }
     for (const change of group.changes || []) {
       const key = changeKey(change);
-      if (assigned.has(key)) {
+      const previousGroup = assigned.get(key);
+      if (previousGroup !== undefined) {
         diagnostics.push({
           level: "error",
           code: "overlapping-change",
           change: change.id,
-          groups: [assigned.get(key), group.id],
-          message: `Change '${change.id}' is assigned to both '${assigned.get(key)}' and '${group.id}'.`,
+          groups: [previousGroup, group.id],
+          message: `Change '${change.id}' is assigned to both '${previousGroup}' and '${group.id}'.`,
         });
       } else {
         assigned.set(key, group.id);
@@ -336,29 +481,41 @@ export function validateGrouping(grouping, inventory = []) {
   return { valid: diagnostics.length === 0, diagnostics };
 }
 
-export function detectChangeGroups(text, preflight = {}) {
+export function detectChangeGroups(text: string, preflight: PreflightLike = {}): ChangeGrouping {
   const inventory = parsePatchChanges(text, preflight);
   const remaining = new Map(inventory.map((change) => [change.id, change]));
-  const groups = [];
+  const groups: ChangeGroup[] = [];
   let serial = 0;
-  const take = (predicate) => {
+  const take = (predicate: (change: PatchChange) => boolean): PatchChange[] => {
     const found = [...remaining.values()].filter(predicate);
     found.forEach((change) => remaining.delete(change.id));
     return found;
   };
-  const add = (title, kind, intent, risk, confidence, checks, changes, evidence) => {
+  const add = (
+    title: string,
+    kind: ChangeGroupKind,
+    intent: string,
+    risk: ChangeRisk,
+    confidence: number,
+    checks: string[],
+    changes: PatchChange[],
+    evidence: string[],
+  ): void => {
     if (!changes.length) return;
-    groups.push(makeGroup(`g${++serial}`, title, kind, intent, risk, confidence, checks, changes, evidence));
+    groups.push(
+      makeGroup(`g${++serial}`, title, kind, intent, risk, confidence, checks, changes, evidence),
+    );
   };
 
-  const repeated = new Map();
+  const repeated = new Map<string, PatchChange[]>();
   for (const change of inventory) {
     // A repeated include only makes the whole hunk mechanical when every
     // changed line is import-like. Mixed hunks stay substantive and visible.
     if (!isImportOnly(change)) continue;
     for (const signature of includeSignatures(change)) {
-      if (!repeated.has(signature)) repeated.set(signature, []);
-      repeated.get(signature).push(change);
+      const matches = repeated.get(signature) ?? [];
+      matches.push(change);
+      repeated.set(signature, matches);
     }
   }
   for (const [signature, candidates] of repeated) {
@@ -371,7 +528,10 @@ export function detectChangeGroups(text, preflight = {}) {
       "Apply the same dependency include wherever the changed code needs it.",
       "low",
       0.98,
-      ["Confirm every changed unit needs the include.", "Check that no include introduces an ordering or platform dependency."],
+      [
+        "Confirm every changed unit needs the include.",
+        "Check that no include introduces an ordering or platform dependency.",
+      ],
       unique,
       [`The exact added line '${signature}' repeats in ${unique.length} change units.`],
     );
@@ -393,7 +553,10 @@ export function detectChangeGroups(text, preflight = {}) {
     "Refresh resolved dependency state.",
     "medium",
     0.99,
-    ["Confirm the lockfile was produced by the expected package manager.", "Compare dependency version changes with the manifest."],
+    [
+      "Confirm the lockfile was produced by the expected package manager.",
+      "Compare dependency version changes with the manifest.",
+    ],
     take((change) => isLockfile(change.file)),
     ["The path matches a known dependency lockfile."],
   );
@@ -423,7 +586,10 @@ export function detectChangeGroups(text, preflight = {}) {
     "Inspect changes whose content cannot be classified safely.",
     "high",
     1,
-    ["Review the underlying artifact or generation source.", "Decide whether the change is in scope."],
+    [
+      "Review the underlying artifact or generation source.",
+      "Decide whether the change is in scope.",
+    ],
     take((change) => change.binary || change.generated),
     ["Binary or generated content is intentionally never hidden inside a mechanical group."],
   );
@@ -434,7 +600,12 @@ export function detectChangeGroups(text, preflight = {}) {
     "medium",
     0.82,
     ["Read these definitions before their usages.", "Check public contracts and compatibility."],
-    take((change) => extractDefinitions(change).length > 0 && !TEST_RE.test(change.file) && !CONFIG_RE.test(change.file)),
+    take(
+      (change) =>
+        extractDefinitions(change).length > 0 &&
+        !TEST_RE.test(change.file) &&
+        !CONFIG_RE.test(change.file),
+    ),
     ["Added lines contain a deterministic class, function, type, or variable definition pattern."],
   );
   add(
@@ -453,7 +624,10 @@ export function detectChangeGroups(text, preflight = {}) {
     "Connect the implementation to configuration, packaging, or build behavior.",
     "medium",
     0.9,
-    ["Confirm platform and environment variants.", "Check that names and paths match the implementation."],
+    [
+      "Confirm platform and environment variants.",
+      "Check that names and paths match the implementation.",
+    ],
     take((change) => CONFIG_RE.test(change.file)),
     ["The changed path matches a configuration or build-file convention."],
   );
@@ -463,7 +637,10 @@ export function detectChangeGroups(text, preflight = {}) {
     "Verify the behavior introduced by the implementation groups.",
     "low",
     0.95,
-    ["Check that assertions would fail without the implementation.", "Look for uncovered edge and failure cases."],
+    [
+      "Check that assertions would fail without the implementation.",
+      "Look for uncovered edge and failure cases.",
+    ],
     take((change) => TEST_RE.test(change.file)),
     ["The changed path matches a test directory or test/spec filename convention."],
   );
@@ -480,7 +657,7 @@ export function detectChangeGroups(text, preflight = {}) {
 
   const changesById = new Map(inventory.map((change) => [change.id, change]));
   const dependencyGraph = buildDependencyGraph(groups, changesById);
-  const result = {
+  const result: ChangeGrouping = {
     schemaVersion: 1,
     groups,
     dependencyGraph,
@@ -491,6 +668,7 @@ export function detectChangeGroups(text, preflight = {}) {
       oldRange: change.oldRange,
       newRange: change.newRange,
     })),
+    validation: { valid: false, diagnostics: [] },
   };
   result.validation = validateGrouping(result, inventory);
   return result;

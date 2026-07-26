@@ -3,8 +3,23 @@
 import fs from "node:fs";
 import path from "node:path";
 import { prepareAnalysisInput } from "./lib/lm-analysis.mjs";
+import type { AnalysisMode, ReviewContext } from "./lib/lm-analysis.mjs";
+import { ANALYSIS_MODES } from "./lib/lm-analysis.mjs";
+import { errorMessage, parseJson } from "./lib/cli.mjs";
 
-function usage(message) {
+interface Args {
+  context?: string;
+  mode: AnalysisMode;
+  out?: string;
+  explicit: boolean;
+  help?: boolean;
+}
+
+type PersistedContext = ReviewContext & {
+  validation?: { valid: boolean };
+};
+
+function usage(message?: string): never {
   if (message) console.error(`Error: ${message}`);
   console.error(`Usage:
   node prepare-lm-analysis.mjs --context <context.json>
@@ -17,13 +32,18 @@ Options:
   process.exit(message ? 1 : 0);
 }
 
-function parseArgs(argv) {
-  const args = { mode: "lm-analysis", explicit: false };
+function parseArgs(argv: readonly string[]): Args {
+  const args: Args = { mode: "lm-analysis", explicit: false };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--context") args.context = argv[++index];
-    else if (arg === "--mode") args.mode = argv[++index];
-    else if (arg === "--out") args.out = argv[++index];
+    else if (arg === "--mode") {
+      const mode = argv[++index];
+      if (!ANALYSIS_MODES.includes(mode as AnalysisMode)) {
+        usage(`--mode must be one of: ${ANALYSIS_MODES.join(", ")}`);
+      }
+      args.mode = mode as AnalysisMode;
+    } else if (arg === "--out") args.out = argv[++index];
     else if (arg === "--explicit") args.explicit = true;
     else if (arg === "--help" || arg === "-h") args.help = true;
     else usage(`Unknown option: ${arg}`);
@@ -39,7 +59,7 @@ if (process.argv.includes("--out") && !args.out) usage("--out requires a value")
 
 try {
   const contextPath = path.resolve(args.context);
-  const context = JSON.parse(fs.readFileSync(contextPath, "utf8"));
+  const context = parseJson(fs.readFileSync(contextPath, "utf8")) as PersistedContext;
   if (context.validation?.valid === false) {
     throw new Error("The collected context is invalid; fix its diagnostics before analysis.");
   }
@@ -63,7 +83,7 @@ try {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(input, null, 2)}\n`, "utf8");
   console.log(`Wrote ${outputPath}`);
-} catch (error) {
-  console.error(`Error: ${error.message}`);
+} catch (error: unknown) {
+  console.error(`Error: ${errorMessage(error)}`);
   process.exit(1);
 }

@@ -74,10 +74,7 @@ test("detects hunk-level groups with rationale, dependencies, and full coverage"
 
   assert.equal(grouping.schemaVersion, 1);
   assert.equal(grouping.validation.valid, true);
-  assert.equal(
-    grouping.groups.flatMap((group) => group.changes).length,
-    grouping.inventory.length,
-  );
+  assert.equal(grouping.groups.flatMap((group) => group.changes).length, grouping.inventory.length);
   const includes = grouping.groups.find((group) => group.title.startsWith("Repeat #include"));
   assert.equal(includes.changes.length, 2);
   assert.ok(!includes.changes.some((change) => change.file === "src/mixed.cpp"));
@@ -86,16 +83,8 @@ test("detects hunk-level groups with rationale, dependencies, and full coverage"
   assert.ok(includes.reviewerChecks.length);
   assert.ok(grouping.groups.some((group) => group.title === "Definitions"));
   assert.ok(grouping.groups.some((group) => group.title === "Associated tests"));
-  assert.ok(
-    grouping.dependencyGraph.edges.some(
-      (edge) => edge.reason === "definition-usage",
-    ),
-  );
-  assert.ok(
-    grouping.dependencyGraph.edges.some(
-      (edge) => edge.reason === "associated-tests",
-    ),
-  );
+  assert.ok(grouping.dependencyGraph.edges.some((edge) => edge.reason === "definition-usage"));
+  assert.ok(grouping.dependencyGraph.edges.some((edge) => edge.reason === "associated-tests"));
   assert.equal(
     grouping.dependencyGraph.suggestedOrder.at(-1),
     grouping.groups.find((group) => group.title === "Associated tests").id,
@@ -110,16 +99,8 @@ test("rejects overlapping and missing assignments instead of hiding them", () =>
 
   const validation = validateGrouping(grouping, inventory);
   assert.equal(validation.valid, false);
-  assert.ok(
-    validation.diagnostics.some(
-      (diagnostic) => diagnostic.code === "overlapping-change",
-    ),
-  );
-  assert.ok(
-    validation.diagnostics.some(
-      (diagnostic) => diagnostic.code === "unclassified-change",
-    ),
-  );
+  assert.ok(validation.diagnostics.some((diagnostic) => diagnostic.code === "overlapping-change"));
+  assert.ok(validation.diagnostics.some((diagnostic) => diagnostic.code === "unclassified-change"));
 });
 
 test("quoted paths remain visible and formatting detection preserves string whitespace", () => {
@@ -140,24 +121,15 @@ index 1111111..2222222 100644
 -const message = "a b";
 +const message = "ab";
 `;
-  const semantic = detectChangeGroups(
-    semanticWhitespace,
-    analyzePatch(semanticWhitespace),
-  );
-  assert.ok(
-    !semantic.groups.some((group) => group.title === "Formatting-only changes"),
-  );
+  const semantic = detectChangeGroups(semanticWhitespace, analyzePatch(semanticWhitespace));
+  assert.ok(!semantic.groups.some((group) => group.title === "Formatting-only changes"));
 
   const indentationOnly = semanticWhitespace
     .replace('const message = "a b";', '  const message = "a b";')
     .replace('const message = "ab";', '\tconst message = "a b";');
-  const formatting = detectChangeGroups(
-    indentationOnly,
-    analyzePatch(indentationOnly),
-  );
+  const formatting = detectChangeGroups(indentationOnly, analyzePatch(indentationOnly));
   assert.equal(
-    formatting.groups.find((group) => group.title === "Formatting-only changes")
-      .changes.length,
+    formatting.groups.find((group) => group.title === "Formatting-only changes").changes.length,
     1,
   );
 });
@@ -186,7 +158,7 @@ test("CLI writes a validated group fact pack", (t) => {
   execFileSync(
     process.execPath,
     [
-      path.join(root, "scripts", "detect-mechanical-groups.mjs"),
+      path.join(root, "dist", "runtime", "scripts", "detect-mechanical-groups.mjs"),
       "--diff",
       diffPath,
       "--out",
@@ -198,11 +170,7 @@ test("CLI writes a validated group fact pack", (t) => {
   const result = JSON.parse(fs.readFileSync(outPath, "utf8"));
   assert.equal(result.validation.valid, true);
   assert.ok(result.dependencyGraph.suggestedOrder.length > 0);
-  assert.ok(
-    result.groups
-      .flatMap((group) => group.changes)
-      .every((change) => change.topic),
-  );
+  assert.ok(result.groups.flatMap((group) => group.changes).every((change) => change.topic));
 });
 
 test("builder consumes group files as reviewer-visible, read-only decisions", (t) => {
@@ -213,10 +181,7 @@ test("builder consumes group files as reviewer-visible, read-only decisions", (t
   const specPath = path.join(tempDir, "spec.json");
   const outPath = path.join(tempDir, "review.html");
   fs.writeFileSync(diffPath, patch);
-  fs.writeFileSync(
-    groupPath,
-    JSON.stringify(detectChangeGroups(patch, analyzePatch(patch))),
-  );
+  fs.writeFileSync(groupPath, JSON.stringify(detectChangeGroups(patch, analyzePatch(patch))));
   fs.writeFileSync(
     specPath,
     JSON.stringify({
@@ -236,7 +201,7 @@ test("builder consumes group files as reviewer-visible, read-only decisions", (t
   execFileSync(
     process.execPath,
     [
-      path.join(root, "scripts", "build-review.mjs"),
+      path.join(root, "dist", "runtime", "scripts", "build-review.mjs"),
       "--spec",
       specPath,
       "--out",
@@ -299,16 +264,25 @@ index 1111111..2222222 100644
 +}
 `;
   fs.writeFileSync(diffPath, consumerFirst);
-  fs.writeFileSync(specPath, JSON.stringify({
-    schemaVersion: 1,
-    mode: "workspace",
-    title: "Consumer-first definition preview",
-    prs: [{ title: "Preview", diffFile: "consumer-first.patch", autoGroups: true }],
-  }));
+  fs.writeFileSync(
+    specPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      title: "Consumer-first definition preview",
+      prs: [{ title: "Preview", diffFile: "consumer-first.patch", autoGroups: true }],
+    }),
+  );
 
   execFileSync(
     process.execPath,
-    [path.join(root, "scripts", "build-review.mjs"), "--spec", specPath, "--out", outPath],
+    [
+      path.join(root, "dist", "runtime", "scripts", "build-review.mjs"),
+      "--spec",
+      specPath,
+      "--out",
+      outPath,
+    ],
     { cwd: root },
   );
 
@@ -334,9 +308,5 @@ test("review-spec validation accepts one Phase 2 group source and rejects ambigu
   ambiguous.prs[0].changeGroups = { schemaVersion: 1, groups: [] };
   const result = validateReviewSpec(ambiguous, { checkFiles: false });
   assert.equal(result.valid, false);
-  assert.ok(
-    result.diagnostics.some(
-      (diagnostic) => diagnostic.code === "multiple-group-sources",
-    ),
-  );
+  assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === "multiple-group-sources"));
 });
