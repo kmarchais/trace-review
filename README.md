@@ -60,19 +60,31 @@ Use `--metrics-out .review/metrics.json` to estimate spec tokens and avoided pat
 
 ## Install
 
-Requires Node 18+, Git, and optionally GitHub CLI for pull-request context.
+Requires Node 22+, Git, and optionally GitHub CLI for pull-request context.
 
-Download
-[`trace-review-skill.zip`](https://github.com/kmarchais/trace-review/releases/latest/download/trace-review-skill.zip)
-and extract it directly into one of these skill directories:
+Install globally and choose any detected coding agent:
 
 ```bash
-# Codex:       ~/.codex/skills/
-# Claude Code: ~/.claude/skills/
+npx skills add kmarchais/trace-review --skill trace-review --global
 ```
 
-The archive creates the `trace-review/` directory and contains only runtime scripts, the template,
-schema, operational references, and a compact example.
+For a non-interactive Codex installation:
+
+```bash
+npx skills add kmarchais/trace-review --skill trace-review --global --agent codex --yes
+```
+
+GitHub CLI provides an equivalent installer:
+
+```bash
+gh skill install kmarchais/trace-review skills/trace-review/SKILL.md --scope user --agent codex
+```
+
+Both installers select the correct project or user directory for the requested agent. As a manual
+fallback, download
+[`trace-review-skill.zip`](https://github.com/kmarchais/trace-review/releases/latest/download/trace-review-skill.zip)
+and extract it into your agent's skills directory. Every installation contains only compiled
+runtime scripts, the template, schema, operational references, license, and a compact example.
 
 ## Use
 
@@ -81,16 +93,21 @@ schema, operational references, and a compact example.
 - Ask for a **deep audit** when broader high-risk analysis is warranted.
 - Or ask your agent to review a branch or pull request with Trace Review.
 
-See [SKILL.md](SKILL.md) for the workflow, [REVIEW-SPEC.md](REVIEW-SPEC.md) for the schema, and
+See the installable [SKILL.md](skills/trace-review/SKILL.md) for the workflow,
+[REVIEW-SPEC.md](REVIEW-SPEC.md) for the schema, and
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for operational boundaries.
 
 ## Develop
 
 The repository uses strict TypeScript, Bun, ESLint, and Prettier. The release bundle contains
-compiled, Node 18-compatible JavaScript, so installing the skill does not require Bun.
+compiled, Node 22-compatible JavaScript, so installing the skill does not require Bun.
 
 ```bash
 bun install
+bun run sync:skill
 bun run check
 bun run bundle:skill
 ```
+
+`skills/trace-review/` is the checked-in, cross-agent installation source. `bun run check` rejects
+it when it no longer matches the authored files or compiled runtime.

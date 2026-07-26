@@ -19,7 +19,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: 18
+          node-version: 22
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -29,11 +29,23 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Verify the release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: bun run check:release-tag -- "$RELEASE_TAG"
+
       - name: Validate the repository
         run: bun run check
 
       - name: Build the minimal skill archive
         run: bun run bundle:skill
+
+      - name: Verify the standard installable skill
+        run: |
+          install_dir="$(mktemp -d)"
+          gh skill install . trace-review --from-local --dir "$install_dir"
+          node "$install_dir/trace-review/scripts/validate-review-spec.mjs" \
+            --spec "$install_dir/trace-review/examples/review-spec.json"
 
       - name: Attach the archive to the release
         env:

@@ -8,6 +8,7 @@ and a person completes the interface checks below.
 Run from the repository root:
 
 ```bash
+bun run check:release-tag -- v0.1.0
 bun run check
 bun run bundle:skill
 bun run validate:example
@@ -21,7 +22,10 @@ bun run review -- \
 
 Required results:
 
+- the release tag matches the version in `package.json`;
 - the complete test suite passes;
+- the checked-in `skills/trace-review/` tree matches its source and compiled
+  runtime;
 - `dist/trace-review-skill.zip` builds and its isolated smoke test passes;
 - the general example and C++ reference spec pass schema validation;
 - malicious-content, comment-orphan, grouping, and LM finding tests remain
@@ -52,11 +56,23 @@ narrow viewport sizes:
 Record the browser versions, operating system, reviewer, date, and any accepted
 exceptions in the release PR.
 
+Use [releases/v0.1.0.md](releases/v0.1.0.md) as the initial release body and
+record the manual-review evidence beneath its validation section.
+
 ## Distribution check
 
-Publish the release, confirm that `trace-review-skill.zip` is attached, and
-extract it into a clean skills directory. Run one workspace review plus one
-LM-analysis review in a disposable repository. Confirm that the documented
-Node, Git, and optional GitHub CLI requirements are sufficient and that no
-repository contents are written outside `.review/` unless the user chooses
-another output path.
+Before publishing, install the checked-in distribution into a temporary
+directory:
+
+```bash
+gh skill install . trace-review --from-local --dir <temporary-directory>
+```
+
+Confirm that only the release files are copied and run the installed example
+validator with Node 22. Then publish the release, confirm that
+`trace-review-skill.zip` is attached, and install the tagged remote skill with
+both documented installers. Run one workspace review plus one LM-analysis
+review in a disposable repository. Confirm that the documented Node, Git, and
+optional GitHub CLI requirements are sufficient and that no repository
+contents are written outside `.review/` unless the user chooses another output
+path.

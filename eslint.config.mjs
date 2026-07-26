@@ -8,6 +8,7 @@ export default tseslint.config(
       "node_modules/**",
       ".review/**",
       "docs/**",
+      "skills/trace-review/**",
       "templates/**",
       "eslint.config.mjs",
     ],
