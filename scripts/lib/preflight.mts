@@ -272,9 +272,10 @@ export function analyzePatch(text: string): PatchAnalysis {
 }
 
 export function preflightPatch(text: string, run: CommandRunner, cwd: string): PatchAnalysis {
-  const result = analyzePatch(text);
+  const normalized = String(text).replace(/\r\n?/g, "\n");
+  const result = analyzePatch(normalized);
   try {
-    const numstat = run("git", ["apply", "--numstat", "-"], { cwd, input: text });
+    const numstat = run("git", ["apply", "--numstat", "-"], { cwd, input: normalized });
     result.patch.gitApply = {
       valid: true,
       numstat: String(numstat || "").trim(),

@@ -15,16 +15,15 @@ useful for demonstrating findings as well as grouping.
 Rebuild the semantic groups and review from the repository root:
 
 ```bash
-node scripts/detect-mechanical-groups.mjs \
+bun run groups -- \
   --diff examples/cpp-reference/changes.patch \
   --out examples/cpp-reference/candidates.json
-node scripts/finalize-lm-groups.mjs \
+bun run groups:finalize -- \
   --candidates examples/cpp-reference/candidates.json \
   --result examples/cpp-reference/grouping-result.json \
   --out examples/cpp-reference/groups.json
-node scripts/validate-review-spec.mjs \
-  --spec examples/cpp-reference/review-spec.json
-node scripts/build-review.mjs \
+bun run validate:reference
+bun run review -- \
   --spec examples/cpp-reference/review-spec.json \
   --out examples/cpp-reference/review.html
 ```

@@ -9,9 +9,9 @@ Local scripts collect facts, parse diffs, validate LM output, and build the inte
 receives compact evidence and writes only the semantic result needed by the selected review mode.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="examples/screenshot-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="examples/screenshot.png">
-  <img alt="Trace Review showing pull-request context, LM findings, and a code diff" src="examples/screenshot.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/review-interface-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/review-interface.png">
+  <img alt="Trace Review showing pull-request context, LM findings, and a code diff" src="docs/assets/review-interface.png">
 </picture>
 
 ## How it works
@@ -80,14 +80,6 @@ schema, operational references, and a compact example.
 - `/trace-review lm-analysis` adds focused LM findings.
 - Ask for a **deep audit** when broader high-risk analysis is warranted.
 - Or ask your agent to review a branch or pull request with Trace Review.
-
-The release scripts also run directly:
-
-```bash
-node scripts/collect-pr-context.mjs
-node scripts/validate-review-spec.mjs --spec spec.json
-node scripts/build-review.mjs --spec spec.json --out review.html --open
-```
 
 See [SKILL.md](SKILL.md) for the workflow, [REVIEW-SPEC.md](REVIEW-SPEC.md) for the schema, and
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for operational boundaries.
