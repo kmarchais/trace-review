@@ -67,10 +67,10 @@ Requires Node 18+, Git, and optionally GitHub CLI for pull-request context.
 
 ```bash
 # Codex
-git clone git@github.com:kmarchais/html-review.git ~/.codex/skills/trace-review
+git clone git@github.com:kmarchais/trace-review.git ~/.codex/skills/trace-review
 
 # Claude Code
-git clone git@github.com:kmarchais/html-review.git ~/.claude/skills/trace-review
+git clone git@github.com:kmarchais/trace-review.git ~/.claude/skills/trace-review
 ```
 
 ## Use
