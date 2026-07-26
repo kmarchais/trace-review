@@ -217,6 +217,21 @@ Minimum viable spec:
 }
 ```
 
+- When collected context has `source: "github"`, add a publication target from
+  the validated context:
+
+  ```json
+  "github": {
+    "repository": "owner/repository",
+    "pullRequest": 123,
+    "headSha": "the-collected-head-sha"
+  }
+  ```
+
+  Use `repository.owner` + `repository.name`, `pullRequest.number`, and
+  `pullRequest.headSha`. Omit `github` for local-only reviews. This metadata
+  enables plan preparation only; the publisher independently checks `gh`
+  authentication and the live PR head before any write.
 - `diffFile` is resolved **relative to the spec file**. (Or inline the diff as
   a `"diff"` string for tiny changes.)
 - Run `node <skill-dir>/scripts/validate-review-spec.mjs --spec
@@ -369,9 +384,26 @@ the layout), types an overall note, and — in an LM mode — **Accepts / Dismis
 
 - **Copy comments** in the header → copies the current Markdown report directly
   to the clipboard, with no modal.
-- **Export comments** → opens the report preview with another copy action and a
+- **Share review → Markdown report** opens the report preview with another copy action and a
   **Download .md** option that saves `review-comments-<reviewId>.md` to the
-  Downloads folder. Read it with:
+  Downloads folder.
+- **GitHub review** appears in the Share review dialog only when the spec
+  contains validated GitHub publication context. It previews which comments
+  will become native threads and which will remain in the summary. Download
+  the publication plan, then run:
+
+  ```bash
+  node <skill-dir>/scripts/publish-github-review.mjs \
+    --plan "$HOME/Downloads/github-review-owner-repository-123.json"
+  ```
+
+  The command requires an authenticated `gh`, rejects a changed PR head,
+  repeats the native/fallback preview, and asks for explicit confirmation
+  before submitting one GitHub review. Do not pass `--confirm` unless the user
+  explicitly approved that exact preview. A rejected or cancelled publication
+  leaves the plan intact.
+
+Read a downloaded Markdown report with:
 
   ```bash
   cat "$USERPROFILE/Downloads/review-comments-<reviewId>.md"
@@ -393,6 +425,7 @@ accepted findings and their own comments; leave dismissed ones alone.
 | `generated` | top | Free-text date/context line (default: today). |
 | `prs[].title` | per PR | Tab label + summary heading. |
 | `prs[].url` | per PR | Optional link to the PR/branch, shown in the summary head. |
+| `prs[].github` | per PR | Optional native-publication target: `{ repository, pullRequest, headSha }`. Include only from validated GitHub context. |
 | `prs[].summary` | per PR | Markdown (simple path). Ignored if `blocks` is set. |
 | `prs[].diagrams[]` | per PR | Simple path: `{ title?, svgFile\|svg\|mermaid }`. Ignored if `blocks` is set. |
 | `prs[].blocks[]` | per PR | Free-form summary blocks (see *Summary blocks*). Replaces `summary`/`diagrams`. |

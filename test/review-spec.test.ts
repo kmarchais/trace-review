@@ -129,6 +129,50 @@ test("deep audit uses the explicit LM finding contract", () => {
   assert.equal(validateReviewSpec(spec).valid, true);
 });
 
+test("GitHub publication context requires a repository, PR number, and head commit", () => {
+  const diff = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n";
+  const valid = validateReviewSpec({
+    schemaVersion: 1,
+    mode: "workspace",
+    prs: [
+      {
+        title: "Publishable review",
+        url: "https://github.com/acme/widgets/pull/42",
+        diff,
+        github: {
+          repository: "acme/widgets",
+          pullRequest: 42,
+          headSha: "abc123",
+        },
+      },
+    ],
+  });
+  assert.equal(valid.valid, true);
+
+  const invalid = validateReviewSpec({
+    schemaVersion: 1,
+    mode: "workspace",
+    prs: [
+      {
+        title: "Incomplete publication target",
+        diff,
+        github: { repository: "acme/widgets", pullRequest: 0 },
+      },
+    ],
+  });
+  assert.equal(invalid.valid, false);
+  assert.ok(
+    invalid.diagnostics.some(
+      (item) => item.path === "prs[0].github.headSha" && item.code === "expected-string",
+    ),
+  );
+  assert.ok(
+    invalid.diagnostics.some(
+      (item) => item.path === "prs[0].github.pullRequest" && item.code === "invalid-pr-number",
+    ),
+  );
+});
+
 test("LM findings require confidence and rationale in rendered review specs", () => {
   const result = validateReviewSpec({
     schemaVersion: 1,

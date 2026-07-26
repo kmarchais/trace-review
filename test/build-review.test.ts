@@ -58,6 +58,48 @@ test("generated review exposes one-click clipboard export in the header", (t) =>
   );
 });
 
+test("GitHub-enabled reviews expose a native-versus-fallback publication preview", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-github-export-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const specPath = path.join(tempDir, "review-spec.json");
+  const out = path.join(tempDir, "review.html");
+  fs.writeFileSync(
+    specPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      reviewId: "github-review",
+      prs: [
+        {
+          id: "pr-42",
+          title: "Publishable review",
+          url: "https://github.com/acme/widgets/pull/42",
+          github: {
+            repository: "acme/widgets",
+            pullRequest: 42,
+            headSha: "abc123",
+          },
+          diff: "diff --git a/src/widget.ts b/src/widget.ts\n--- a/src/widget.ts\n+++ b/src/widget.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        },
+      ],
+    }),
+  );
+
+  const result = build(specPath, out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  assert.match(html, /id="github-review-data" type="application\/json"/);
+  assert.match(html, /"repository":"acme\/widgets"/);
+  assert.match(html, /id="githubReviewTab"/);
+  assert.match(html, /id="githubReviewPreview"/);
+  assert.match(html, /Native threads/);
+  assert.match(html, /Summary fallbacks/);
+  assert.match(html, /id="downloadGithubPlanBtn"/);
+  assert.match(html, /Start line for a multi-line comment/);
+  assert.match(html, /classList\.contains\("line-hunk"\)/);
+  assert.match(html, /startFingerprint/);
+});
+
 test("generator rejects an invalid specification without writing output", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-invalid-build-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));

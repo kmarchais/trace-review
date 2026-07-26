@@ -1073,6 +1073,16 @@ function main() {
     const reviewer = "LM";
     const dataBag = {};
     const reviewBag = {};
+    const githubBag = {};
+    prs.forEach((pr, index) => {
+        if (!pr.github)
+            return;
+        const prId = pr.id || `pr-${index + 1}`;
+        githubBag[prId] = {
+            ...pr.github,
+            url: pr.url || `https://github.com/${pr.github.repository}/pull/${pr.github.pullRequest}`,
+        };
+    });
     const sections = prs
         .map((pr, i) => renderPr({ ...pr, id: pr.id || `pr-${i + 1}` }, i, single || i === 0, dataBag, reviewBag, reviewer))
         .join("\n");
@@ -1085,6 +1095,7 @@ mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', securi
         : "";
     const dataJson = JSON.stringify(dataBag).replace(/</g, "\\u003c");
     const reviewJson = JSON.stringify(reviewBag).replace(/</g, "\\u003c");
+    const githubJson = JSON.stringify(githubBag).replace(/</g, "\\u003c");
     let tpl = fs.readFileSync(TEMPLATE, "utf8");
     const repl = {
         "{{TITLE}}": esc(title),
@@ -1095,6 +1106,7 @@ mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', securi
         "{{SECTIONS}}": sections,
         "{{DATA}}": dataJson,
         "{{AIREVIEW}}": reviewJson,
+        "{{GITHUB_REVIEW}}": githubJson,
         "{{REVIEWER}}": esc(reviewer),
         "{{MERMAID}}": mermaid,
     };

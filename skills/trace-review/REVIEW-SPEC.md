@@ -51,6 +51,26 @@ the skill's review-generation workflow and may expose deterministic or
 hand-authored labels.
 PR ids and group ids must be unique.
 
+## Optional GitHub publication context
+
+A PR collected from GitHub may include the validated publication target:
+
+```json
+{
+  "github": {
+    "repository": "acme/widgets",
+    "pullRequest": 42,
+    "headSha": "abc123"
+  }
+}
+```
+
+All three fields are required when `github` is present. The generated review
+uses them to prepare a structured publication plan. The packaged publisher
+checks GitHub CLI authentication and compares `headSha` with the live PR before
+showing its confirmation prompt and submitting one review. Local-only reviews
+omit this object and retain Markdown copy/download.
+
 Workspace specs cannot contain `review`. LM-analysis and deep-audit specs
 require one per PR:
 
