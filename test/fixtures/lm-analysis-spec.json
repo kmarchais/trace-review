@@ -3,7 +3,6 @@
   "mode": "lm-analysis",
   "title": "Widget API analysis",
   "reviewId": "fixture-widget-lm",
-  "reviewer": "LM",
   "generated": "2026-07-24",
   "prs": [
     {

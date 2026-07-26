@@ -66,7 +66,7 @@ export function validateReviewSpec(spec, options = {}) {
     add("expected-object", "$", "The review specification must be a JSON object.");
     return { valid: false, schemaVersion: null, diagnostics };
   }
-  rejectUnknown(spec, new Set(["schemaVersion", "mode", "title", "reviewId", "reviewer", "generated", "prs"]), "$");
+  rejectUnknown(spec, new Set(["schemaVersion", "mode", "title", "reviewId", "generated", "prs"]), "$");
 
   if (spec.schemaVersion !== REVIEW_SPEC_VERSION) {
     add(
@@ -89,7 +89,6 @@ export function validateReviewSpec(spec, options = {}) {
 
   optionalString(spec.title, "title");
   optionalString(spec.reviewId, "reviewId");
-  optionalString(spec.reviewer, "reviewer");
   optionalString(spec.generated, "generated");
 
   if (!Array.isArray(spec.prs) || spec.prs.length === 0) {

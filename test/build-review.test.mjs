@@ -87,7 +87,7 @@ test("LM-analysis fixture renders its global assessment and line finding", (t) =
   assert.match(html, /class="findings-panel"/);
 });
 
-test("LM findings are visible on the default Inspect evidence stage", (t) => {
+test("LM findings are visible on the default Review changes stage", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-visible-findings-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const out = path.join(tempDir, "review.html");
@@ -159,7 +159,7 @@ test("change groups visually contain their files and confirm bulk review", (t) =
 
   assert.match(
     html,
-    /\.group \{[^}]*border:1px solid var\(--border\);[^}]*border-top:3px solid var\(--group-accent\)/s,
+    /\.group \{[^}]*border:1px solid var\(--border\);[^}]*border-left:3px solid var\(--group-accent\)/s,
   );
   assert.match(html, /if\(want && !window\.confirm\(/);
   assert.match(html, /Mark all .* files in .* as viewed/);
@@ -186,11 +186,14 @@ test("Phase 4 renders a staged, adaptive review experience", (t) => {
     assert.match(html, new RegExp(`--${token}:`), `design token ${token}`);
   }
   assert.match(html, /class="review-journey"/);
-  assert.match(html, /data-review-stage="understand"/);
   assert.match(html, /data-review-stage="validate"/);
   assert.match(html, /data-review-stage="inspect"/);
+  assert.doesNotMatch(html, /data-review-stage="understand"/);
   assert.match(html, /data-active-stage="inspect"/);
   assert.match(html, /data-review-stage="inspect" aria-current="step"/);
+  assert.match(html, /<strong>Review changes<\/strong><small>Diff and comments<\/small>/);
+  assert.match(html, /<strong>Review groups<\/strong><small>Optional intent check<\/small>/);
+  assert.ok(html.indexOf("<strong>Review changes</strong>") < html.indexOf("<strong>Review groups</strong>"));
   assert.match(html, /aria-current="step"/);
   assert.match(html, /class="context-toggle"/);
   assert.match(html, /class="focus-mode-toggle"/);
@@ -201,7 +204,32 @@ test("Phase 4 renders a staged, adaptive review experience", (t) => {
   assert.match(html, /function visibleEvidenceFiles/);
   assert.match(html, /file=fileEl\.dataset\.file/);
   assert.match(html, /visibleEvidenceFiles\(sec\)[\s\S]*?file=>file\.querySelector/);
-  assert.match(html, /--surface-canvas:#0e1418/);
+  assert.match(html, /--surface-canvas:#0d1117/);
+});
+
+test("success emphasis fills retain WCAG AA contrast with their text", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-contrast-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const result = build(path.join(fixtures, "workspace-spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  const fills = [...html.matchAll(/--success-emphasis:(#[0-9a-f]{6})/gi)].map((match) => match[1]);
+  assert.ok(fills.length >= 3, "light, preferred-dark, and explicit-dark tokens should be present");
+
+  const luminance = (hex) => {
+    const channels = hex.match(/[0-9a-f]{2}/gi).map((value) => Number.parseInt(value, 16) / 255);
+    const linear = channels.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  };
+  const white = luminance("#ffffff");
+  for (const fill of fills) {
+    const contrast = (white + 0.05) / (luminance(fill) + 0.05);
+    assert.ok(contrast >= 4.5, `${fill} has only ${contrast.toFixed(2)}:1 contrast against white`);
+  }
+  assert.match(html, /\.btn-primary \{ background:var\(--success-emphasis\)/);
+  assert.match(html, /\.badge\.done \{ background:var\(--success-emphasis\)/);
+  assert.match(html, /\.verdict-approve \{ background:var\(--success-emphasis\)/);
 });
 
 test("large-diff generation stays within the Phase 0 performance budget", (t) => {

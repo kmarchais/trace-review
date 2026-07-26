@@ -39,8 +39,8 @@ publish from the `main` branch and `/docs` folder.
   context so the reviewer evaluates them instead of repairing the model.
 - **Focused LM analysis**: candidate groups and deterministic facts feed a
   sparse, budgeted set of line findings with confidence and rationale, each
-  with Accept / Dismiss / Reply. Attribution is neutral ("LM") by default and
-  configurable via `reviewer`.
+  with Accept / Dismiss / Reply. Attribution is always the deterministic,
+  provider-neutral label **LM**.
 - **Export**: copy all comments and review decisions as clean Markdown directly
   from the header, or open the export preview to inspect and download the file.
 - **Real-PR robustness**: comments follow stable diff fingerprints and remain
@@ -48,8 +48,8 @@ publish from the `main` branch and `/docs` folder.
   are sanitized before rendering.
 - **Large-review controls**: bounded word-level comparison and progressive
   client rendering keep very large pull requests responsive.
-- Elsyca-branded, light/dark (follows the OS), fully offline except diagrams,
-  fonts, and highlighting which load from a CDN (all degrade gracefully).
+- GitHub-inspired, light/dark (follows the OS), and fully offline except Mermaid
+  diagrams and syntax highlighting, which degrade gracefully.
 
 ## Install
 
@@ -188,8 +188,8 @@ semantic groups, and one actionable LM finding.
 
 Read [known limitations and offline behavior](docs/LIMITATIONS.md) before
 distribution. Generated reviews keep the diff, comments, groups, and export
-available offline; hosted syntax colors, fonts, and Mermaid diagrams degrade
-gracefully when the network is unavailable.
+available offline; hosted syntax colors and Mermaid diagrams degrade gracefully
+when the network is unavailable.
 
 ## Quality checks
 
