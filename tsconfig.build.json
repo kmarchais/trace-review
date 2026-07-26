@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./dist/runtime",
+    "rootDir": ".",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["scripts/**/*.mts"],
+  "exclude": ["scripts/build-skill-bundle.mts", "scripts/lib/skill-bundle.mts"]
+}

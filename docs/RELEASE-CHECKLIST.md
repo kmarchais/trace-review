@@ -8,12 +8,12 @@ and a person completes the interface checks below.
 Run from the repository root:
 
 ```bash
-npm test
-npm run bundle:skill
-npm run validate:example
-node scripts/validate-review-spec.mjs \
+bun run check
+bun run bundle:skill
+bun run validate:example
+node dist/runtime/scripts/validate-review-spec.mjs \
   --spec examples/cpp-reference/review-spec.json
-node scripts/build-review.mjs \
+node dist/runtime/scripts/build-review.mjs \
   --spec examples/cpp-reference/review-spec.json \
   --out examples/cpp-reference/review.html \
   --metrics-out examples/cpp-reference/metrics.json

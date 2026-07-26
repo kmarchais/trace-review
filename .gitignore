@@ -1,3 +1,4 @@
 .review/
 dist/
+node_modules/
 review-smoke.html

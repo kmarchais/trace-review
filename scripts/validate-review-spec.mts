@@ -3,8 +3,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { formatReviewSpecDiagnostics, validateReviewSpec } from "./lib/review-spec.mjs";
+import { errorMessage, parseJson } from "./lib/cli.mjs";
 
-function usage() {
+function usage(): void {
   console.error("Usage: node validate-review-spec.mjs --spec <spec.json> [--json]");
 }
 
@@ -16,19 +17,21 @@ if (specIndex === -1 || !args[specIndex + 1]) {
 }
 
 const specPath = path.resolve(args[specIndex + 1]);
-let spec;
+let spec: unknown;
 try {
-  spec = JSON.parse(fs.readFileSync(specPath, "utf8"));
-} catch (error) {
+  spec = parseJson(fs.readFileSync(specPath, "utf8"));
+} catch (error: unknown) {
   const result = {
     valid: false,
     schemaVersion: null,
-    diagnostics: [{
-      level: "error",
-      code: "invalid-json",
-      path: "$",
-      message: `Could not read review specification: ${error.message}`,
-    }],
+    diagnostics: [
+      {
+        level: "error",
+        code: "invalid-json",
+        path: "$",
+        message: `Could not read review specification: ${errorMessage(error)}`,
+      },
+    ],
   };
   console.log(JSON.stringify(result, null, 2));
   process.exit(2);

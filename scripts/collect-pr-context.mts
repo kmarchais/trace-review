@@ -4,8 +4,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { collectPrContext } from "./lib/pr-context.mjs";
+import type { CollectOptions } from "./lib/pr-context.mjs";
+import type { CommandRunner, RunOptions } from "./lib/preflight.mjs";
+import { errorMessage } from "./lib/cli.mjs";
 
-function usage(message) {
+interface Args extends CollectOptions {
+  pr: string;
+  repo: string;
+  out?: string;
+  diffOut?: string;
+  help?: boolean;
+}
+
+function usage(message?: string): never {
   if (message) console.error(`Error: ${message}`);
   console.error(`Usage:
   node collect-pr-context.mjs [--repo <path>] [--pr auto|none|<number|url>]
@@ -20,8 +31,8 @@ Options:
   process.exit(message ? 1 : 0);
 }
 
-function parseArgs(argv) {
-  const args = { pr: "auto", repo: process.cwd() };
+function parseArgs(argv: readonly string[]): Args {
+  const args: Args = { pr: "auto", repo: process.cwd() };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--repo") args.repo = argv[++index];
@@ -36,8 +47,12 @@ function parseArgs(argv) {
   return args;
 }
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+const run: CommandRunner = (
+  command: string,
+  commandArgs: readonly string[],
+  options: RunOptions = {},
+): string => {
+  const result = spawnSync(command, commandArgs, {
     cwd: options.cwd,
     encoding: "utf8",
     windowsHide: true,
@@ -50,13 +65,13 @@ function run(command, args, options = {}) {
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || "").trim();
     throw new Error(
-      `'${command} ${args.join(" ")}' failed${detail ? `: ${detail}` : ` with exit code ${result.status}`}`,
+      `'${command} ${commandArgs.join(" ")}' failed${detail ? `: ${detail}` : ` with exit code ${result.status}`}`,
     );
   }
   return result.stdout;
-}
+};
 
-function ensureValue(args, key, option) {
+function ensureValue(args: Args, key: keyof Args, option: string): void {
   if (args[key] === undefined) usage(`${option} requires a value`);
 }
 
@@ -101,12 +116,12 @@ try {
   fs.writeFileSync(outputPath, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
   console.log(`Wrote ${outputPath}`);
   console.log(`Wrote ${diffPath}`);
-} catch (error) {
-  const missingGh =
-    args.pr !== "auto" && args.pr !== "none" && /Could not run 'gh'/.test(error.message);
+} catch (error: unknown) {
+  const message = errorMessage(error);
+  const missingGh = args.pr !== "auto" && args.pr !== "none" && /Could not run 'gh'/.test(message);
   const hint = missingGh
     ? " Install the GitHub CLI for explicit PR selection, or use --no-remote for a local review."
     : "";
-  console.error(`Error: ${error.message}${hint}`);
+  console.error(`Error: ${message}${hint}`);
   process.exit(1);
 }

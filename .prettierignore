@@ -1,0 +1,9 @@
+dist/
+node_modules/
+templates/
+docs/
+examples/
+*.md
+schemas/
+test/fixtures/
+NEXT-WORK.md

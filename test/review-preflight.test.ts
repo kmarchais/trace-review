@@ -13,22 +13,12 @@ test("review-preflight inventories a patch and flags review hazards", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-preflight-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const diffPath = path.join(tempDir, "mixed.patch");
-  const fixture = fs.readFileSync(
-    path.join(root, "test", "fixtures", "mixed.patch"),
-    "utf8",
-  );
-  const patchText = fixture.replace(
-    '+console.log("world");',
-    '+console.log("world");   ',
-  );
+  const fixture = fs.readFileSync(path.join(root, "test", "fixtures", "mixed.patch"), "utf8");
+  const patchText = fixture.replace('+console.log("world");', '+console.log("world");   ');
   fs.writeFileSync(diffPath, patchText);
   const stdout = execFileSync(
     process.execPath,
-    [
-      path.join(root, "scripts", "review-preflight.mjs"),
-      "--diff",
-      diffPath,
-    ],
+    [path.join(root, "dist", "runtime", "scripts", "review-preflight.mjs"), "--diff", diffPath],
     { cwd: root, encoding: "utf8" },
   );
 
@@ -55,7 +45,7 @@ test("review-preflight rejects malformed patches with actionable diagnostics", (
   const result = spawnSync(
     process.execPath,
     [
-      path.join(root, "scripts", "review-preflight.mjs"),
+      path.join(root, "dist", "runtime", "scripts", "review-preflight.mjs"),
       "--diff",
       path.join(root, "test", "fixtures", "malformed.patch"),
     ],
@@ -76,7 +66,7 @@ test("review-preflight decodes Git-quoted paths", () => {
   const stdout = execFileSync(
     process.execPath,
     [
-      path.join(root, "scripts", "review-preflight.mjs"),
+      path.join(root, "dist", "runtime", "scripts", "review-preflight.mjs"),
       "--diff",
       path.join(root, "test", "fixtures", "quoted-path.patch"),
     ],
@@ -106,7 +96,7 @@ test("documented example patch passes deterministic preflight", () => {
   const stdout = execFileSync(
     process.execPath,
     [
-      path.join(root, "scripts", "review-preflight.mjs"),
+      path.join(root, "dist", "runtime", "scripts", "review-preflight.mjs"),
       "--diff",
       path.join(root, "examples", "pr-1.patch"),
     ],

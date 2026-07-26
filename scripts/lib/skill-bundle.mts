@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 
-export const SKILL_BUNDLE_FILES = Object.freeze([
+export const SKILL_BUNDLE_SOURCE_FILES = Object.freeze([
   "SKILL.md",
   "REVIEW-SPEC.md",
   "docs/LIMITATIONS.md",
@@ -14,6 +14,9 @@ export const SKILL_BUNDLE_FILES = Object.freeze([
   "examples/pr-1.groups.json",
   "examples/pr-1.patch",
   "examples/review-spec.json",
+]);
+
+export const SKILL_BUNDLE_RUNTIME_FILES = Object.freeze([
   "schemas/review-spec.v1.schema.json",
   "scripts/build-review.mjs",
   "scripts/collect-pr-context.mjs",
@@ -23,6 +26,7 @@ export const SKILL_BUNDLE_FILES = Object.freeze([
   "scripts/prepare-lm-analysis.mjs",
   "scripts/review-preflight.mjs",
   "scripts/validate-review-spec.mjs",
+  "scripts/lib/cli.mjs",
   "scripts/lib/change-groups.mjs",
   "scripts/lib/lm-analysis.mjs",
   "scripts/lib/lm-groups.mjs",
@@ -31,6 +35,16 @@ export const SKILL_BUNDLE_FILES = Object.freeze([
   "scripts/lib/review-spec.mjs",
   "templates/review.template.html",
 ]);
+
+export const SKILL_BUNDLE_FILES = Object.freeze([
+  ...SKILL_BUNDLE_SOURCE_FILES,
+  ...SKILL_BUNDLE_RUNTIME_FILES,
+]);
+
+interface ZipEntry {
+  name: string;
+  data: Buffer;
+}
 
 const crcTable = new Uint32Array(256);
 for (let n = 0; n < 256; n++) {
@@ -41,13 +55,13 @@ for (let n = 0; n < 256; n++) {
   crcTable[n] = value >>> 0;
 }
 
-function crc32(buffer) {
+function crc32(buffer: Uint8Array): number {
   let crc = 0xffffffff;
   for (const byte of buffer) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function localHeader(name, data, packed, crc) {
+function localHeader(name: Buffer, data: Buffer, packed: Buffer, crc: number): Buffer {
   const header = Buffer.alloc(30);
   header.writeUInt32LE(0x04034b50, 0);
   header.writeUInt16LE(20, 4);
@@ -62,7 +76,13 @@ function localHeader(name, data, packed, crc) {
   return header;
 }
 
-function centralHeader(name, data, packed, crc, offset) {
+function centralHeader(
+  name: Buffer,
+  data: Buffer,
+  packed: Buffer,
+  crc: number,
+  offset: number,
+): Buffer {
   const header = Buffer.alloc(46);
   header.writeUInt32LE(0x02014b50, 0);
   header.writeUInt16LE(20, 4);
@@ -79,9 +99,9 @@ function centralHeader(name, data, packed, crc, offset) {
   return header;
 }
 
-function createZip(entries) {
-  const localParts = [];
-  const centralParts = [];
+function createZip(entries: readonly ZipEntry[]): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
   let offset = 0;
 
   for (const entry of entries) {
@@ -105,7 +125,7 @@ function createZip(entries) {
   return Buffer.concat([...localParts, central, end]);
 }
 
-export function readZipEntries(buffer) {
+export function readZipEntries(buffer: Buffer): Map<string, Buffer> {
   let endOffset = -1;
   for (let offset = buffer.length - 22; offset >= Math.max(0, buffer.length - 65_557); offset--) {
     if (buffer.readUInt32LE(offset) === 0x06054b50) {
@@ -117,7 +137,7 @@ export function readZipEntries(buffer) {
 
   const count = buffer.readUInt16LE(endOffset + 10);
   let offset = buffer.readUInt32LE(endOffset + 16);
-  const entries = new Map();
+  const entries = new Map<string, Buffer>();
   for (let index = 0; index < count; index++) {
     if (buffer.readUInt32LE(offset) !== 0x02014b50) {
       throw new Error("Invalid bundle archive: central directory is malformed.");
@@ -151,21 +171,24 @@ export function readZipEntries(buffer) {
   return entries;
 }
 
-export function listZipEntries(buffer) {
+export function listZipEntries(buffer: Buffer): string[] {
   return [...readZipEntries(buffer).keys()];
 }
 
-function runSmokeTest(bundleRoot) {
+function runSmokeTest(bundleRoot: string): void {
   const spec = path.join(bundleRoot, "examples", "review-spec.json");
   const outputDir = path.join(bundleRoot, ".smoke");
   const output = path.join(outputDir, "review.html");
   fs.mkdirSync(outputDir);
 
-  for (const command of [
+  const commands: string[][] = [
     ["scripts/validate-review-spec.mjs", "--spec", spec],
     ["scripts/build-review.mjs", "--spec", spec, "--out", output],
-  ]) {
-    const result = spawnSync(process.execPath, [path.join(bundleRoot, command[0]), ...command.slice(1)], {
+  ];
+  for (const command of commands) {
+    const executable = command[0];
+    if (!executable) throw new Error("Bundle smoke test command is empty.");
+    const result = spawnSync("node", [path.join(bundleRoot, executable), ...command.slice(1)], {
       cwd: bundleRoot,
       encoding: "utf8",
     });
@@ -179,14 +202,27 @@ function runSmokeTest(bundleRoot) {
   }
 }
 
-export function buildSkillBundle({ root, outDir }) {
+export function buildSkillBundle({
+  root,
+  runtimeRoot = path.join(root, "dist", "runtime"),
+  outDir,
+}: {
+  root: string;
+  runtimeRoot?: string;
+  outDir: string;
+}): { archive: string; entries: string[] } {
   const stageParent = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-bundle-"));
   const bundleRoot = path.join(stageParent, "trace-review");
   fs.mkdirSync(bundleRoot);
 
   try {
-    const entries = SKILL_BUNDLE_FILES.map((relativePath) => {
-      const source = path.join(root, relativePath);
+    const entries = SKILL_BUNDLE_FILES.map((relativePath): ZipEntry => {
+      const sourceRoot = SKILL_BUNDLE_RUNTIME_FILES.includes(
+        relativePath as (typeof SKILL_BUNDLE_RUNTIME_FILES)[number],
+      )
+        ? runtimeRoot
+        : root;
+      const source = path.join(sourceRoot, relativePath);
       if (!fs.existsSync(source) || !fs.statSync(source).isFile()) {
         throw new Error(`Missing bundle input: ${relativePath}`);
       }

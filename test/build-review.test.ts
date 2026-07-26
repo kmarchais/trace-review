@@ -8,14 +8,18 @@ import test from "node:test";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixtures = path.join(root, "test", "fixtures");
-const builder = path.join(root, "scripts", "build-review.mjs");
+const builder = path.join(root, "dist", "runtime", "scripts", "build-review.mjs");
 
 function build(specPath, outPath, extraArgs = []) {
-  return spawnSync(process.execPath, [builder, "--spec", specPath, "--out", outPath, ...extraArgs], {
-    cwd: root,
-    encoding: "utf8",
-    maxBuffer: 10 * 1024 * 1024,
-  });
+  return spawnSync(
+    process.execPath,
+    [builder, "--spec", specPath, "--out", outPath, ...extraArgs],
+    {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
 }
 
 test("generator produces a complete, mode-labelled review document", (t) => {
@@ -50,7 +54,7 @@ test("generated review exposes one-click clipboard export in the header", (t) =>
   assert.match(html, /id="copyCommentsBtn"[^>]*>Copy comments<\/button>/);
   assert.match(
     html,
-    /getElementById\("copyCommentsBtn"\)\.addEventListener\("click",\s*async\s*\(\)=>\{[\s\S]*?buildMarkdown\(\)/,
+    /getElementById\("copyCommentsBtn"\)\.addEventListener\("click",\s*async\s*\(\)\s*=>\s*\{[\s\S]*?buildMarkdown\(\)/,
   );
 });
 
@@ -59,11 +63,14 @@ test("generator rejects an invalid specification without writing output", (t) =>
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const specPath = path.join(tempDir, "invalid.json");
   const out = path.join(tempDir, "review.html");
-  fs.writeFileSync(specPath, JSON.stringify({
-    schemaVersion: 1,
-    mode: "workspace",
-    prs: [{ title: "Invalid", diff: "x", review: { comments: [] } }],
-  }));
+  fs.writeFileSync(
+    specPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      prs: [{ title: "Invalid", diff: "x", review: { comments: [] } }],
+    }),
+  );
   const result = build(specPath, out);
 
   assert.equal(result.status, 2);
@@ -82,7 +89,7 @@ test("LM-analysis fixture renders its global assessment and line finding", (t) =
   assert.match(html, /<body data-review-mode="lm-analysis">/);
   assert.match(html, /The implementation and build changes agree\./);
   assert.match(html, /Should the returned name be part of the public compatibility contract/);
-  assert.match(html, /Math\.round\(c\.confidence\*100\).*% confidence/);
+  assert.match(html, /Math\.round\(c\.confidence\s*\*\s*100\).*% confidence/);
   assert.match(html, /The return value is exposed by a public header/);
   assert.match(html, /class="findings-panel"/);
 });
@@ -132,14 +139,22 @@ test("visual contract matches the checked-in baseline", (t) => {
   const baseline = JSON.parse(fs.readFileSync(path.join(fixtures, "visual-baseline.json"), "utf8"));
 
   for (const [token, value] of Object.entries(baseline.palette)) {
-    assert.match(html, new RegExp(`--${token}:${value.replace("#", "\\#")}`), `palette token ${token}`);
+    assert.match(
+      html,
+      new RegExp(`--${token}:${value.replace("#", "\\#")}`),
+      `palette token ${token}`,
+    );
   }
   for (const [selector, declaration] of Object.entries(baseline.layout)) {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const [property, ...valueParts] = declaration.split(":");
     const escapePattern = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const declarationPattern = `${escapePattern(property)}\\s*:\\s*${escapePattern(valueParts.join(":"))}`;
-    assert.match(html, new RegExp(`\\.${escaped}\\s*\\{[^}]*${declarationPattern}`), `layout contract ${selector}`);
+    assert.match(
+      html,
+      new RegExp(`\\.${escaped}\\s*\\{[^}]*${declarationPattern}`),
+      `layout contract ${selector}`,
+    );
   }
   let cursor = -1;
   for (const className of baseline.landmarks) {
@@ -161,9 +176,9 @@ test("change groups visually contain their files and confirm bulk review", (t) =
     html,
     /\.group \{[^}]*border:1px solid var\(--border\);[^}]*border-left:3px solid var\(--group-accent\)/s,
   );
-  assert.match(html, /if\(want && !window\.confirm\(/);
+  assert.match(html, /if\s*\(want\s*&&\s*!window\.confirm\(/);
   assert.match(html, /Mark all .* files in .* as viewed/);
-  assert.match(html, /files\.map\(f=> "• " \+ f\.dataset\.file\)/);
+  assert.match(html, /files\.map\(\(f\)\s*=>\s*"• "\s*\+\s*f\.dataset\.file\)/);
 });
 
 test("Phase 4 renders a staged, adaptive review experience", (t) => {
@@ -200,13 +215,19 @@ test("Phase 4 renders a staged, adaptive review experience", (t) => {
   assert.match(html, /class="raw-order-toggle"/);
   assert.match(html, /aria-pressed="false"/);
   assert.match(html, /:focus-visible/);
-  assert.match(html, /<header class="app-header">[\s\S]*class="review-journey"[\s\S]*class="header-actions"/);
+  assert.match(
+    html,
+    /<header class="app-header">[\s\S]*class="review-journey"[\s\S]*class="header-actions"/,
+  );
   assert.match(html, /<aside class="pr-context">[\s\S]*class="overall-bar"/);
   assert.equal((html.match(/class="review-journey"/g) || []).length, 1);
   assert.ok(html.indexOf('class="overall-bar"') < html.indexOf('class="review-col"'));
   assert.match(html, /function visibleEvidenceFiles/);
-  assert.match(html, /file=fileEl\.dataset\.file/);
-  assert.match(html, /visibleEvidenceFiles\(sec\)[\s\S]*?file=>file\.querySelector/);
+  assert.match(html, /fileNoteId\s*=\s*pr\s*\+\s*" "\s*\+\s*fileEl\.dataset\.file/);
+  assert.match(
+    html,
+    /visibleEvidenceFiles\(sec\)[\s\S]*?\(file\d*\)\s*=>\s*file\d*\.querySelector/,
+  );
   assert.match(html, /--surface-canvas:#0d1117/);
 });
 
@@ -222,7 +243,9 @@ test("success emphasis fills retain WCAG AA contrast with their text", (t) => {
 
   const luminance = (hex) => {
     const channels = hex.match(/[0-9a-f]{2}/gi).map((value) => Number.parseInt(value, 16) / 255);
-    const linear = channels.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    const linear = channels.map((value) =>
+      value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
+    );
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
   };
   const white = luminance("#ffffff");
@@ -238,32 +261,41 @@ test("success emphasis fills retain WCAG AA contrast with their text", (t) => {
 test("large-diff generation stays within the Phase 0 performance budget", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-large-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
-  const patch = Array.from({ length: 300 }, (_, index) => [
-    `diff --git a/src/file-${index}.js b/src/file-${index}.js`,
-    "index 1111111..2222222 100644",
-    `--- a/src/file-${index}.js`,
-    `+++ b/src/file-${index}.js`,
-    "@@ -1 +1 @@",
-    `-export const value = ${index};`,
-    `+export const value = ${index + 1};`,
-  ].join("\n")).join("\n") + "\n";
+  const patch =
+    Array.from({ length: 300 }, (_, index) =>
+      [
+        `diff --git a/src/file-${index}.js b/src/file-${index}.js`,
+        "index 1111111..2222222 100644",
+        `--- a/src/file-${index}.js`,
+        `+++ b/src/file-${index}.js`,
+        "@@ -1 +1 @@",
+        `-export const value = ${index};`,
+        `+export const value = ${index + 1};`,
+      ].join("\n"),
+    ).join("\n") + "\n";
   const patchPath = path.join(tempDir, "large.patch");
   const specPath = path.join(tempDir, "large.json");
   const out = path.join(tempDir, "large.html");
   fs.writeFileSync(patchPath, patch);
-  fs.writeFileSync(specPath, JSON.stringify({
-    schemaVersion: 1,
-    mode: "workspace",
-    title: "Large fixture",
-    prs: [{ title: "Three hundred files", diffFile: "large.patch" }],
-  }));
+  fs.writeFileSync(
+    specPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      title: "Large fixture",
+      prs: [{ title: "Three hundred files", diffFile: "large.patch" }],
+    }),
+  );
 
   const start = performance.now();
   const result = build(specPath, out);
   const elapsed = performance.now() - start;
   assert.equal(result.status, 0, result.stderr);
   assert.ok(elapsed < 5000, `generation took ${elapsed.toFixed(0)}ms; budget is 5000ms`);
-  assert.ok(fs.statSync(out).size > 200_000, "large fixture should exercise a substantial HTML payload");
+  assert.ok(
+    fs.statSync(out).size > 200_000,
+    "large fixture should exercise a substantial HTML payload",
+  );
 });
 
 test("Phase 5 fingerprints comments and exposes orphan recovery", (t) => {
@@ -291,21 +323,28 @@ test("Phase 5 sanitizes untrusted links and inline SVG", (t) => {
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const specPath = path.join(tempDir, "untrusted.json");
   const out = path.join(tempDir, "review.html");
-  fs.writeFileSync(specPath, JSON.stringify({
-    schemaVersion: 1,
-    mode: "workspace",
-    title: "Untrusted content",
-    prs: [{
-      title: "<img src=x onerror=alert(1)>",
-      url: "javascript:alert(1)",
-      summary: "[unsafe](javascript:alert(2)) [safe](https://example.com/review)",
-      diagrams: [{
-        title: "Hostile SVG",
-        svg: '<svg viewBox="0 0 10 10" onload="alert(3)"><script>alert(4)</script><a href="https://evil.example"><rect width="10" height="10" style="fill:u\\72l(https://evil.example/x)"/></a><use href="#safe"/></svg>',
-      }],
-      diff: "diff --git a/a.js b/a.js\n--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n-old\n+new\n",
-    }],
-  }));
+  fs.writeFileSync(
+    specPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      title: "Untrusted content",
+      prs: [
+        {
+          title: "<img src=x onerror=alert(1)>",
+          url: "javascript:alert(1)",
+          summary: "[unsafe](javascript:alert(2)) [safe](https://example.com/review)",
+          diagrams: [
+            {
+              title: "Hostile SVG",
+              svg: '<svg viewBox="0 0 10 10" onload="alert(3)"><script>alert(4)</script><a href="https://evil.example"><rect width="10" height="10" style="fill:u\\72l(https://evil.example/x)"/></a><use href="#safe"/></svg>',
+            },
+          ],
+          diff: "diff --git a/a.js b/a.js\n--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n-old\n+new\n",
+        },
+      ],
+    }),
+  );
   const result = build(specPath, out);
   assert.equal(result.status, 0, result.stderr);
   const html = fs.readFileSync(out, "utf8");
@@ -325,26 +364,32 @@ test("Phase 5 bounds word diff work, renders progressively, and writes real-PR m
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const longOld = Array.from({ length: 400 }, (_, index) => `old${index}`).join(" ");
   const longNew = Array.from({ length: 400 }, (_, index) => `new${index}`).join(" ");
-  const patch = Array.from({ length: 800 }, (_, index) => [
-    `diff --git a/src/file-${index}.js b/src/file-${index}.js`,
-    "index 1111111..2222222 100644",
-    `--- a/src/file-${index}.js`,
-    `+++ b/src/file-${index}.js`,
-    "@@ -1 +1 @@",
-    `-${index === 0 ? longOld : `export const value = ${index};`}`,
-    `+${index === 0 ? longNew : `export const value = ${index + 1};`}`,
-  ].join("\n")).join("\n") + "\n";
+  const patch =
+    Array.from({ length: 800 }, (_, index) =>
+      [
+        `diff --git a/src/file-${index}.js b/src/file-${index}.js`,
+        "index 1111111..2222222 100644",
+        `--- a/src/file-${index}.js`,
+        `+++ b/src/file-${index}.js`,
+        "@@ -1 +1 @@",
+        `-${index === 0 ? longOld : `export const value = ${index};`}`,
+        `+${index === 0 ? longNew : `export const value = ${index + 1};`}`,
+      ].join("\n"),
+    ).join("\n") + "\n";
   const patchPath = path.join(tempDir, "huge.patch");
   const specPath = path.join(tempDir, "huge.json");
   const out = path.join(tempDir, "huge.html");
   const metricsPath = path.join(tempDir, "metrics.json");
   fs.writeFileSync(patchPath, patch);
-  fs.writeFileSync(specPath, JSON.stringify({
-    schemaVersion: 1,
-    mode: "workspace",
-    title: "Very large fixture",
-    prs: [{ title: "Eight hundred files", diffFile: "huge.patch" }],
-  }));
+  fs.writeFileSync(
+    specPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      title: "Very large fixture",
+      prs: [{ title: "Eight hundred files", diffFile: "huge.patch" }],
+    }),
+  );
 
   const result = build(specPath, out, ["--metrics-out", metricsPath]);
   assert.equal(result.status, 0, result.stderr);

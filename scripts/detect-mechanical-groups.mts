@@ -4,14 +4,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { analyzePatch } from "./lib/preflight.mjs";
 import { detectChangeGroups } from "./lib/change-groups.mjs";
+import { errorMessage } from "./lib/cli.mjs";
 
-function usage(message) {
+interface Args {
+  diff?: string;
+  out?: string;
+  help?: boolean;
+}
+
+function usage(message?: string): never {
   if (message) console.error(`Error: ${message}`);
-  console.error("Usage: node scripts/detect-mechanical-groups.mjs --diff <patch> [--out <groups.json>]");
+  console.error(
+    "Usage: node scripts/detect-mechanical-groups.mjs --diff <patch> [--out <groups.json>]",
+  );
   process.exit(message ? 1 : 0);
 }
 
-const args = {};
+const args: Args = {};
 const argv = process.argv.slice(2);
 for (let index = 0; index < argv.length; index++) {
   const arg = argv[index];
@@ -37,7 +46,7 @@ try {
     process.stdout.write(output);
   }
   if (!grouping.validation.valid) process.exitCode = 2;
-} catch (error) {
-  console.error(`Error: ${error.message}`);
+} catch (error: unknown) {
+  console.error(`Error: ${errorMessage(error)}`);
   process.exit(1);
 }

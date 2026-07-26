@@ -1,19 +1,143 @@
 import { preflightPatch } from "./preflight.mjs";
 import { detectChangeGroups } from "./change-groups.mjs";
+import type { ChangeGrouping } from "./change-groups.mjs";
+import type { CommandRunner, PatchAnalysis } from "./preflight.mjs";
+
+type JsonObject = Record<string, unknown>;
+
+export interface ContextDiagnostic {
+  level: "error" | "warning";
+  code: string;
+  message: string;
+  path?: string;
+}
+
+interface GitHubCheck extends JsonObject {
+  __typename?: string;
+  context?: string;
+  state?: string;
+  targetUrl?: string;
+  name?: string;
+  workflowName?: string;
+  status?: string;
+  conclusion?: string;
+  detailsUrl?: string;
+}
+
+interface RawPullRequest extends JsonObject {
+  number?: number;
+  url?: string;
+  title?: string;
+  body?: string;
+  baseRefName?: string;
+  headRefName?: string;
+  headRefOid?: string;
+  labels?: Array<{ name?: string }>;
+  statusCheckRollup?: GitHubCheck[];
+  reviews?: Array<{
+    author?: { login?: string };
+    state?: string;
+    body?: string;
+    submittedAt?: string;
+  }>;
+  comments?: Array<{
+    author?: { login?: string };
+    body?: string;
+    url?: string;
+    createdAt?: string;
+  }>;
+}
+
+interface RawReviewComment extends JsonObject {
+  user?: { login?: string };
+  body?: string;
+  html_url?: string;
+  path?: string;
+  line?: number | null;
+  original_line?: number | null;
+  side?: string;
+  start_line?: number | null;
+  created_at?: string;
+}
+
+export interface NormalizedPullRequest {
+  number: number;
+  url: string;
+  title: string;
+  description: string;
+  baseBranch: string;
+  headBranch: string;
+  headSha: string;
+  labels: string[];
+  checks: Array<{ name: string; status: string; conclusion: string; detailsUrl: string }>;
+  reviews: Array<{ author: string; state: string; body: string; submittedAt: string }>;
+  comments: Array<{ author: string; body: string; url: string; createdAt: string }>;
+  reviewComments?: Array<{
+    author: string;
+    body: string;
+    url: string;
+    path: string;
+    line: number | null;
+    originalLine: number | null;
+    side: string;
+    startLine: number | null;
+    createdAt: string;
+  }>;
+}
+
+export interface RepositoryFacts {
+  root: string;
+  remote: string;
+  owner?: string;
+  name?: string;
+}
+
+export interface GitFacts {
+  branch: string;
+  headSha: string;
+  dirty: boolean;
+  status: string[];
+  baseRef?: string;
+}
+
+export interface ContextValidation {
+  valid: boolean;
+  diagnostics: ContextDiagnostic[];
+}
+
+export interface CollectedContext {
+  schemaVersion: 1;
+  source: "local" | "github";
+  selection: { mode: string; requested: string; reason?: string };
+  repository: RepositoryFacts;
+  git: GitFacts;
+  pullRequest: NormalizedPullRequest | null;
+  diff: string;
+  preflight: PatchAnalysis;
+  changeGroups: ChangeGrouping;
+  collectionDiagnostics: ContextDiagnostic[];
+  validation: ContextValidation;
+}
+
+export interface CollectOptions {
+  pr?: string;
+  repo?: string;
+  base?: string;
+}
 
 export const PR_FIELDS =
   "number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments";
 
-function trim(value) {
+function trim(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function repositoryFromRemote(remote) {
+function repositoryFromRemote(remote: string): Omit<RepositoryFacts, "root"> {
   const match = /github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(trim(remote));
   return match ? { owner: match[1], name: match[2], remote } : { remote };
 }
 
-function normalizeCheck(check) {
+function normalizeCheck(check: GitHubCheck): NormalizedPullRequest["checks"][number] {
   if (check.__typename === "StatusContext") {
     return {
       name: check.context || "",
@@ -30,16 +154,18 @@ function normalizeCheck(check) {
   };
 }
 
-function normalizePr(raw) {
+function normalizePr(raw: RawPullRequest): NormalizedPullRequest {
   return {
-    number: raw.number,
-    url: raw.url,
-    title: raw.title,
+    number: raw.number ?? 0,
+    url: raw.url ?? "",
+    title: raw.title ?? "",
     description: raw.body || "",
-    baseBranch: raw.baseRefName,
-    headBranch: raw.headRefName,
-    headSha: raw.headRefOid,
-    labels: (raw.labels || []).map((label) => label.name).filter(Boolean),
+    baseBranch: raw.baseRefName ?? "",
+    headBranch: raw.headRefName ?? "",
+    headSha: raw.headRefOid ?? "",
+    labels: (raw.labels || [])
+      .map((label) => label.name)
+      .filter((label): label is string => Boolean(label)),
     checks: (raw.statusCheckRollup || []).map(normalizeCheck),
     reviews: (raw.reviews || []).map((review) => ({
       author: review.author?.login || "",
@@ -56,76 +182,86 @@ function normalizePr(raw) {
   };
 }
 
-function normalizeReviewComments(raw) {
+function normalizeReviewComments(
+  raw: unknown,
+): NonNullable<NormalizedPullRequest["reviewComments"]> {
   const pages = Array.isArray(raw) && Array.isArray(raw[0]) ? raw.flat() : raw;
   return (Array.isArray(pages) ? pages : []).map((comment) => ({
-    author: comment.user?.login || "",
-    body: comment.body || "",
-    url: comment.html_url || "",
-    path: comment.path || "",
-    line: comment.line ?? null,
-    originalLine: comment.original_line ?? null,
-    side: comment.side || "",
-    startLine: comment.start_line ?? null,
-    createdAt: comment.created_at || "",
+    author: (comment as RawReviewComment).user?.login || "",
+    body: (comment as RawReviewComment).body || "",
+    url: (comment as RawReviewComment).html_url || "",
+    path: (comment as RawReviewComment).path || "",
+    line: (comment as RawReviewComment).line ?? null,
+    originalLine: (comment as RawReviewComment).original_line ?? null,
+    side: (comment as RawReviewComment).side || "",
+    startLine: (comment as RawReviewComment).start_line ?? null,
+    createdAt: (comment as RawReviewComment).created_at || "",
   }));
 }
 
-export function validateContext(context) {
-  const diagnostics = [];
-  const addMissing = (path) => {
+export function validateContext(context: CollectedContext): ContextValidation {
+  const diagnostics: ContextDiagnostic[] = [];
+  const addMissing = (fieldPath: string): void => {
     diagnostics.push({
       level: "error",
       code: "missing-field",
-      path,
-      message: `Required context field '${path}' is missing.`,
+      path: fieldPath,
+      message: `Required context field '${fieldPath}' is missing.`,
     });
   };
-  const requireString = (value, path, allowEmpty = false) => {
+  const requireString = (value: unknown, fieldPath: string, allowEmpty = false): void => {
     if (value === undefined || value === null || (!allowEmpty && value === "")) {
-      addMissing(path);
+      addMissing(fieldPath);
     } else if (typeof value !== "string") {
       diagnostics.push({
         level: "error",
         code: "invalid-field-type",
-        path,
-        message: `Context field '${path}' must be a string.`,
+        path: fieldPath,
+        message: `Context field '${fieldPath}' must be a string.`,
       });
     }
   };
-  const requireArray = (value, path, validateItem) => {
+  const requireArray = (
+    value: unknown,
+    fieldPath: string,
+    validateItem?: (item: unknown, path: string) => void,
+  ): void => {
     if (value === undefined || value === null) {
-      addMissing(path);
+      addMissing(fieldPath);
     } else if (!Array.isArray(value)) {
       diagnostics.push({
         level: "error",
         code: "invalid-field-type",
-        path,
-        message: `Context field '${path}' must be an array.`,
+        path: fieldPath,
+        message: `Context field '${fieldPath}' must be an array.`,
       });
     } else if (validateItem) {
-      value.forEach((item, index) => validateItem(item, `${path}[${index}]`));
+      value.forEach((item, index) => validateItem(item, `${fieldPath}[${index}]`));
     }
   };
-  const requireObject = (value, path, validateFields) => {
+  const requireObject = (
+    value: unknown,
+    fieldPath: string,
+    validateFields: (item: JsonObject, path: string) => void,
+  ): void => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       diagnostics.push({
         level: "error",
         code: "invalid-field-type",
-        path,
-        message: `Context field '${path}' must be an object.`,
+        path: fieldPath,
+        message: `Context field '${fieldPath}' must be an object.`,
       });
     } else {
-      validateFields(value, path);
+      validateFields(value as JsonObject, fieldPath);
     }
   };
-  const requireNullableNumber = (value, path) => {
+  const requireNullableNumber = (value: unknown, fieldPath: string): void => {
     if (value !== null && typeof value !== "number") {
       diagnostics.push({
         level: "error",
         code: "invalid-field-type",
-        path,
-        message: `Context field '${path}' must be a number or null.`,
+        path: fieldPath,
+        message: `Context field '${fieldPath}' must be a number or null.`,
       });
     }
   };
@@ -145,8 +281,9 @@ export function validateContext(context) {
   requireString(context.repository?.root, "repository.root");
   requireString(context.git?.headSha, "git.headSha");
   if (context.source === "github") {
-    if (!Number.isInteger(context.pullRequest?.number) || context.pullRequest.number < 1) {
-      if (context.pullRequest?.number === undefined || context.pullRequest?.number === null) {
+    const pullRequestNumber = context.pullRequest?.number;
+    if (!Number.isInteger(pullRequestNumber) || (pullRequestNumber ?? 0) < 1) {
+      if (pullRequestNumber === undefined || pullRequestNumber === null) {
         addMissing("pullRequest.number");
       } else {
         diagnostics.push({
@@ -221,7 +358,10 @@ export function validateContext(context) {
   };
 }
 
-function gitFacts(repo, run) {
+function gitFacts(
+  repo: string,
+  run: CommandRunner,
+): { repository: RepositoryFacts; git: GitFacts } {
   const root = trim(run("git", ["rev-parse", "--show-toplevel"], { cwd: repo }));
   const branch = trim(run("git", ["branch", "--show-current"], { cwd: root }));
   const headSha = trim(run("git", ["rev-parse", "HEAD"], { cwd: root }));
@@ -244,13 +384,13 @@ function gitFacts(repo, run) {
 }
 
 function collectLocalContext(
-  facts,
-  selection,
-  reason,
-  options,
-  run,
-  collectionDiagnostics = [],
-) {
+  facts: ReturnType<typeof gitFacts>,
+  selection: string,
+  reason: string,
+  options: CollectOptions,
+  run: CommandRunner,
+  collectionDiagnostics: ContextDiagnostic[] = [],
+): CollectedContext {
   let baseRef = options.base;
   if (!baseRef) {
     try {
@@ -263,14 +403,16 @@ function collectLocalContext(
       baseRef = "HEAD";
     }
   }
-  const defaultBranch = baseRef.includes("/") ? baseRef.slice(baseRef.lastIndexOf("/") + 1) : baseRef;
+  const defaultBranch = baseRef.includes("/")
+    ? baseRef.slice(baseRef.lastIndexOf("/") + 1)
+    : baseRef;
   if (facts.git.branch === defaultBranch) baseRef = "HEAD";
 
   const diff = run("git", ["diff", "--binary", "--no-ext-diff", baseRef], {
     cwd: facts.repository.root,
   });
   const preflight = preflightPatch(diff, run, facts.repository.root);
-  const context = {
+  const context: CollectedContext = {
     schemaVersion: 1,
     source: "local",
     selection: {
@@ -285,45 +427,40 @@ function collectLocalContext(
     preflight,
     changeGroups: detectChangeGroups(diff, preflight),
     collectionDiagnostics,
+    validation: { valid: false, diagnostics: [] },
   };
   context.validation = validateContext(context);
   return context;
 }
 
-export function collectPrContext(options, run) {
+export function collectPrContext(options: CollectOptions, run: CommandRunner): CollectedContext {
   const selection = options.pr || "auto";
   const mode = selection === "auto" ? "auto" : selection === "none" ? "none" : "explicit";
   const facts = gitFacts(options.repo || process.cwd(), run);
 
   if (mode === "none") {
-    return collectLocalContext(
-      facts,
-      selection,
-      "remote-context-disabled",
-      options,
-      run,
-    );
+    return collectLocalContext(facts, selection, "remote-context-disabled", options, run);
   }
 
   const viewArgs = ["pr", "view"];
   if (mode === "explicit") viewArgs.push(selection);
   viewArgs.push("--json", PR_FIELDS);
-  let raw;
+  let raw: RawPullRequest;
   try {
-    raw = JSON.parse(run("gh", viewArgs, { cwd: facts.repository.root }));
-  } catch (error) {
+    raw = JSON.parse(run("gh", viewArgs, { cwd: facts.repository.root })) as RawPullRequest;
+  } catch (error: unknown) {
     if (mode !== "auto") throw error;
     const noPullRequest =
       /no pull requests? found|could not find a pull request|no pull request found/i.test(
-        error.message,
+        error instanceof Error ? error.message : "",
       );
-    const collectionDiagnostics = noPullRequest
+    const collectionDiagnostics: ContextDiagnostic[] = noPullRequest
       ? []
       : [
           {
             level: "warning",
             code: "remote-context-unavailable",
-            message: `GitHub context unavailable: ${error.message}`,
+            message: `GitHub context unavailable: ${error instanceof Error ? error.message : String(error)}`,
           },
         ];
     return collectLocalContext(
@@ -336,11 +473,10 @@ export function collectPrContext(options, run) {
     );
   }
   const pullRequest = normalizePr(raw);
-  const collectionDiagnostics = [];
+  const collectionDiagnostics: ContextDiagnostic[] = [];
   const repoOwner = /github\.com\/([^/]+)/.exec(pullRequest.url)?.[1] || facts.repository.owner;
   const repoName =
-    /github\.com\/[^/]+\/([^/]+)\/pull\//.exec(pullRequest.url)?.[1] ||
-    facts.repository.name;
+    /github\.com\/[^/]+\/([^/]+)\/pull\//.exec(pullRequest.url)?.[1] || facts.repository.name;
   try {
     const reviewComments = JSON.parse(
       run(
@@ -355,12 +491,12 @@ export function collectPrContext(options, run) {
       ),
     );
     pullRequest.reviewComments = normalizeReviewComments(reviewComments);
-  } catch (error) {
+  } catch (error: unknown) {
     pullRequest.reviewComments = [];
     collectionDiagnostics.push({
       level: "warning",
       code: "review-comments-unavailable",
-      message: `Could not collect inline review comments: ${error.message}`,
+      message: `Could not collect inline review comments: ${error instanceof Error ? error.message : String(error)}`,
     });
   }
   const diffSelector = mode === "explicit" ? selection : String(pullRequest.number);
@@ -368,7 +504,7 @@ export function collectPrContext(options, run) {
     cwd: facts.repository.root,
   });
   const preflight = preflightPatch(diff, run, facts.repository.root);
-  const context = {
+  const context: CollectedContext = {
     schemaVersion: 1,
     source: "github",
     selection: { mode, requested: selection },
@@ -379,6 +515,7 @@ export function collectPrContext(options, run) {
     preflight,
     changeGroups: detectChangeGroups(diff, preflight),
     collectionDiagnostics,
+    validation: { valid: false, diagnostics: [] },
   };
   context.validation = validateContext(context);
   return context;
