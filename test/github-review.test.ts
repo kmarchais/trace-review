@@ -5,7 +5,14 @@ import {
   githubReviewPreview,
   prepareGithubReview,
   publishGithubReview,
+  rangeStartMatchesAnchor,
 } from "../scripts/lib/github-review.mjs";
+
+test("a moved range start is not treated as the saved anchor", () => {
+  assert.equal(rangeStartMatchesAnchor("saved-start", "saved-start"), true);
+  assert.equal(rangeStartMatchesAnchor("saved-start", "different-line"), false);
+  assert.equal(rangeStartMatchesAnchor("saved-start", undefined), false);
+});
 
 test("eligible line and block comments become native GitHub review comments", () => {
   const plan = prepareGithubReview(

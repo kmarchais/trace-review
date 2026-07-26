@@ -582,6 +582,9 @@ Summary fallbacks: 0</pre>
 <script id="github-review-data" type="application/json">{{GITHUB_REVIEW}}</script>
 <script>(() => {
 // scripts/lib/github-review.mts
+function rangeStartMatchesAnchor(savedFingerprint, currentFingerprint) {
+  return Boolean(savedFingerprint && savedFingerprint === currentFingerprint);
+}
 function positiveInteger(value) {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
@@ -1061,7 +1064,7 @@ function eventElement(event) {
       const g = fingerprintSelector && mount.querySelector(fingerprintSelector) || contentSelector && mount.querySelector(contentSelector) || !c.fingerprint && mount.querySelector('.gutter[data-key="' + cssEsc(c.key) + '"][data-file="' + cssEsc(c.file) + '"]');
       if (g) {
         const rangePrefix = c.pr + "\x00" + c.file + "\x00";
-        if (c.startKey && c.startKey !== c.key && (c.rangeStale || !c.startFingerprint || !currentLineFingerprints().has(rangePrefix + c.startFingerprint))) {
+        if (c.startKey && c.startKey !== c.key && (c.rangeStale || !rangeStartMatchesAnchor(c.startFingerprint, lineEvidence().anchorFingerprints.get(rangePrefix + c.startKey)))) {
           continue;
         }
         const currentId = uid(pr, c.file, g.dataset.key);
@@ -1102,7 +1105,7 @@ function eventElement(event) {
   function lineEvidence() {
     if (lineEvidenceCache)
       return lineEvidenceCache;
-    const fingerprints = new Set, anchors = new Set, content = new Map;
+    const fingerprints = new Set, anchors = new Set, anchorFingerprints = new Map, content = new Map;
     Object.values(DATA).forEach((file) => {
       (file.hunks || []).forEach((hunk) => (hunk.rows || []).forEach((row) => {
         const prefix = file.reviewTarget + "\x00" + file.path + "\x00";
@@ -1110,6 +1113,7 @@ function eventElement(event) {
         if (row.f)
           fingerprints.add(prefix + row.f);
         anchors.add(prefix + key);
+        anchorFingerprints.set(prefix + key, row.f);
         if (row.cf) {
           const contentKey = prefix + row.cf;
           const matches = content.get(contentKey) ?? new Set;
@@ -1118,7 +1122,7 @@ function eventElement(event) {
         }
       }));
     });
-    lineEvidenceCache = { fingerprints, anchors, content };
+    lineEvidenceCache = { fingerprints, anchors, anchorFingerprints, content };
     return lineEvidenceCache;
   }
   function currentLineFingerprints() {
@@ -1136,7 +1140,7 @@ function eventElement(event) {
       if (!comment)
         return false;
       const prefix = comment.pr + "\x00" + comment.file + "\x00";
-      if (comment.startKey && comment.startKey !== comment.key && (comment.rangeStale || !comment.startFingerprint || !current.has(prefix + comment.startFingerprint))) {
+      if (comment.startKey && comment.startKey !== comment.key && (comment.rangeStale || !rangeStartMatchesAnchor(comment.startFingerprint, lineEvidence().anchorFingerprints.get(prefix + comment.startKey)))) {
         return true;
       }
       if (!comment.fingerprint)

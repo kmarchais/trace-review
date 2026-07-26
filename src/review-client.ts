@@ -1,6 +1,7 @@
 import {
   githubReviewPreview,
   prepareGithubReview,
+  rangeStartMatchesAnchor,
   type GithubPublicationContext,
   type GithubReviewPlan,
   type ReviewDraftComment,
@@ -111,6 +112,7 @@ interface StoredLineComment {
 interface LineEvidence {
   fingerprints: Set<string>;
   anchors: Set<string>;
+  anchorFingerprints: Map<string, string>;
   content: Map<string, Set<string>>;
 }
 
@@ -640,8 +642,10 @@ function eventElement(event: Event): UiElement | null {
           c.startKey &&
           c.startKey !== c.key &&
           (c.rangeStale ||
-            !c.startFingerprint ||
-            !currentLineFingerprints().has(rangePrefix + c.startFingerprint))
+            !rangeStartMatchesAnchor(
+              c.startFingerprint,
+              lineEvidence().anchorFingerprints.get(rangePrefix + c.startKey),
+            ))
         ) {
           continue;
         }
@@ -685,6 +689,7 @@ function eventElement(event: Event): UiElement | null {
     if (lineEvidenceCache) return lineEvidenceCache;
     const fingerprints = new Set<string>(),
       anchors = new Set<string>(),
+      anchorFingerprints = new Map<string, string>(),
       content = new Map<string, Set<string>>();
     Object.values(DATA).forEach((file) => {
       (file.hunks || []).forEach((hunk) =>
@@ -693,6 +698,7 @@ function eventElement(event: Event): UiElement | null {
           const key = row.t === "d" ? "o" + row.o : String(row.n);
           if (row.f) fingerprints.add(prefix + row.f);
           anchors.add(prefix + key);
+          anchorFingerprints.set(prefix + key, row.f);
           if (row.cf) {
             const contentKey = prefix + row.cf;
             const matches = content.get(contentKey) ?? new Set<string>();
@@ -702,7 +708,7 @@ function eventElement(event: Event): UiElement | null {
         }),
       );
     });
-    lineEvidenceCache = { fingerprints, anchors, content };
+    lineEvidenceCache = { fingerprints, anchors, anchorFingerprints, content };
     return lineEvidenceCache;
   }
   function currentLineFingerprints(): Set<string> {
@@ -724,8 +730,10 @@ function eventElement(event: Event): UiElement | null {
         comment.startKey &&
         comment.startKey !== comment.key &&
         (comment.rangeStale ||
-          !comment.startFingerprint ||
-          !current.has(prefix + comment.startFingerprint))
+          !rangeStartMatchesAnchor(
+            comment.startFingerprint,
+            lineEvidence().anchorFingerprints.get(prefix + comment.startKey),
+          ))
       ) {
         return true;
       }

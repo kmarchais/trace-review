@@ -89,6 +89,13 @@ export class GithubReviewPublicationError extends Error {
   }
 }
 
+export function rangeStartMatchesAnchor(
+  savedFingerprint: string | undefined,
+  currentFingerprint: string | undefined,
+): boolean {
+  return Boolean(savedFingerprint && savedFingerprint === currentFingerprint);
+}
+
 function objectValue(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -6,6 +6,9 @@ export class GithubReviewPublicationError extends Error {
         this.name = "GithubReviewPublicationError";
     }
 }
+export function rangeStartMatchesAnchor(savedFingerprint, currentFingerprint) {
+    return Boolean(savedFingerprint && savedFingerprint === currentFingerprint);
+}
 function objectValue(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
 }
