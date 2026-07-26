@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   GithubReviewPublicationError,
+  githubReviewPreview,
   prepareGithubReview,
   publishGithubReview,
 } from "../scripts/lib/github-review.mjs";
@@ -57,6 +58,10 @@ test("eligible line and block comments become native GitHub review comments", ()
   ]);
   assert.deepEqual(plan.fallbackComments, []);
   assert.equal(plan.summary, "Please address the inline feedback.");
+  const preview = githubReviewPreview(plan);
+  assert.match(preview, /Review body:\nPlease address the inline feedback\./);
+  assert.match(preview, /Native src\/widget\.ts:18 \(RIGHT\):\nHandle the empty case\./);
+  assert.match(preview, /Native src\/legacy\.ts:7-9 \(LEFT\):\nKeep this range covered\./);
 });
 
 test("file, orphaned, and incomplete comments remain in the summary fallback", () => {
@@ -126,6 +131,10 @@ test("file, orphaned, and incomplete comments remain in the summary fallback", (
       },
     ],
   );
+  const preview = githubReviewPreview(plan);
+  assert.match(preview, /Fallback src\/widget\.ts — file comments do not have a diff anchor:/);
+  assert.match(preview, /This file needs a smaller interface\./);
+  assert.match(preview, /This saved comment moved\./);
 });
 
 test("publication refuses a stale pull-request head before confirmation or submission", async () => {

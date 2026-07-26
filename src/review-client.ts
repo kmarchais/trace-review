@@ -103,6 +103,8 @@ interface StoredLineComment {
   text: string;
   fingerprint?: string;
   contentFingerprint?: string;
+  startFingerprint?: string;
+  rangeStale?: boolean;
   diffFingerprint?: string;
 }
 
@@ -504,8 +506,9 @@ function eventElement(event: Event): UiElement | null {
     const endLine = parseInt(g.dataset.lineno || "", 10);
     const oldSide = key.startsWith("o");
     const candidates = new Map<string, string>();
+    const candidateFingerprints = new Map<string, string>();
     let candidateRow: Element | null = tr;
-    while (candidateRow && !candidateRow.classList.contains("hunk")) {
+    while (candidateRow && !candidateRow.classList.contains("line-hunk")) {
       candidateRow
         .querySelectorAll('.gutter[data-file="' + cssEsc(file) + '"][data-key]')
         .forEach((candidate) => {
@@ -518,6 +521,7 @@ function eventElement(event: Event): UiElement | null {
             candidateLine <= endLine
           ) {
             candidates.set(candidateKey, String(candidateLine));
+            candidateFingerprints.set(candidateKey, candidate.dataset.fingerprint || "");
           }
         });
       candidateRow = candidateRow.previousElementSibling;
@@ -572,6 +576,7 @@ function eventElement(event: Event): UiElement | null {
         text: ta.value,
         fingerprint: g.dataset.fingerprint || "",
         contentFingerprint: g.dataset.contentFingerprint || "",
+        startFingerprint: candidateFingerprints.get(startSelect.value) || "",
         diffFingerprint: g.dataset.diffFingerprint || "",
       };
       save();
@@ -634,13 +639,20 @@ function eventElement(event: Event): UiElement | null {
         if (
           c.startKey &&
           c.startKey !== c.key &&
-          !currentLineAnchors().has(rangePrefix + c.startKey)
+          (c.rangeStale ||
+            !c.startFingerprint ||
+            !currentLineFingerprints().has(rangePrefix + c.startFingerprint))
         ) {
           continue;
         }
         const currentId = uid(pr, c.file, g.dataset.key);
         const oldKey = c.key;
         if (id !== currentId) {
+          if (c.startKey && c.startKey !== oldKey) {
+            c.rangeStale = true;
+            save();
+            continue;
+          }
           const oldAttachmentId = attachmentId("line", c.pr, c.file, c.key);
           const newAttachmentId = attachmentId("line", pr, c.file, g.dataset.key);
           if (state.attachments[oldAttachmentId]) {
@@ -711,7 +723,9 @@ function eventElement(event: Event): UiElement | null {
       if (
         comment.startKey &&
         comment.startKey !== comment.key &&
-        !anchors.has(prefix + comment.startKey)
+        (comment.rangeStale ||
+          !comment.startFingerprint ||
+          !current.has(prefix + comment.startFingerprint))
       ) {
         return true;
       }

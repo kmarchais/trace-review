@@ -652,17 +652,36 @@ function githubReviewPreview(plan) {
     `Target: ${plan.target.repository}#${plan.target.pullRequest}`,
     `Head: ${plan.target.headSha}`,
     `Native threads: ${plan.nativeComments.length}`,
-    `Summary fallbacks: ${plan.fallbackComments.length}`
+    `Summary fallbacks: ${plan.fallbackComments.length}`,
+    "",
+    "Review body:",
+    githubReviewBody(plan)
   ];
   for (const comment of plan.nativeComments) {
     const range = comment.start_line ? `${comment.start_line}-${comment.line}` : String(comment.line);
-    lines.push(`  native ${comment.path}:${range} (${comment.side})`);
+    lines.push("", `Native ${comment.path}:${range} (${comment.side}):`, comment.body);
   }
   for (const comment of plan.fallbackComments) {
-    lines.push(`  fallback ${comment.location || "overall"} — ${comment.reason}`);
+    lines.push("", `Fallback ${comment.location || "overall"} — ${comment.reason}:`, comment.body);
   }
   return lines.join(`
 `);
+}
+function githubReviewBody(plan) {
+  let body = plan.summary;
+  if (plan.fallbackComments.length) {
+    body += `${body ? `
+
+` : ""}## Comments included in this summary
+`;
+    for (const comment of plan.fallbackComments) {
+      const location = comment.location ? `**${comment.location}** — ` : "";
+      body += `
+- ${location}${comment.body}
+  _Fallback: ${comment.reason}._`;
+    }
+  }
+  return body.trim() || "Inline review comments.";
 }
 
 // src/review-client.ts
@@ -942,13 +961,15 @@ function eventElement(event) {
     const endLine = parseInt(g.dataset.lineno || "", 10);
     const oldSide = key.startsWith("o");
     const candidates = new Map;
+    const candidateFingerprints = new Map;
     let candidateRow = tr;
-    while (candidateRow && !candidateRow.classList.contains("hunk")) {
+    while (candidateRow && !candidateRow.classList.contains("line-hunk")) {
       candidateRow.querySelectorAll('.gutter[data-file="' + cssEsc(file) + '"][data-key]').forEach((candidate) => {
         const candidateKey = candidate.dataset.key || "";
         const candidateLine = parseInt(candidate.dataset.lineno || "", 10);
         if (candidateKey && candidateKey.startsWith("o") === oldSide && Number.isInteger(candidateLine) && candidateLine <= endLine) {
           candidates.set(candidateKey, String(candidateLine));
+          candidateFingerprints.set(candidateKey, candidate.dataset.fingerprint || "");
         }
       });
       candidateRow = candidateRow.previousElementSibling;
@@ -998,6 +1019,7 @@ function eventElement(event) {
         text: ta.value,
         fingerprint: g.dataset.fingerprint || "",
         contentFingerprint: g.dataset.contentFingerprint || "",
+        startFingerprint: candidateFingerprints.get(startSelect.value) || "",
         diffFingerprint: g.dataset.diffFingerprint || ""
       };
       save();
@@ -1039,12 +1061,17 @@ function eventElement(event) {
       const g = fingerprintSelector && mount.querySelector(fingerprintSelector) || contentSelector && mount.querySelector(contentSelector) || !c.fingerprint && mount.querySelector('.gutter[data-key="' + cssEsc(c.key) + '"][data-file="' + cssEsc(c.file) + '"]');
       if (g) {
         const rangePrefix = c.pr + "\x00" + c.file + "\x00";
-        if (c.startKey && c.startKey !== c.key && !currentLineAnchors().has(rangePrefix + c.startKey)) {
+        if (c.startKey && c.startKey !== c.key && (c.rangeStale || !c.startFingerprint || !currentLineFingerprints().has(rangePrefix + c.startFingerprint))) {
           continue;
         }
         const currentId = uid(pr, c.file, g.dataset.key);
         const oldKey = c.key;
         if (id !== currentId) {
+          if (c.startKey && c.startKey !== oldKey) {
+            c.rangeStale = true;
+            save();
+            continue;
+          }
           const oldAttachmentId = attachmentId("line", c.pr, c.file, c.key);
           const newAttachmentId = attachmentId("line", pr, c.file, g.dataset.key);
           if (state.attachments[oldAttachmentId]) {
@@ -1109,7 +1136,7 @@ function eventElement(event) {
       if (!comment)
         return false;
       const prefix = comment.pr + "\x00" + comment.file + "\x00";
-      if (comment.startKey && comment.startKey !== comment.key && !anchors.has(prefix + comment.startKey)) {
+      if (comment.startKey && comment.startKey !== comment.key && (comment.rangeStale || !comment.startFingerprint || !current.has(prefix + comment.startFingerprint))) {
         return true;
       }
       if (!comment.fingerprint)

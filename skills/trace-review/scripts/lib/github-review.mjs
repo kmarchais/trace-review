@@ -146,15 +146,18 @@ export function githubReviewPreview(plan) {
         `Head: ${plan.target.headSha}`,
         `Native threads: ${plan.nativeComments.length}`,
         `Summary fallbacks: ${plan.fallbackComments.length}`,
+        "",
+        "Review body:",
+        githubReviewBody(plan),
     ];
     for (const comment of plan.nativeComments) {
         const range = comment.start_line
             ? `${comment.start_line}-${comment.line}`
             : String(comment.line);
-        lines.push(`  native ${comment.path}:${range} (${comment.side})`);
+        lines.push("", `Native ${comment.path}:${range} (${comment.side}):`, comment.body);
     }
     for (const comment of plan.fallbackComments) {
-        lines.push(`  fallback ${comment.location || "overall"} — ${comment.reason}`);
+        lines.push("", `Fallback ${comment.location || "overall"} — ${comment.reason}:`, comment.body);
     }
     return lines.join("\n");
 }

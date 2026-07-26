@@ -96,6 +96,8 @@ test("GitHub-enabled reviews expose a native-versus-fallback publication preview
   assert.match(html, /Summary fallbacks/);
   assert.match(html, /id="downloadGithubPlanBtn"/);
   assert.match(html, /Start line for a multi-line comment/);
+  assert.match(html, /classList\.contains\("line-hunk"\)/);
+  assert.match(html, /startFingerprint/);
 });
 
 test("generator rejects an invalid specification without writing output", (t) => {
