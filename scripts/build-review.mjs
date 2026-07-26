@@ -796,20 +796,6 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   const filesLabel = `${files.length} file${files.length === 1 ? "" : "s"}`;
   const stat = `<span class="stat-add">+${totals.add}</span> <span class="stat-del">-${totals.del}</span>`;
 
-  // "the PR" panel on the left — only when there is PR context to show
-  const hasBlocks = Array.isArray(pr.blocks) ? pr.blocks.length > 0 : !!(pr.summary || (Array.isArray(pr.diagrams) && pr.diagrams.length));
-  const hasContext = hasBlocks || !!pr.url;
-  const contextPanel = hasContext
-    ? `
-      <aside class="pr-context">
-        <div class="summary-head">
-          <h2>${esc(pr.title || prId)}</h2>
-          <div class="pr-meta">${stat} · ${filesLabel}${link}</div>
-        </div>
-        ${blocksHtml}
-      </aside>`
-    : "";
-
   // Claude's automatic review (optional) — read-only global card + line findings
   const review = normalizeReview(pr);
   if (review) reviewBag[prId] = review;
@@ -826,16 +812,25 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
   const overallPlaceholder = review
     ? `Your verdict after reading the summary, the ${reviewer} review, and the diff…`
     : "Your overall verdict after reading the summary and the diff…";
+  // Compact PR context and the reviewer's overall verdict share the left rail.
+  const contextPanel = `
+      <aside class="pr-context">
+        <div class="summary-head">
+          <h2>${esc(pr.title || prId)}</h2>
+          <div class="pr-meta">${stat} · ${filesLabel}${link}</div>
+        </div>
+        ${blocksHtml}
+        <div class="overall-bar">
+          <div class="ob-head"><span class="review-label">📝 Your overall review</span><button type="button" class="ob-toggle" title="Collapse / expand">▾</button></div>
+          <textarea class="general-input" data-general="${esc(prId)}" placeholder="${esc(overallPlaceholder)}"></textarea>
+        </div>
+      </aside>`;
 
   return `
   <section class="pr${single ? " single" : ""}" id="${esc(prId)}" data-pr="${esc(prId)}" data-active-stage="inspect"${single ? "" : " hidden"}>
-    <nav class="review-journey" aria-label="Review stages">
-      <button type="button" data-review-stage="inspect" aria-current="step"><span>1</span><strong>Review changes</strong><small>Diff and comments</small></button>
-      <button type="button" data-review-stage="validate"><span>2</span><strong>Review groups</strong><small>Optional intent check</small></button>
-    </nav>
-    <div class="pr-cols${hasContext ? "" : " no-context"}">
+    <div class="pr-cols">
       ${contextPanel}
-      ${hasContext ? '<div class="col-resizer" title="Drag to resize · double-click for 34/66"></div>' : ""}
+      <div class="col-resizer" title="Drag to resize · double-click for 34/66"></div>
       <div class="review-col">
         <div class="review-top${review ? " has-lm-review" : ""}">
           ${aiGlobal}
@@ -846,7 +841,7 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           </div>
         </div>
         <div class="diff-block" data-review-stage="inspect">
-          <div class="diff-block-head"><span class="dbh-left"><button type="button" class="dbh-tree" title="Show changed files">Files</button><span class="dbh-title">Files changed</span><span class="dbh-meta">${filesLabel} · ${stat}</span></span><span class="dbh-right">${hasContext ? '<button type="button" class="context-toggle" aria-pressed="false" title="Collapse pull request context">Context</button>' : ""}<button type="button" class="focus-mode-toggle" aria-pressed="false" title="Show only the evidence surface">Focus</button>${changeGroups || (Array.isArray(pr.groups) && pr.groups.length) ? '<button type="button" class="raw-order-toggle" aria-pressed="false" title="Switch between grouped reading order and raw Git order">Git order</button>' : ""}<div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)" aria-label="Fullscreen diff">⛶</button></span></div>
+          <div class="diff-block-head"><span class="dbh-left"><button type="button" class="dbh-tree" title="Show changed files">Files</button><span class="dbh-title">Files changed</span><span class="dbh-meta">${filesLabel} · ${stat}</span></span><span class="dbh-right"><button type="button" class="context-toggle" aria-pressed="false" title="Collapse review sidebar">Sidebar</button><button type="button" class="focus-mode-toggle" aria-pressed="false" title="Show only the evidence surface">Focus</button>${changeGroups || (Array.isArray(pr.groups) && pr.groups.length) ? '<button type="button" class="raw-order-toggle" aria-pressed="false" title="Switch between grouped reading order and raw Git order">Git order</button>' : ""}<div class="seg diff-mode-seg"><button type="button" data-mode="unified" class="active">Unified</button><button type="button" data-mode="split">Split</button></div><button type="button" class="dbh-fs" title="Fullscreen diff (Esc to exit)" aria-label="Fullscreen diff">⛶</button></span></div>
           ${warnHtml}
           <details class="orphan-panel" hidden>
             <summary>Orphaned comments <span class="orphan-count">0</span></summary>
@@ -855,10 +850,6 @@ function renderPr(pr, idx, single, dataBag, reviewBag, reviewer) {
           <div class="files">${filesHtml}</div>
         </div>
       </div>
-    </div>
-    <div class="overall-bar collapsed">
-      <div class="ob-head"><span class="review-label">📝 Your overall review</span><button type="button" class="ob-toggle" title="Collapse / expand">▾</button></div>
-      <textarea class="general-input" data-general="${esc(prId)}" placeholder="${esc(overallPlaceholder)}"></textarea>
     </div>
   </section>`;
 }
