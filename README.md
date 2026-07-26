@@ -1,59 +1,119 @@
 # Trace Review
 
-> **A review organized by decisions, not files.**
+> **Review more code with fewer LM tokens.**
 
-A Codex and [Claude Code](https://claude.com/claude-code) skill that turns a git
-diff — your working tree, a branch range, or one/many pull requests — into a
-single **self-contained, interactive HTML review document**.
+Trace Review turns a working-tree diff, branch range, or pull request into a
+self-contained interactive HTML review.
 
-Trace Review follows a change through its definition, usages, configuration,
-dependent changes, and tests. The product and skill identifier are
-`trace-review`. The GitHub repository is still named `html-review` until its
-remote is renamed.
+Its goal is simple: keep large diffs out of the conversation, give the language
+model compact evidence, and preserve a polished review interface in every mode.
 
-The heavy lifting lives in a template + build script, so generating a review
-costs almost no model tokens: diffs are read from files on disk (never echoed
-into the conversation), and the agent only authors a short JSON spec.
+The product and skill identifier are `trace-review`. The GitHub repository is
+still named `html-review` until its remote is renamed.
 
-## Landing page
+## How it saves tokens
 
-The static GitHub Pages site lives in [`docs/`](docs/). Configure Pages to
-publish from the `main` branch and `/docs` folder.
+Collection, validation, diff parsing, syntax rendering, comment persistence,
+and HTML generation happen in local scripts. The LM does not need to reproduce
+the patch or author the interface.
 
-![Trace Review reference C++ review](examples/screenshot.png)
+```text
+git / GitHub
+    ↓ deterministic collection
+context.json + context.patch
+    ↓ compact facts and bounded candidate groups
+LM grouping or analysis result
+    ↓ deterministic validation
+groups.json + review-spec.json
+    ↓ local HTML builder
+review.html
+```
 
-## What you get
+The patch stays in files on disk. The LM writes only the small semantic result
+needed by the selected mode, while the same template renders the full diff and
+review controls.
 
-- **Free-form PR summary** (left): description, diagrams (SVG or Mermaid), stat
-  tiles, risk tables, callouts — arranged in a resizable panel.
-- **Readable diff** (right): language-aware **syntax highlighting** (C/C++/CUDA,
-  Python, CMake, TOML, Markdown, JS/TS, Rust, Go, …), unified **or** split view,
-  word-level context, per-line and per-file comments, "Viewed" checkboxes, and a
-  **fullscreen** mode for focused reading.
-- **Decision-oriented groups**: deterministic hunk facts feed LM-generated,
-  change-specific decisions with intent, evidence, risk, confidence, reviewer
-  checks, dependencies, and a validated reading order.
-- **Decision-cohesive rendering**: within a group, each file appears once with
-  that decision's relevant hunks. A file may participate in multiple groups
-  when separate hunks belong to separate decisions. Groups are read-only
-  context so the reviewer evaluates them instead of repairing the model.
-- **Focused LM analysis**: candidate groups and deterministic facts feed a
-  sparse, budgeted set of line findings with confidence and rationale, each
-  with Accept / Dismiss / Reply. Attribution is always the deterministic,
-  provider-neutral label **LM**.
-- **Export**: copy all comments and review decisions as clean Markdown directly
-  from the header, or open the export preview to inspect and download the file.
-- **Real-PR robustness**: comments follow stable diff fingerprints and remain
-  visible as orphans when their source line changes; untrusted links and SVG
-  are sanitized before rendering.
-- **Large-review controls**: bounded word-level comparison and progressive
-  client rendering keep very large pull requests responsive.
-- GitHub-inspired, light/dark (follows the OS), and fully offline except Mermaid
-  diagrams and syntax highlighting, which degrade gracefully.
+Use `--metrics-out .review/metrics.json` to record patch size, estimated spec
+tokens, estimated avoided-patch tokens, generation time, and manual quality
+measurements.
+
+See [real pull request measurement](docs/REAL-PR-METRICS.md) for the measurement
+contract and its limits.
+
+## Proof: an LM result becomes a full review
+
+The checked-in [C++ reference review](examples/cpp-reference/README.md) is a
+reproducible example, not a hand-written mock-up.
+
+The LM produces
+[`grouping-result.json`](examples/cpp-reference/grouping-result.json). One group
+looks like this:
+
+```json
+{
+  "title": "Capped exponential backoff behavior",
+  "kind": "feature",
+  "intent": "Review the exponential delay calculation and its 30-second ceiling as one behavioral decision.",
+  "risk": "medium",
+  "confidence": 0.96,
+  "evidence": [
+    "The implementation doubles the base delay by attempt and caps the result at 30 seconds."
+  ],
+  "changeIds": [
+    "src/retry_policy.cpp#h0",
+    "src/retry_policy.cpp#h1",
+    "src/retry_policy.cpp#h2",
+    "src/retry_policy.cpp#h3"
+  ]
+}
+```
+
+The finalizer checks coverage, evidence, titles, and dependencies before writing
+[`groups.json`](examples/cpp-reference/groups.json).
+
+The compact
+[`review-spec.json`](examples/cpp-reference/review-spec.json) adds the summary
+and one actionable LM finding.
+
+The local builder combines those small files with
+[`changes.patch`](examples/cpp-reference/changes.patch) to render the complete
+interface below.
+
+## One interface, three review modes
+
+| Mode | LM work | Result |
+|------|---------|--------|
+| `workspace` | No automatic findings | Diff, context, groups, and reviewer-authored comments |
+| `lm-analysis` | Sparse, budgeted findings from compact facts | Global assessment plus high-confidence line findings |
+| `deep-audit` | Broader analysis for explicit or high-risk reviews | Dependency, failure-mode, and test analysis |
+
+Every mode uses the same GitHub-inspired light/dark interface, unified and split
+diffs, file navigation, progress tracking, comments, and Markdown export.
+
+![Current Trace Review interface](examples/screenshot.png)
+
+## What the interface provides
+
+- **PR context** with prose, stats, tables, callouts, and SVG or Mermaid
+  diagrams in a resizable panel.
+- **Readable diffs** with syntax highlighting, unified or split mode, word-level
+  context, file comments, line comments, viewed state, and fullscreen mode.
+- **Decision-oriented groups** with intent, evidence, risk, confidence,
+  reviewer checks, dependencies, and a validated reading order.
+- **Focused LM findings** with confidence, rationale, and
+  Accept/Dismiss/Reply controls.
+- **Stable review state** with diff fingerprints, orphan recovery, and browser
+  localStorage persistence.
+- **Clean export** of reviewer comments and LM decisions as Markdown.
+- **Large-review controls** with bounded word comparison and progressive
+  rendering.
+
+The interface uses system fonts and works offline. Mermaid diagrams and hosted
+syntax colors need network access but degrade gracefully.
 
 ## Install
 
-Clone into your agent's skills directory:
+Clone the repository into the skills directory used by your agent host:
 
 ```bash
 # Codex
@@ -63,38 +123,36 @@ git clone git@github.com:kmarchais/html-review.git ~/.codex/skills/trace-review
 git clone git@github.com:kmarchais/html-review.git ~/.claude/skills/trace-review
 ```
 
-Both agents discover the skill as `trace-review`; Claude Code exposes it as
+Both hosts discover the skill as `trace-review`. Claude Code exposes it as
 `/trace-review`.
 
 ## Requirements
 
-- **Node 18+** — required by the dependency-free collection and build scripts.
-- **Git** — required for repository facts and local diffs.
-- **GitHub CLI (`gh`)** — optional. Automatic mode warns and falls back to a
-  local diff when GitHub context is unavailable. Explicit PR numbers/URLs
-  require `gh`.
-- **Claude Code or Codex** — needed only to invoke the skill workflow and
-  generate language-model (LM) analysis. The scripts can be run manually without either agent,
-  and a generated review works as a standalone HTML file in a modern browser.
+- **Node 18+** for the dependency-free collection and build scripts.
+- **Git** for repository facts and local diffs.
+- **GitHub CLI (`gh`)** for pull-request context. Automatic mode falls back to a
+  local diff when GitHub is unavailable.
+- **Claude Code or Codex** only when invoking the skill or requesting LM
+  grouping and analysis.
 
-Before adopting Trace Review across a team, record repository-specific
+The scripts can run manually without an agent host. A generated review is a
+standalone HTML file that opens in a modern browser.
+
+Before team adoption, record repository-specific
 [risk rules, test conventions, and generated-file guidance](docs/REPOSITORY-CONFIGURATION.md).
-The guidance is explicit agent policy in schema v1, not a hidden configuration
-format.
 
 ## Usage
 
 In Claude Code:
 
-- `/trace-review` — open the default review workspace without LM findings.
-- `/trace-review lm-analysis` — add focused LM analysis (global + line findings).
-- Ask for a **deep audit** when a high-risk change warrants broader dependency,
-  failure-mode, and test analysis.
+- `/trace-review` opens a workspace without automatic LM findings.
+- `/trace-review lm-analysis` adds a focused assessment and line findings.
+- Ask for a **deep audit** when a high-risk change warrants broader analysis.
 
-Or ask in words: *"make an HTML review of this branch"*, *"review PR 123 and add
-your findings"*.
+You can also ask in words: *“make an HTML review of this branch”* or
+*“review PR 123 and add findings.”*
 
-Collection is deterministic and happens before review generation:
+### Collect deterministic context
 
 ```bash
 # Detect the current branch's PR; fall back to a local diff
@@ -104,92 +162,85 @@ node scripts/collect-pr-context.mjs
 node scripts/collect-pr-context.mjs --pr 123
 node scripts/collect-pr-context.mjs --pr https://github.com/org/repo/pull/123
 
-# Intentionally avoid GitHub and compare against a chosen local base
+# Stay local and compare against a chosen base
 node scripts/collect-pr-context.mjs --no-remote --base main
 ```
 
-The command writes `.review/context.json` and `.review/context.patch`. The JSON
-contains validated repository/PR facts, a deterministic preflight inventory,
-and candidate change groups; see [CONTEXT-SCHEMA.md](CONTEXT-SCHEMA.md). Run
-group detection directly for any existing patch with:
+Collection writes `.review/context.json` and `.review/context.patch`. See
+[CONTEXT-SCHEMA.md](CONTEXT-SCHEMA.md) for the validated fact-pack contract.
+
+### Produce and validate semantic groups
 
 ```bash
 node scripts/detect-mechanical-groups.mjs \
-  --diff changes.patch --out .review/candidates.json
-```
+  --diff changes.patch \
+  --out .review/candidates.json
 
-Every textual hunk or metadata-only change must appear exactly once. The
-detector rejects overlaps and leaves uncertain work visible as candidate facts.
-The skill then asks the LM for change-specific group titles and finalizes them:
-
-```bash
 node scripts/finalize-lm-groups.mjs \
   --candidates .review/candidates.json \
   --result .review/grouping-result.json \
   --out .review/groups.json
 ```
 
-The finalizer rejects generic classifier titles, incomplete coverage,
-unsupported title evidence, and invalid prerequisites. Run preflight
-directly with:
+Every textual hunk or metadata-only change must appear exactly once. The
+finalizer rejects overlaps, incomplete coverage, generic titles, unsupported
+evidence, and invalid prerequisites.
+
+Run deterministic preflight directly with:
 
 ```bash
 node scripts/review-preflight.mjs --diff changes.patch
 ```
 
-For LM analysis, turn the collected context into the compact analyzer input
-instead of handing an agent the raw diff alone:
+### Add focused LM analysis
 
 ```bash
 node scripts/prepare-lm-analysis.mjs \
-  --context .review/context.json --out .review/analysis-input.json
+  --context .review/context.json \
+  --out .review/analysis-input.json
 
-# Deep audit is admitted only for high-risk facts or an explicit request
+# Deep audit requires high-risk facts or an explicit request
 node scripts/prepare-lm-analysis.mjs \
-  --context .review/context.json --mode deep-audit --explicit
+  --context .review/context.json \
+  --mode deep-audit \
+  --explicit
 
-# Validate the sparse result and convert it to a review-spec review object
 node scripts/finalize-lm-analysis.mjs \
   --input .review/analysis-input.json \
   --result .review/analysis-result.json \
   --out .review/review.json
 ```
 
-When automatic GitHub collection fails because `gh` is missing, unauthenticated,
-or unavailable, the command prints a warning and records
-`remote-context-unavailable` in the JSON before continuing locally. It does not
-silently claim that the branch has no pull request.
+The preparation step gives the LM compact deterministic facts and a
+fact-derived finding budget instead of treating the raw diff as an unbounded
+prompt.
 
-### Under the hood
-
-The agent dumps diffs to `.patch` files, writes a small `spec.json`, and runs:
+### Build the HTML review
 
 ```bash
 node scripts/validate-review-spec.mjs --spec spec.json
 node scripts/build-review.mjs --spec spec.json --out review.html --open
 ```
 
-Add `--metrics-out .review/metrics.json` to record patch size, estimated spec
-and avoided-patch tokens, generation time, word-diff limits, and manual model
-usage and review-quality fields.
-See [real pull request measurement](docs/REAL-PR-METRICS.md).
+Every spec declares `schemaVersion: 1` and one of `workspace`, `lm-analysis`, or
+`deep-audit`.
 
-Every spec declares `schemaVersion: 1` and one of `workspace`, `lm-analysis`,
-or `deep-audit`. Generation reports invalid fields with JSON paths and
-corrective hints before writing HTML. See [REVIEW-SPEC.md](REVIEW-SPEC.md),
-[SKILL.md](SKILL.md), and
-[examples/review-spec.json](examples/review-spec.json) for a starting template.
-For a complete, reproducible workflow, use the
-[C++ reference review](examples/cpp-reference/README.md), which includes typed
-API changes, standard-library includes, capped backoff behavior, CMake, tests,
-semantic groups, and one actionable LM finding.
+Invalid fields are reported with JSON paths and corrective hints before any HTML
+is written. See [REVIEW-SPEC.md](REVIEW-SPEC.md), [SKILL.md](SKILL.md), and the
+[starter spec](examples/review-spec.json).
+
+When GitHub collection fails, the collector records
+`remote-context-unavailable` and continues locally. It never silently claims
+that the branch has no pull request.
 
 ## Operational boundaries
 
 Read [known limitations and offline behavior](docs/LIMITATIONS.md) before
-distribution. Generated reviews keep the diff, comments, groups, and export
-available offline; hosted syntax colors and Mermaid diagrams degrade gracefully
-when the network is unavailable.
+distribution.
+
+Generated reviews keep the diff, groups, comments, progress, and export
+available offline. Hosted syntax colors and Mermaid diagrams degrade
+gracefully when the network is unavailable.
 
 ## Quality checks
 
@@ -200,29 +251,23 @@ npm run validate:reference
 npm run build:reference
 ```
 
-The dependency-free suite covers collection and preflight, review-spec
-validation, small and very large generation, malicious pull-request content,
-comment fingerprints and orphan recovery, progressive rendering, HTML
-landmarks, the checked-in visual contract, C++, CMake, renames, binaries,
-generated files, groups, and LM comments.
+The dependency-free suite covers collection, preflight, schema validation,
+large diffs, malicious content, comment recovery, progressive rendering,
+accessibility tokens, C++, CMake, renames, binaries, groups, and LM findings.
 
 Release candidates must also pass the
 [automated, accessibility, performance, and manual interface criteria](docs/RELEASE-CHECKLIST.md).
 
-## Layout
+## Repository layout
 
-```
-SKILL.md                     agent-facing instructions + spec reference
-scripts/build-review.mjs     the build script (spec + diffs -> review.html)
-scripts/collect-pr-context.mjs  PR detection + validated local fact pack
-scripts/review-preflight.mjs deterministic patch inventory and checks
-scripts/validate-review-spec.mjs  versioned review-spec validation
-scripts/detect-mechanical-groups.mjs  hunk groups, dependencies, and reading order
-scripts/prepare-lm-analysis.mjs  compact facts, risk gate, and finding budget
-scripts/finalize-lm-analysis.mjs  validate findings and emit review-spec content
-templates/review.template.html  the static, interactive HTML template
-examples/                    example spec + screenshot
-examples/cpp-reference/      reproducible C++ reference pull request
-docs/                        adoption, limitations, metrics, and release guidance
-test/fixtures/               patch, spec, and visual-contract fixtures
+```text
+SKILL.md                         agent workflow and spec reference
+scripts/collect-pr-context.mjs   deterministic repository and PR facts
+scripts/prepare-lm-analysis.mjs  compact facts, risk gate, finding budget
+scripts/finalize-lm-analysis.mjs validate LM findings
+scripts/build-review.mjs         spec + patch → review.html
+templates/review.template.html   self-contained interactive interface
+examples/cpp-reference/          reproducible proof fixture
+docs/                            adoption, limitations, and metrics
+test/                            deterministic and visual-contract tests
 ```
