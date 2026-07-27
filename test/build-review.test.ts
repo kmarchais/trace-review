@@ -43,6 +43,104 @@ test("generator produces a complete, mode-labelled review document", (t) => {
   assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/);
 });
 
+test("each diff file can open its bounded whole-file content", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-full-file-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  fs.writeFileSync(
+    path.join(tempDir, "change.patch"),
+    "diff --git a/app.js b/app.js\n--- a/app.js\n+++ b/app.js\n@@ -1 +1 @@\n-const value = 1;\n+const value = 2;\n",
+  );
+  fs.writeFileSync(
+    path.join(tempDir, "files.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      maxFileBytes: 1048576,
+      maxTotalBytes: 10485760,
+      files: [{ path: "app.js", revision: "head", content: "const value = 2;\n" }],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(tempDir, "spec.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      prs: [
+        {
+          title: "Whole file",
+          diffFile: "change.patch",
+          fileContentsFile: "files.json",
+        },
+      ],
+    }),
+  );
+
+  const result = build(path.join(tempDir, "spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  assert.match(html, /class="view-file-btn"/);
+  assert.match(html, /id="fileModal"/);
+  assert.match(html, /const value = 2;\\n/);
+  assert.match(html, /File after these changes/);
+});
+
+test("SVG whole-file content offers sanitized image and exact code views", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-svg-file-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)">' +
+    "<metadata><script>alert(2)</script>hidden metadata</metadata>" +
+    '<rect width="10" height="10" style="fill:#2f81f7;stroke:#ffffff"/>' +
+    '<a href="https://evil.example"><circle cx="5" cy="5" r="2"/></a>' +
+    "</svg>";
+  fs.writeFileSync(
+    path.join(tempDir, "change.patch"),
+    "diff --git a/image.svg b/image.svg\nnew file mode 100644\n--- /dev/null\n+++ b/image.svg\n@@ -0,0 +1 @@\n+" +
+      svg +
+      "\n",
+  );
+  fs.writeFileSync(
+    path.join(tempDir, "files.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      maxFileBytes: 1048576,
+      maxTotalBytes: 10485760,
+      files: [{ path: "image.svg", revision: "head", content: svg }],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(tempDir, "spec.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      prs: [
+        {
+          title: "SVG preview",
+          diffFile: "change.patch",
+          fileContentsFile: "files.json",
+        },
+      ],
+    }),
+  );
+
+  const result = build(path.join(tempDir, "spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  const dataSource = /<script id="review-data" type="application\/json">([\s\S]*?)<\/script>/.exec(
+    html,
+  )?.[1];
+  assert.ok(dataSource);
+  const data = JSON.parse(dataSource);
+  const fullFile = data["pr-1__0"].fullFile;
+  assert.equal(fullFile.content, svg);
+  assert.match(fullFile.svgPreview, /style="fill:#2f81f7;stroke:#ffffff"/);
+  assert.doesNotMatch(fullFile.svgPreview, /onload|script|metadata|evil\.example/);
+  assert.match(html, /data-file-view="image"/);
+  assert.match(html, /data-file-view="code"/);
+  assert.match(html, /Click to toggle actual size/);
+});
+
 test("generated review exposes one-click clipboard export in the header", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-copy-export-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));

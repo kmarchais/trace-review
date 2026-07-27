@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { collectPrContext } from "./lib/pr-context.mjs";
+import { collectFileContents, collectPrContext } from "./lib/pr-context.mjs";
 import type { CollectOptions } from "./lib/pr-context.mjs";
 import type { CommandRunner, RunOptions } from "./lib/preflight.mjs";
 import { errorMessage } from "./lib/cli.mjs";
@@ -13,6 +13,7 @@ interface Args extends CollectOptions {
   repo: string;
   out?: string;
   diffOut?: string;
+  filesOut?: string;
   help?: boolean;
 }
 
@@ -21,6 +22,7 @@ function usage(message?: string): never {
   console.error(`Usage:
   node collect-pr-context.mjs [--repo <path>] [--pr auto|none|<number|url>]
     [--base <ref>] [--out <context.json>] [--diff-out <context.patch>]
+    [--files-out <context.files.json>]
 
 Options:
   --pr auto        Detect the current branch's pull request; fall back locally (default).
@@ -40,6 +42,7 @@ function parseArgs(argv: readonly string[]): Args {
     else if (arg === "--base") args.base = argv[++index];
     else if (arg === "--out") args.out = argv[++index];
     else if (arg === "--diff-out") args.diffOut = argv[++index];
+    else if (arg === "--files-out") args.filesOut = argv[++index];
     else if (arg === "--no-remote") args.pr = "none";
     else if (arg === "--help" || arg === "-h") args.help = true;
     else usage(`Unknown option: ${arg}`);
@@ -82,6 +85,7 @@ ensureValue(args, "pr", "--pr");
 if (process.argv.includes("--base")) ensureValue(args, "base", "--base");
 if (process.argv.includes("--out")) ensureValue(args, "out", "--out");
 if (process.argv.includes("--diff-out")) ensureValue(args, "diffOut", "--diff-out");
+if (process.argv.includes("--files-out")) ensureValue(args, "filesOut", "--files-out");
 
 try {
   const context = collectPrContext(args, run);
@@ -101,9 +105,14 @@ try {
   const diffPath = path.resolve(
     args.diffOut || path.join(path.dirname(outputPath), "context.patch"),
   );
+  const filesPath = path.resolve(
+    args.filesOut || path.join(path.dirname(outputPath), "context.files.json"),
+  );
   fs.mkdirSync(path.dirname(diffPath), { recursive: true });
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(diffPath, context.diff, "utf8");
+  const fileContents = collectFileContents(context, run);
+  fs.writeFileSync(filesPath, `${JSON.stringify(fileContents, null, 2)}\n`, "utf8");
 
   const persisted = {
     ...context,
@@ -112,10 +121,14 @@ try {
       source: context.source,
       bytes: context.preflight.totals.bytes,
     },
+    fileContents: {
+      path: path.relative(path.dirname(outputPath), filesPath).replaceAll("\\", "/"),
+    },
   };
   fs.writeFileSync(outputPath, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
   console.log(`Wrote ${outputPath}`);
   console.log(`Wrote ${diffPath}`);
+  console.log(`Wrote ${filesPath}`);
 } catch (error: unknown) {
   const message = errorMessage(error);
   const missingGh = args.pr !== "auto" && args.pr !== "none" && /Could not run 'gh'/.test(message);

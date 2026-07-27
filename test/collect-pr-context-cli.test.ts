@@ -59,5 +59,12 @@ test("CLI writes validated local context and patch files", (t) => {
   });
   assert.equal(context.preflight.totals.files, 1);
   assert.equal(context.validation.valid, true);
+  assert.deepEqual(context.fileContents, { path: "context.files.json" });
+  const fullFiles = JSON.parse(
+    fs.readFileSync(path.join(repo, "facts", "context.files.json"), "utf8"),
+  );
+  assert.equal(fullFiles.files[0].path, "app.js");
+  assert.equal(fullFiles.files[0].revision, "head");
+  assert.equal(fullFiles.files[0].content, "const value = 2;\n");
   assert.match(fs.readFileSync(diffOut, "utf8"), /diff --git a\/app\.js b\/app\.js/);
 });
