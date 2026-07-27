@@ -1,6 +1,10 @@
-import { preflightPatch } from "./preflight.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { parseDiffPaths, preflightPatch } from "./preflight.mjs";
 import { detectChangeGroups } from "./change-groups.mjs";
-export const PR_FIELDS = "number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments";
+export const PR_FIELDS = "number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments";
+export const MAX_FULL_FILE_BYTES = 1024 * 1024;
+export const MAX_FULL_FILES_BYTES = 10 * 1024 * 1024;
 function trim(value) {
     return String(value ?? "").trim();
 }
@@ -33,6 +37,7 @@ function normalizePr(raw) {
         baseBranch: raw.baseRefName ?? "",
         headBranch: raw.headRefName ?? "",
         headSha: raw.headRefOid ?? "",
+        baseSha: raw.baseRefOid ?? "",
         labels: (raw.labels || [])
             .map((label) => label.name)
             .filter((label) => Boolean(label)),
@@ -49,6 +54,74 @@ function normalizePr(raw) {
             url: comment.url || "",
             createdAt: comment.createdAt || "",
         })),
+    };
+}
+function deletedFiles(diff) {
+    const deleted = new Set();
+    let currentPath = "";
+    for (const line of diff.replace(/\r\n?/g, "\n").split("\n")) {
+        const paths = parseDiffPaths(line);
+        if (paths) {
+            currentPath = paths.path;
+            continue;
+        }
+        if (currentPath && (line.startsWith("deleted file mode ") || line === "+++ /dev/null")) {
+            deleted.add(currentPath);
+        }
+    }
+    return deleted;
+}
+function githubContent(context, filePath, revision, run) {
+    const owner = context.repository.owner || "";
+    const name = context.repository.name || "";
+    const sha = revision === "head" ? context.pullRequest?.headSha || "" : context.pullRequest?.baseSha || "";
+    const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+    const endpoint = `repos/${owner}/${name}/contents/${encodedPath}?ref=${encodeURIComponent(sha)}`;
+    const encoded = run("gh", ["api", endpoint, "--jq", ".content"], {
+        cwd: context.repository.root,
+    });
+    return Buffer.from(encoded.replace(/\s/g, ""), "base64").toString("utf8");
+}
+export function collectFileContents(context, run) {
+    let totalBytes = 0;
+    const deleted = deletedFiles(context.diff);
+    const files = context.preflight.files.map((file) => {
+        const revision = deleted.has(file.path) ? "base" : "head";
+        if (file.binary)
+            return { path: file.path, revision, unavailable: "binary" };
+        if (totalBytes >= MAX_FULL_FILES_BYTES) {
+            return { path: file.path, revision, unavailable: "too-large" };
+        }
+        let content;
+        try {
+            if (context.source === "github") {
+                const sourcePath = revision === "base" ? file.oldPath : file.path;
+                content = githubContent(context, sourcePath, revision, run);
+            }
+            else if (revision === "base") {
+                content = run("git", ["show", `${context.git.baseRef}:${file.oldPath}`], {
+                    cwd: context.repository.root,
+                });
+            }
+            else {
+                content = fs.readFileSync(path.join(context.repository.root, file.path), "utf8");
+            }
+        }
+        catch {
+            return { path: file.path, revision, unavailable: "missing" };
+        }
+        const bytes = Buffer.byteLength(content);
+        if (bytes > MAX_FULL_FILE_BYTES || totalBytes + bytes > MAX_FULL_FILES_BYTES) {
+            return { path: file.path, revision, unavailable: "too-large" };
+        }
+        totalBytes += bytes;
+        return { path: file.path, revision, content };
+    });
+    return {
+        schemaVersion: 1,
+        maxFileBytes: MAX_FULL_FILE_BYTES,
+        maxTotalBytes: MAX_FULL_FILES_BYTES,
+        files,
     };
 }
 function normalizeReviewComments(raw) {

@@ -30,6 +30,7 @@
         "github": { "$ref": "#/$defs/github" },
         "diff": { "type": "string" },
         "diffFile": { "type": "string", "minLength": 1 },
+        "fileContentsFile": { "type": "string", "minLength": 1 },
         "diagrams": {
           "type": "array",
           "items": { "$ref": "#/$defs/diagram" }

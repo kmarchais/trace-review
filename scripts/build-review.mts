@@ -99,6 +99,7 @@ interface ReviewTarget {
   };
   diff?: string;
   diffFile?: string;
+  fileContentsFile?: string;
   diagrams?: Diagram[];
   blocks?: SummaryBlock[];
   groups?: LegacyGroup[];
@@ -174,6 +175,21 @@ interface ClientFileData {
   reviewTarget: string;
   fingerprint: string;
   note?: string;
+  fullFile: {
+    revision: "head" | "base";
+    content?: string;
+    unavailable?: "binary" | "too-large" | "missing";
+  };
+}
+
+interface FileContentsBundle {
+  schemaVersion: 1;
+  files: Array<{
+    path: string;
+    revision: "head" | "base";
+    content?: string;
+    unavailable?: "binary" | "too-large" | "missing";
+  }>;
 }
 
 interface NormalizedReviewComment extends Omit<ReviewComment, "line"> {
@@ -727,6 +743,10 @@ function fileData(file: ParsedDiffFile, reviewTarget = ""): ClientFileData {
     hunks: [],
     reviewTarget,
     fingerprint: "",
+    fullFile: {
+      revision: file.isDeleted ? "base" : "head",
+      unavailable: file.binary ? "binary" : "missing",
+    },
   };
   d.fingerprint = fingerprint(
     [
@@ -773,6 +793,27 @@ function fileData(file: ParsedDiffFile, reviewTarget = ""): ClientFileData {
     d.hunks.push({ header: h.header, rows });
   }
   return d;
+}
+
+function readFileContents(pr: ReviewTarget): Map<string, ClientFileData["fullFile"]> {
+  if (!pr.fileContentsFile) return new Map();
+  const bundlePath = path.isAbsolute(pr.fileContentsFile)
+    ? pr.fileContentsFile
+    : path.resolve(specDir, pr.fileContentsFile);
+  const bundle = parseJson(fs.readFileSync(bundlePath, "utf8")) as FileContentsBundle;
+  if (bundle.schemaVersion !== 1 || !Array.isArray(bundle.files)) {
+    throw new Error(`Invalid full-file bundle '${pr.fileContentsFile}'.`);
+  }
+  return new Map(
+    bundle.files.map((file) => [
+      file.path,
+      {
+        revision: file.revision,
+        ...(typeof file.content === "string" ? { content: file.content } : {}),
+        ...(file.unavailable ? { unavailable: file.unavailable } : {}),
+      },
+    ]),
+  );
 }
 
 // ---------- summary blocks (free-form top section) ----------
@@ -939,6 +980,17 @@ function renderPr(
   const prId = pr.id || `pr-${idx + 1}`;
   const { text, warning } = readDiff(pr);
   const files = parseDiff(text);
+  const fullFiles = readFileContents(pr);
+  const buildFileData = (file: ParsedDiffFile): ClientFileData => {
+    const data = fileData(file, prId);
+    data.fullFile =
+      fullFiles.get(file.path) ||
+      ({
+        revision: file.isDeleted ? "base" : "head",
+        unavailable: file.binary ? "binary" : "missing",
+      } as const);
+    return data;
+  };
   const changeGroups = resolveChangeGroups(pr, text);
   const warnHtml = warning ? `<div class="warn">⚠ ${esc(warning)}</div>` : "";
   const totals = files.reduce((t, f) => ({ add: t.add + f.add, del: t.del + f.del }), {
@@ -949,7 +1001,7 @@ function renderPr(
   // one block per file (diff filled client-side); optionally arranged into groups
   const fileBlocks = files.map((f, i) => {
     const fid = `${prId}__${i}`;
-    dataBag[fid] = fileData(f, prId);
+    dataBag[fid] = buildFileData(f);
     return { fid, d: dataBag[fid] };
   });
   const renderFileBlock = (
@@ -972,6 +1024,7 @@ function renderPr(
           <span class="file-badge" data-file-count="${esc(d.path)}" hidden></span>
           <span class="stats"><span class="stat-add">+${d.add}</span> <span class="stat-del">-${d.del}</span></span>
           <span class="file-actions">
+            <button type="button" class="view-file-btn" title="View the whole file">View file</button>
             <button type="button" class="file-note-btn" title="Comment on this file">Comment</button>
             <label class="viewed-label"><input type="checkbox" class="viewed-cb"> Viewed</label>
           </span>
@@ -1025,7 +1078,7 @@ function renderPr(
     files
       .map((file, index) => {
         const fid = `${prId}__raw__${index}`;
-        const d = fileData(file, prId);
+        const d = buildFileData(file);
         dataBag[fid] = d;
         return renderFileBlock({ fid, d, viewKey: `raw::${d.path}` }, false);
       })
@@ -1048,7 +1101,7 @@ function renderPr(
       for (const change of sourceGroup?.changes || []) {
         const parsed = parsedByPath.get(change.file);
         if (!parsed) continue;
-        const d = fileData(parsed, prId);
+        const d = buildFileData(parsed);
         const hunks =
           typeof change.hunk === "number"
             ? [d.hunks[change.hunk]].filter((hunk): hunk is ClientHunk => hunk !== undefined)
@@ -1109,7 +1162,7 @@ function renderPr(
       for (const [fileIndex, [file, fileChanges]] of [...changesByFile].entries()) {
         const parsed = parsedByPath.get(file);
         if (!parsed) continue;
-        const d = fileData(parsed, prId);
+        const d = buildFileData(parsed);
         const selectedHunks = [
           ...new Set(
             fileChanges

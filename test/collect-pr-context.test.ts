@@ -3,7 +3,11 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import test from "node:test";
-import { collectPrContext, validateContext } from "../scripts/lib/pr-context.mjs";
+import {
+  collectFileContents,
+  collectPrContext,
+  validateContext,
+} from "../scripts/lib/pr-context.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const patch = fs.readFileSync(path.join(root, "test", "fixtures", "mixed.patch"), "utf8");
@@ -28,6 +32,7 @@ const prJson = {
   title: "Harden widget parsing",
   body: "Reject malformed widget records.",
   baseRefName: "main",
+  baseRefOid: "base123",
   headRefName: "feature/widgets",
   headRefOid: "abc123",
   labels: [{ name: "bug" }, { name: "ready" }],
@@ -66,7 +71,7 @@ test("auto mode collects and validates complete pull request context", () => {
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
     "git apply --numstat -": "1\t0\tsrc/app.js\n1\t1\tpackage-lock.json\n-\t-\tassets/logo.png\n",
-    "gh pr view --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments": `${JSON.stringify(prJson)}\n`,
+    "gh pr view --json number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments": `${JSON.stringify(prJson)}\n`,
     "gh api --paginate --slurp repos/acme/widgets/pulls/42/comments": `${JSON.stringify([
       [
         {
@@ -83,6 +88,12 @@ test("auto mode collects and validates complete pull request context", () => {
       ],
     ])}\n`,
     "gh pr diff 42 --patch": patch,
+    "gh api repos/acme/widgets/contents/src/app.js?ref=abc123 --jq .content": Buffer.from(
+      "export const ready = true;\n",
+    ).toString("base64"),
+    "gh api repos/acme/widgets/contents/package-lock.json?ref=abc123 --jq .content": Buffer.from(
+      '{"lockfileVersion": 3}\n',
+    ).toString("base64"),
   });
 
   const context = collectPrContext({ repo: "C:/work/widgets", pr: "auto" }, run);
@@ -115,6 +126,24 @@ test("auto mode collects and validates complete pull request context", () => {
   assert.equal(context.preflight.patch.gitApply.valid, true);
   assert.equal(context.diff, patch);
   assert.deepEqual(context.validation, { valid: true, diagnostics: [] });
+  const fullFiles = collectFileContents(context, run);
+  assert.deepEqual(fullFiles.files, [
+    {
+      path: "src/app.js",
+      revision: "head",
+      content: "export const ready = true;\n",
+    },
+    {
+      path: "package-lock.json",
+      revision: "head",
+      content: '{"lockfileVersion": 3}\n',
+    },
+    {
+      path: "assets/logo.png",
+      revision: "head",
+      unavailable: "binary",
+    },
+  ]);
 });
 
 test("none mode intentionally skips GitHub and collects the local branch diff", () => {
@@ -149,6 +178,40 @@ test("none mode intentionally skips GitHub and collects the local branch diff", 
   assert.deepEqual(context.validation, { valid: true, diagnostics: [] });
 });
 
+test("whole-file collection uses the base version for a deleted file", () => {
+  const deletedPatch =
+    "diff --git a/src/old.js b/src/old.js\n" +
+    "deleted file mode 100644\n" +
+    "--- a/src/old.js\n" +
+    "+++ /dev/null\n" +
+    "@@ -1 +0,0 @@\n" +
+    "-export const old = true;\n";
+  const run = fakeRunner({
+    "git rev-parse --show-toplevel": "C:/work/widgets\n",
+    "git branch --show-current": "feature/widgets\n",
+    "git rev-parse HEAD": "abc123\n",
+    "git remote get-url origin": "https://github.com/acme/widgets.git\n",
+    "git status --short --untracked-files=normal": " D src/old.js\n",
+    "git diff --binary --no-ext-diff origin/main": deletedPatch,
+    "git apply --numstat -": "0\t1\tsrc/old.js\n",
+    "git show origin/main:src/old.js": "export const old = true;\n",
+  });
+
+  const context = collectPrContext(
+    { repo: "C:/work/widgets", pr: "none", base: "origin/main" },
+    run,
+  );
+  const fullFiles = collectFileContents(context, run);
+
+  assert.deepEqual(fullFiles.files, [
+    {
+      path: "src/old.js",
+      revision: "base",
+      content: "export const old = true;\n",
+    },
+  ]);
+});
+
 test("auto mode falls back to local context when the branch has no pull request", () => {
   const run = fakeRunner({
     "git rev-parse --show-toplevel": "C:/work/widgets\n",
@@ -156,7 +219,7 @@ test("auto mode falls back to local context when the branch has no pull request"
     "git rev-parse HEAD": "abc123\n",
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
-    "gh pr view --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments":
+    "gh pr view --json number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments":
       new Error("no pull requests found for branch"),
     "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": "origin/main\n",
     "git diff --binary --no-ext-diff origin/main": patch,
@@ -178,7 +241,7 @@ test("auto mode warns when GitHub context is unavailable", () => {
     "git rev-parse HEAD": "abc123\n",
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
-    "gh pr view --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments":
+    "gh pr view --json number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments":
       new Error("Could not run 'gh': spawn gh ENOENT"),
     "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": "origin/main\n",
     "git diff --binary --no-ext-diff origin/main": patch,
@@ -208,7 +271,7 @@ test("explicit mode passes a pull request URL to GitHub selection", () => {
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
     "git apply --numstat -": "1\t0\tsrc/app.js\n1\t1\tpackage-lock.json\n-\t-\tassets/logo.png\n",
-    [`gh pr view ${selector} --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments`]: `${JSON.stringify({ ...prJson, url: selector })}\n`,
+    [`gh pr view ${selector} --json number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments`]: `${JSON.stringify({ ...prJson, url: selector })}\n`,
     "gh api --paginate --slurp repos/other/project/pulls/42/comments": "[]\n",
     [`gh pr diff ${selector} --patch`]: patch,
   });

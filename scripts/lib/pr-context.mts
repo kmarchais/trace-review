@@ -1,4 +1,6 @@
-import { preflightPatch } from "./preflight.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { parseDiffPaths, preflightPatch } from "./preflight.mjs";
 import { detectChangeGroups } from "./change-groups.mjs";
 import type { ChangeGrouping } from "./change-groups.mjs";
 import type { CommandRunner, PatchAnalysis } from "./preflight.mjs";
@@ -32,6 +34,7 @@ interface RawPullRequest extends JsonObject {
   baseRefName?: string;
   headRefName?: string;
   headRefOid?: string;
+  baseRefOid?: string;
   labels?: Array<{ name?: string }>;
   statusCheckRollup?: GitHubCheck[];
   reviews?: Array<{
@@ -68,6 +71,7 @@ export interface NormalizedPullRequest {
   baseBranch: string;
   headBranch: string;
   headSha: string;
+  baseSha: string;
   labels: string[];
   checks: Array<{ name: string; status: string; conclusion: string; detailsUrl: string }>;
   reviews: Array<{ author: string; state: string; body: string; submittedAt: string }>;
@@ -119,6 +123,20 @@ export interface CollectedContext {
   validation: ContextValidation;
 }
 
+export interface CollectedFileContent {
+  path: string;
+  revision: "head" | "base";
+  content?: string;
+  unavailable?: "binary" | "too-large" | "missing";
+}
+
+export interface FileContentsBundle {
+  schemaVersion: 1;
+  maxFileBytes: number;
+  maxTotalBytes: number;
+  files: CollectedFileContent[];
+}
+
 export interface CollectOptions {
   pr?: string;
   repo?: string;
@@ -126,7 +144,10 @@ export interface CollectOptions {
 }
 
 export const PR_FIELDS =
-  "number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments";
+  "number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments";
+
+export const MAX_FULL_FILE_BYTES = 1024 * 1024;
+export const MAX_FULL_FILES_BYTES = 10 * 1024 * 1024;
 
 function trim(value: unknown): string {
   return String(value ?? "").trim();
@@ -163,6 +184,7 @@ function normalizePr(raw: RawPullRequest): NormalizedPullRequest {
     baseBranch: raw.baseRefName ?? "",
     headBranch: raw.headRefName ?? "",
     headSha: raw.headRefOid ?? "",
+    baseSha: raw.baseRefOid ?? "",
     labels: (raw.labels || [])
       .map((label) => label.name)
       .filter((label): label is string => Boolean(label)),
@@ -179,6 +201,82 @@ function normalizePr(raw: RawPullRequest): NormalizedPullRequest {
       url: comment.url || "",
       createdAt: comment.createdAt || "",
     })),
+  };
+}
+
+function deletedFiles(diff: string): Set<string> {
+  const deleted = new Set<string>();
+  let currentPath = "";
+  for (const line of diff.replace(/\r\n?/g, "\n").split("\n")) {
+    const paths = parseDiffPaths(line);
+    if (paths) {
+      currentPath = paths.path;
+      continue;
+    }
+    if (currentPath && (line.startsWith("deleted file mode ") || line === "+++ /dev/null")) {
+      deleted.add(currentPath);
+    }
+  }
+  return deleted;
+}
+
+function githubContent(
+  context: CollectedContext,
+  filePath: string,
+  revision: "head" | "base",
+  run: CommandRunner,
+): string {
+  const owner = context.repository.owner || "";
+  const name = context.repository.name || "";
+  const sha =
+    revision === "head" ? context.pullRequest?.headSha || "" : context.pullRequest?.baseSha || "";
+  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+  const endpoint = `repos/${owner}/${name}/contents/${encodedPath}?ref=${encodeURIComponent(sha)}`;
+  const encoded = run("gh", ["api", endpoint, "--jq", ".content"], {
+    cwd: context.repository.root,
+  });
+  return Buffer.from(encoded.replace(/\s/g, ""), "base64").toString("utf8");
+}
+
+export function collectFileContents(
+  context: CollectedContext,
+  run: CommandRunner,
+): FileContentsBundle {
+  let totalBytes = 0;
+  const deleted = deletedFiles(context.diff);
+  const files = context.preflight.files.map((file): CollectedFileContent => {
+    const revision = deleted.has(file.path) ? "base" : "head";
+    if (file.binary) return { path: file.path, revision, unavailable: "binary" };
+    if (totalBytes >= MAX_FULL_FILES_BYTES) {
+      return { path: file.path, revision, unavailable: "too-large" };
+    }
+    let content: string;
+    try {
+      if (context.source === "github") {
+        const sourcePath = revision === "base" ? file.oldPath : file.path;
+        content = githubContent(context, sourcePath, revision, run);
+      } else if (revision === "base") {
+        content = run("git", ["show", `${context.git.baseRef}:${file.oldPath}`], {
+          cwd: context.repository.root,
+        });
+      } else {
+        content = fs.readFileSync(path.join(context.repository.root, file.path), "utf8");
+      }
+    } catch {
+      return { path: file.path, revision, unavailable: "missing" };
+    }
+    const bytes = Buffer.byteLength(content);
+    if (bytes > MAX_FULL_FILE_BYTES || totalBytes + bytes > MAX_FULL_FILES_BYTES) {
+      return { path: file.path, revision, unavailable: "too-large" };
+    }
+    totalBytes += bytes;
+    return { path: file.path, revision, content };
+  });
+  return {
+    schemaVersion: 1,
+    maxFileBytes: MAX_FULL_FILE_BYTES,
+    maxTotalBytes: MAX_FULL_FILES_BYTES,
+    files,
   };
 }
 

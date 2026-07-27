@@ -43,6 +43,47 @@ test("generator produces a complete, mode-labelled review document", (t) => {
   assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/);
 });
 
+test("each diff file can open its bounded whole-file content", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-full-file-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  fs.writeFileSync(
+    path.join(tempDir, "change.patch"),
+    "diff --git a/app.js b/app.js\n--- a/app.js\n+++ b/app.js\n@@ -1 +1 @@\n-const value = 1;\n+const value = 2;\n",
+  );
+  fs.writeFileSync(
+    path.join(tempDir, "files.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      maxFileBytes: 1048576,
+      maxTotalBytes: 10485760,
+      files: [{ path: "app.js", revision: "head", content: "const value = 2;\n" }],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(tempDir, "spec.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      prs: [
+        {
+          title: "Whole file",
+          diffFile: "change.patch",
+          fileContentsFile: "files.json",
+        },
+      ],
+    }),
+  );
+
+  const result = build(path.join(tempDir, "spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  assert.match(html, /class="view-file-btn"/);
+  assert.match(html, /id="fileModal"/);
+  assert.match(html, /const value = 2;\\n/);
+  assert.match(html, /File after these changes/);
+});
+
 test("generated review exposes one-click clipboard export in the header", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-copy-export-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));

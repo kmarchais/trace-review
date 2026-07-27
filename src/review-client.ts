@@ -79,6 +79,11 @@ interface ClientFile {
   reviewTarget: string;
   fingerprint: string;
   note?: string;
+  fullFile: {
+    revision: "head" | "base";
+    content?: string;
+    unavailable?: "binary" | "too-large" | "missing";
+  };
 }
 
 interface SplitPair {
@@ -1163,6 +1168,51 @@ function eventElement(event: Event): UiElement | null {
     });
   });
 
+  // ---- whole-file viewer ----
+  const fileModal = document.getElementById("fileModal");
+  const fileModalTitle = document.getElementById("fileModalTitle");
+  const fileModalMeta = document.getElementById("fileModalMeta");
+  const fileModalCode = document.getElementById("fileModalCode");
+  function closeFileModal(): void {
+    fileModal.hidden = true;
+    fileModalCode.innerHTML = "";
+  }
+  document.querySelectorAll(".view-file-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const fileEl = button.closest(".file");
+      const fid = fileEl.querySelector(".diff-mount").dataset.fid;
+      const file = DATA[fid];
+      fileModalTitle.textContent = file.path;
+      fileModalMeta.textContent =
+        file.fullFile.revision === "base" ? "File before deletion" : "File after these changes";
+      if (typeof file.fullFile.content === "string") {
+        const lines = hlLines(file.fullFile.content.replace(/\n$/, ""), file.lang);
+        fileModalCode.innerHTML =
+          '<table class="full-file"><tbody>' +
+          lines
+            .map(
+              (line, index) =>
+                `<tr><td class="ln">${index + 1}</td><td class="code"><code>${line || " "}</code></td></tr>`,
+            )
+            .join("") +
+          "</tbody></table>";
+      } else {
+        const message =
+          file.fullFile.unavailable === "binary"
+            ? "Binary files cannot be displayed."
+            : file.fullFile.unavailable === "too-large"
+              ? "This file is too large to embed in the review."
+              : "The complete file was not available when this review was built.";
+        fileModalCode.innerHTML = `<p class="full-file-unavailable">${escAttr(message)}</p>`;
+      }
+      fileModal.hidden = false;
+    });
+  });
+  document.getElementById("closeFileModal").addEventListener("click", closeFileModal);
+  fileModal.addEventListener("click", (event) => {
+    if (event.target === fileModal) closeFileModal();
+  });
+
   // ---- per-file comment + "Viewed" (GitHub-style) ----
   function fileNoteBox(fileEl: UiElement, prefill: string, focus: boolean): UiElement {
     const slot = fileEl.querySelector(".file-note-slot");
@@ -1975,6 +2025,10 @@ function eventElement(event: Event): UiElement | null {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (!fileModal.hidden) {
+      closeFileModal();
+      return;
+    }
     if (!lb.hidden) {
       lb.hidden = true;
       lbInner.innerHTML = "";

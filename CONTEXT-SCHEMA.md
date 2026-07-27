@@ -17,6 +17,7 @@ and future schema migrations all depend on the same versioned field meanings.
 | `git` | Current branch, HEAD SHA, worktree status, and local base ref when applicable. |
 | `pullRequest` | Normalized GitHub facts, or `null` for local context. |
 | `diff` | Relative patch path, source, and byte size. |
+| `fileContents` | Relative path to bounded text snapshots used by the whole-file viewer. |
 | `preflight` | Deterministic patch inventory and hazards. |
 | `changeGroups` | Hunk-level candidate groups, dependency graph, suggested reading order, and coverage validation. |
 | `collectionDiagnostics` | Non-fatal collection warnings, such as unavailable inline comments. |
@@ -25,9 +26,13 @@ and future schema migrations all depend on the same versioned field meanings.
 ## Pull request facts
 
 GitHub context includes the PR number and URL, title and description, base and
-head branches, head SHA, labels, checks, review summaries, conversation
+head branches, base and head SHAs, labels, checks, review summaries, conversation
 comments, and native inline review comments. Inline comments retain their file,
 side, and line anchors.
+
+The companion whole-file bundle stores at most 1 MiB per text file and 10 MiB
+in total. It records the post-change version, or the base version for a deleted
+file. Binary, oversized, and unavailable files are represented without content.
 
 ## Compatibility
 
