@@ -47,7 +47,7 @@ gh skill install kmarchais/trace-review trace-review --agent claude-code --scope
 The `skills` installer can install the same tagged release:
 
 ```bash
-npx skills add https://github.com/kmarchais/trace-review/tree/v0.2.0/skills/trace-review --global
+npx skills add https://github.com/kmarchais/trace-review/tree/v0.1.0/skills/trace-review --global
 ```
 
 The installer selects the correct directory for the requested coding agent. As a manual fallback, download [`trace-review-skill.zip`](https://github.com/kmarchais/trace-review/releases/latest/download/trace-review-skill.zip).
