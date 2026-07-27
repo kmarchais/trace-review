@@ -30,6 +30,15 @@ test("checked-in installable skill distribution matches the release inputs", () 
   });
 });
 
+test("skill documents composable LM and pull-request shortcuts", () => {
+  const skill = fs.readFileSync(path.join(root, "SKILL.source.md"), "utf8");
+
+  assert.match(skill, /`lm`, `ai`, and `lm-analysis` select LM analysis/);
+  assert.match(skill, /`pr <number>` and `pr #<number>` select that pull request/);
+  assert.match(skill, /`lm pr 8`, `pr 8 ai`, and `pr #8 lm`/);
+  assert.match(skill, /write `"mode": "lm-analysis"` and pass only\s+the number to `--pr`/);
+});
+
 test("minimal skill bundle is complete, runnable, and excludes repository-only files", (t) => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-bundle-test-"));
   t.after(() => fs.rmSync(outDir, { recursive: true, force: true }));

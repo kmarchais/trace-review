@@ -1,12 +1,10 @@
 # Trace Review
 
-> **Review more code with fewer LM tokens.**
+> **Review local or pull-request changes in a focused HTML interface.**
 
-Trace Review turns a working-tree diff, branch range, or pull request into a self-contained
-interactive HTML review.
+Trace Review turns a working-tree diff, branch range, or pull request into a self-contained interactive review page.
 
-Local scripts collect facts, parse diffs, validate LM output, and build the interface. The LM
-receives compact evidence and writes only the semantic result needed by the selected review mode.
+The language model does not generate the HTML document. It creates structured review content when requested; local scripts validate it and combine it with the parsed diff and a checked-in template.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/review-interface-dark.png">
@@ -17,51 +15,28 @@ receives compact evidence and writes only the semantic result needed by the sele
 ## How it works
 
 ```text
-git diff
-  → deterministic context and candidate groups
-  → compact LM grouping or analysis result
-  → validated groups and review spec
-  → local review.html
+local diff or pull request
+  → scripts collect and parse the changes
+  → optional LM review or grouping
+  → validated review specification
+  → scripts + template build review.html
 ```
 
-The patch stays on disk instead of being reproduced in the conversation. Every mode uses the same
-GitHub-inspired light/dark interface, diff controls, comments, review progress,
-Markdown export, and optional confirmed publication as one native GitHub review.
+The result is a portable local page with light and dark themes, diff controls, review progress, comments, Markdown export, and optional confirmed publication as a native GitHub review.
 
-| Mode          | LM usage                                           |
-| ------------- | -------------------------------------------------- |
-| `workspace`   | No automatic findings                              |
-| `lm-analysis` | Sparse, budgeted findings from compact facts       |
-| `deep-audit`  | Broader analysis for explicit or high-risk reviews |
+| Mode          | Review behavior                               |
+| ------------- | --------------------------------------------- |
+| `workspace`   | Interactive diff without automatic findings   |
+| `lm-analysis` | Focused findings added to the review page      |
+| `deep-audit`  | Broader analysis for high-risk changes         |
 
-## Proof
+## Example
 
-The reproducible [C++ reference review](examples/cpp-reference/README.md) includes the patch,
-deterministic candidates, LM output, validated groups, and final review spec.
-
-For example, the LM-generated [`grouping-result.json`](examples/cpp-reference/grouping-result.json)
-contains:
-
-```json
-{
-  "title": "Capped exponential backoff behavior",
-  "intent": "Review the exponential delay calculation and its 30-second ceiling as one behavioral decision.",
-  "confidence": 0.96,
-  "changeIds": [
-    "src/retry_policy.cpp#h0",
-    "src/retry_policy.cpp#h1",
-    "src/retry_policy.cpp#h2",
-    "src/retry_policy.cpp#h3"
-  ]
-}
-```
-
-Use `--metrics-out .review/metrics.json` to estimate spec tokens and avoided patch tokens. See
-[the metrics contract](docs/REAL-PR-METRICS.md).
+The reproducible [C++ reference review](examples/cpp-reference/README.md) includes its patch, model output, validated groups, and final review specification.
 
 ## Install
 
-Requires Node 22+, Git, and optionally GitHub CLI for pull-request context.
+Requires Node 22+, Git, and optionally GitHub CLI for pull-request context and native review publishing.
 
 Install globally and choose any detected coding agent:
 
@@ -75,37 +50,23 @@ For a non-interactive Codex installation:
 npx skills add kmarchais/trace-review --skill trace-review --global --agent codex --yes
 ```
 
-GitHub CLI provides an equivalent installer:
-
-```bash
-gh skill install kmarchais/trace-review skills/trace-review/SKILL.md --scope user --agent codex
-```
-
-Both installers select the correct project or user directory for the requested agent. As a manual
-fallback, download
-[`trace-review-skill.zip`](https://github.com/kmarchais/trace-review/releases/latest/download/trace-review-skill.zip)
-and extract it into your agent's skills directory. Every installation contains only compiled
-runtime scripts, the template, schema, operational references, license, and a compact example.
+The installer selects the correct directory for the requested coding agent. As a manual fallback, download [`trace-review-skill.zip`](https://github.com/kmarchais/trace-review/releases/latest/download/trace-review-skill.zip).
 
 ## Use
 
 - `/trace-review` opens the workspace without automatic LM findings.
-- `/trace-review lm-analysis` adds focused LM findings.
-- Ask for a **deep audit** when broader high-risk analysis is warranted.
-- Or ask your agent to review a branch or pull request with Trace Review.
-- For a GitHub-backed review, use **Share review → GitHub review** to preview
-  native threads versus summary fallbacks, download the plan, and run the
-  packaged publisher. It rechecks authentication and the PR head and requires
-  confirmation before publishing.
+- `/trace-review lm` or `/trace-review ai` adds focused LM findings.
+- `/trace-review pr 8` reviews pull request #8 in the current repository.
+- `/trace-review lm pr 8` combines explicit PR selection with LM findings.
+- Ask for a **deep audit** for broader analysis of high-risk changes.
+- Or ask your coding agent to review a branch or pull request with Trace Review.
+- For a GitHub-backed review, use **Share review → GitHub review** to preview native threads and summary fallbacks before publishing.
 
-See the installable [SKILL.md](skills/trace-review/SKILL.md) for the workflow,
-[REVIEW-SPEC.md](REVIEW-SPEC.md) for the schema, and
-[docs/LIMITATIONS.md](docs/LIMITATIONS.md) for operational boundaries.
+See the installable [SKILL.md](skills/trace-review/SKILL.md), the [review specification](REVIEW-SPEC.md), and the [operational boundaries](docs/LIMITATIONS.md).
 
 ## Develop
 
-The repository uses strict TypeScript, Bun, ESLint, and Prettier. The release bundle contains
-compiled, Node 22-compatible JavaScript, so installing the skill does not require Bun.
+The repository uses strict TypeScript, Bun, ESLint, and Prettier. The release bundle contains compiled Node 22-compatible JavaScript, so installing the skill does not require Bun.
 
 ```bash
 bun install
@@ -114,5 +75,4 @@ bun run check
 bun run bundle:skill
 ```
 
-`skills/trace-review/` is the checked-in, cross-agent installation source. `bun run check` rejects
-it when it no longer matches the authored files or compiled runtime.
+`skills/trace-review/` is the checked-in cross-agent installation source. `bun run check` rejects it when it no longer matches the authored files or compiled runtime.
