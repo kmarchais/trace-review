@@ -1,4 +1,6 @@
-import { preflightPatch } from "./preflight.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { parseDiffPaths, preflightPatch } from "./preflight.mjs";
 import { detectChangeGroups } from "./change-groups.mjs";
 import type { ChangeGrouping } from "./change-groups.mjs";
 import type { CommandRunner, PatchAnalysis } from "./preflight.mjs";
@@ -32,6 +34,8 @@ interface RawPullRequest extends JsonObject {
   baseRefName?: string;
   headRefName?: string;
   headRefOid?: string;
+  baseRefOid?: string;
+  headRepository?: { nameWithOwner?: string };
   labels?: Array<{ name?: string }>;
   statusCheckRollup?: GitHubCheck[];
   reviews?: Array<{
@@ -68,6 +72,8 @@ export interface NormalizedPullRequest {
   baseBranch: string;
   headBranch: string;
   headSha: string;
+  baseSha: string;
+  headRepository: string;
   labels: string[];
   checks: Array<{ name: string; status: string; conclusion: string; detailsUrl: string }>;
   reviews: Array<{ author: string; state: string; body: string; submittedAt: string }>;
@@ -119,6 +125,20 @@ export interface CollectedContext {
   validation: ContextValidation;
 }
 
+export interface CollectedFileContent {
+  path: string;
+  revision: "head" | "base";
+  content?: string;
+  unavailable?: "binary" | "too-large" | "missing";
+}
+
+export interface FileContentsBundle {
+  schemaVersion: 1;
+  maxFileBytes: number;
+  maxTotalBytes: number;
+  files: CollectedFileContent[];
+}
+
 export interface CollectOptions {
   pr?: string;
   repo?: string;
@@ -126,7 +146,11 @@ export interface CollectOptions {
 }
 
 export const PR_FIELDS =
-  "number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments";
+  "number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,labels,statusCheckRollup,reviews,comments";
+
+export const MAX_FULL_FILE_BYTES = 1024 * 1024;
+export const MAX_FULL_FILES_BYTES = 10 * 1024 * 1024;
+const GITHUB_BLOB_BATCH_SIZE = 10;
 
 function trim(value: unknown): string {
   return String(value ?? "").trim();
@@ -163,6 +187,8 @@ function normalizePr(raw: RawPullRequest): NormalizedPullRequest {
     baseBranch: raw.baseRefName ?? "",
     headBranch: raw.headRefName ?? "",
     headSha: raw.headRefOid ?? "",
+    baseSha: raw.baseRefOid ?? "",
+    headRepository: raw.headRepository?.nameWithOwner || "",
     labels: (raw.labels || [])
       .map((label) => label.name)
       .filter((label): label is string => Boolean(label)),
@@ -179,6 +205,217 @@ function normalizePr(raw: RawPullRequest): NormalizedPullRequest {
       url: comment.url || "",
       createdAt: comment.createdAt || "",
     })),
+  };
+}
+
+function deletedFiles(diff: string): Set<string> {
+  const deleted = new Set<string>();
+  let currentPath = "";
+  for (const line of diff.replace(/\r\n?/g, "\n").split("\n")) {
+    const paths = parseDiffPaths(line);
+    if (paths) {
+      currentPath = paths.path;
+      continue;
+    }
+    if (currentPath && (line.startsWith("deleted file mode ") || line === "+++ /dev/null")) {
+      deleted.add(currentPath);
+    }
+  }
+  return deleted;
+}
+
+function githubContent(
+  context: CollectedContext,
+  filePath: string,
+  revision: "head" | "base",
+  run: CommandRunner,
+  source?: Pick<RemoteFileRequest, "owner" | "name" | "sha">,
+): string {
+  const owner = source?.owner || context.repository.owner || "";
+  const name = source?.name || context.repository.name || "";
+  const sha =
+    source?.sha ||
+    (revision === "head" ? context.pullRequest?.headSha || "" : context.pullRequest?.baseSha || "");
+  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+  const endpoint = `repos/${owner}/${name}/contents/${encodedPath}?ref=${encodeURIComponent(sha)}`;
+  const encoded = run("gh", ["api", endpoint, "--jq", ".content"], {
+    cwd: context.repository.root,
+  });
+  return Buffer.from(encoded.replace(/\s/g, ""), "base64").toString("utf8");
+}
+
+interface RemoteFileRequest {
+  path: string;
+  sourcePath: string;
+  revision: "head" | "base";
+  owner: string;
+  name: string;
+  sha: string;
+}
+
+interface RemoteFileResult {
+  content?: string;
+  unavailable?: "binary" | "too-large" | "missing";
+}
+
+function repositoryParts(value: string): { owner: string; name: string } | null {
+  const match = /^([^/]+)\/([^/]+)$/.exec(value);
+  return match ? { owner: match[1], name: match[2] } : null;
+}
+
+function collectGithubFileContents(
+  context: CollectedContext,
+  deleted: ReadonlySet<string>,
+  run: CommandRunner,
+): Map<string, RemoteFileResult> {
+  const baseRepository = {
+    owner: context.repository.owner || "",
+    name: context.repository.name || "",
+  };
+  const headRepository =
+    repositoryParts(context.pullRequest?.headRepository || "") || baseRepository;
+  const requests = context.preflight.files
+    .filter((file) => !file.binary)
+    .map((file): RemoteFileRequest => {
+      const revision = deleted.has(file.path) ? "base" : "head";
+      const repository = revision === "head" ? headRepository : baseRepository;
+      return {
+        path: file.path,
+        sourcePath: revision === "base" ? file.oldPath : file.path,
+        revision,
+        ...repository,
+        sha:
+          revision === "head"
+            ? context.pullRequest?.headSha || ""
+            : context.pullRequest?.baseSha || "",
+      };
+    });
+  const results = new Map<string, RemoteFileResult>();
+  const groups = new Map<string, RemoteFileRequest[]>();
+  for (const request of requests) {
+    const key = `${request.owner}/${request.name}`;
+    const group = groups.get(key) || [];
+    group.push(request);
+    groups.set(key, group);
+  }
+
+  for (const group of groups.values()) {
+    for (let offset = 0; offset < group.length; offset += GITHUB_BLOB_BATCH_SIZE) {
+      const batch = group.slice(offset, offset + GITHUB_BLOB_BATCH_SIZE);
+      const definitions = batch.map((_, index) => `$expr${index}:String!`).join(",");
+      const selections = batch
+        .map(
+          (_, index) =>
+            `f${index}:object(expression:$expr${index}){... on Blob{byteSize isBinary isTruncated text}}`,
+        )
+        .join("");
+      const query = `query($owner:String!,$name:String!,${definitions}){repository(owner:$owner,name:$name){${selections}}}`;
+      const args = [
+        "api",
+        "graphql",
+        "-f",
+        `query=${query}`,
+        "-f",
+        `owner=${batch[0].owner}`,
+        "-f",
+        `name=${batch[0].name}`,
+        ...batch.flatMap((request, index) => [
+          "-f",
+          `expr${index}=${request.sha}:${request.sourcePath}`,
+        ]),
+      ];
+      try {
+        const response = JSON.parse(run("gh", args, { cwd: context.repository.root })) as {
+          data?: {
+            repository?: Record<
+              string,
+              {
+                byteSize?: number;
+                isBinary?: boolean | null;
+                isTruncated?: boolean;
+                text?: string | null;
+              } | null
+            >;
+          };
+        };
+        batch.forEach((request, index) => {
+          const blob = response.data?.repository?.[`f${index}`];
+          if (!blob) {
+            results.set(request.path, { unavailable: "missing" });
+          } else if (blob.isBinary || blob.text === null) {
+            results.set(request.path, { unavailable: "binary" });
+          } else if (blob.isTruncated || (blob.byteSize || 0) > MAX_FULL_FILE_BYTES) {
+            results.set(request.path, { unavailable: "too-large" });
+          } else if (typeof blob.text === "string") {
+            results.set(request.path, { content: blob.text });
+          } else {
+            results.set(request.path, { unavailable: "missing" });
+          }
+        });
+      } catch {
+        for (const request of batch) {
+          try {
+            results.set(request.path, {
+              content: githubContent(context, request.sourcePath, request.revision, run, request),
+            });
+          } catch {
+            results.set(request.path, { unavailable: "missing" });
+          }
+        }
+      }
+    }
+  }
+  return results;
+}
+
+export function collectFileContents(
+  context: CollectedContext,
+  run: CommandRunner,
+): FileContentsBundle {
+  let totalBytes = 0;
+  const deleted = deletedFiles(context.diff);
+  const remoteFiles =
+    context.source === "github" ? collectGithubFileContents(context, deleted, run) : null;
+  const files = context.preflight.files.map((file): CollectedFileContent => {
+    const revision = deleted.has(file.path) ? "base" : "head";
+    if (file.binary) return { path: file.path, revision, unavailable: "binary" };
+    if (totalBytes >= MAX_FULL_FILES_BYTES) {
+      return { path: file.path, revision, unavailable: "too-large" };
+    }
+    let content: string;
+    try {
+      if (context.source === "github") {
+        const remote = remoteFiles?.get(file.path);
+        if (!remote?.content) {
+          return {
+            path: file.path,
+            revision,
+            unavailable: remote?.unavailable || "missing",
+          };
+        }
+        content = remote.content;
+      } else if (revision === "base") {
+        content = run("git", ["show", `${context.git.baseRef}:${file.oldPath}`], {
+          cwd: context.repository.root,
+        });
+      } else {
+        content = fs.readFileSync(path.join(context.repository.root, file.path), "utf8");
+      }
+    } catch {
+      return { path: file.path, revision, unavailable: "missing" };
+    }
+    const bytes = Buffer.byteLength(content);
+    if (bytes > MAX_FULL_FILE_BYTES || totalBytes + bytes > MAX_FULL_FILES_BYTES) {
+      return { path: file.path, revision, unavailable: "too-large" };
+    }
+    totalBytes += bytes;
+    return { path: file.path, revision, content };
+  });
+  return {
+    schemaVersion: 1,
+    maxFileBytes: MAX_FULL_FILE_BYTES,
+    maxTotalBytes: MAX_FULL_FILES_BYTES,
+    files,
   };
 }
 
@@ -500,7 +737,7 @@ export function collectPrContext(options: CollectOptions, run: CommandRunner): C
     });
   }
   const diffSelector = mode === "explicit" ? selection : String(pullRequest.number);
-  const diff = run("gh", ["pr", "diff", diffSelector, "--patch"], {
+  const diff = run("gh", ["pr", "diff", diffSelector], {
     cwd: facts.repository.root,
   });
   const preflight = preflightPatch(diff, run, facts.repository.root);

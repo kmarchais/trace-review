@@ -2,7 +2,7 @@
 
 > **Review local or pull-request changes in a focused HTML interface.**
 
-Trace Review turns a working-tree diff, branch range, or pull request into a self-contained interactive review page.
+Trace Review turns a working-tree diff, branch range, or pull request into a self-contained interactive review page with readable diffs and whole-file views.
 
 The language model does not generate the HTML document. It creates structured review content when requested; local scripts validate it and combine it with the parsed diff and a checked-in template.
 

@@ -3,7 +3,11 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import test from "node:test";
-import { collectPrContext, validateContext } from "../scripts/lib/pr-context.mjs";
+import {
+  collectFileContents,
+  collectPrContext,
+  validateContext,
+} from "../scripts/lib/pr-context.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const patch = fs.readFileSync(path.join(root, "test", "fixtures", "mixed.patch"), "utf8");
@@ -13,8 +17,11 @@ function fakeRunner(responses) {
   const run = (command, args) => {
     const key = `${command} ${args.join(" ")}`;
     calls.push(key);
-    if (!(key in responses)) throw new Error(`Unexpected command: ${key}`);
-    const response = responses[key];
+    const wildcard = Object.keys(responses).find(
+      (candidate) => candidate.endsWith("*") && key.startsWith(candidate.slice(0, -1)),
+    );
+    if (!(key in responses) && !wildcard) throw new Error(`Unexpected command: ${key}`);
+    const response = responses[key] ?? responses[wildcard];
     if (response instanceof Error) throw response;
     return response;
   };
@@ -28,8 +35,10 @@ const prJson = {
   title: "Harden widget parsing",
   body: "Reject malformed widget records.",
   baseRefName: "main",
+  baseRefOid: "base123",
   headRefName: "feature/widgets",
   headRefOid: "abc123",
+  headRepository: { nameWithOwner: "acme/widgets" },
   labels: [{ name: "bug" }, { name: "ready" }],
   statusCheckRollup: [
     {
@@ -66,7 +75,7 @@ test("auto mode collects and validates complete pull request context", () => {
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
     "git apply --numstat -": "1\t0\tsrc/app.js\n1\t1\tpackage-lock.json\n-\t-\tassets/logo.png\n",
-    "gh pr view --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments": `${JSON.stringify(prJson)}\n`,
+    "gh pr view --json number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,labels,statusCheckRollup,reviews,comments": `${JSON.stringify(prJson)}\n`,
     "gh api --paginate --slurp repos/acme/widgets/pulls/42/comments": `${JSON.stringify([
       [
         {
@@ -82,7 +91,25 @@ test("auto mode collects and validates complete pull request context", () => {
         },
       ],
     ])}\n`,
-    "gh pr diff 42 --patch": patch,
+    "gh pr diff 42": patch,
+    "gh api graphql*": JSON.stringify({
+      data: {
+        repository: {
+          f0: {
+            byteSize: 27,
+            isBinary: false,
+            isTruncated: false,
+            text: "export const ready = true;\n",
+          },
+          f1: {
+            byteSize: 23,
+            isBinary: false,
+            isTruncated: false,
+            text: '{"lockfileVersion": 3}\n',
+          },
+        },
+      },
+    }),
   });
 
   const context = collectPrContext({ repo: "C:/work/widgets", pr: "auto" }, run);
@@ -115,6 +142,29 @@ test("auto mode collects and validates complete pull request context", () => {
   assert.equal(context.preflight.patch.gitApply.valid, true);
   assert.equal(context.diff, patch);
   assert.deepEqual(context.validation, { valid: true, diagnostics: [] });
+  const fullFiles = collectFileContents(context, run);
+  assert.deepEqual(fullFiles.files, [
+    {
+      path: "src/app.js",
+      revision: "head",
+      content: "export const ready = true;\n",
+    },
+    {
+      path: "package-lock.json",
+      revision: "head",
+      content: '{"lockfileVersion": 3}\n',
+    },
+    {
+      path: "assets/logo.png",
+      revision: "head",
+      unavailable: "binary",
+    },
+  ]);
+  assert.equal(run.calls.filter((call) => call.startsWith("gh api graphql ")).length, 1);
+  assert.equal(
+    run.calls.some((call) => call.includes("/contents/")),
+    false,
+  );
 });
 
 test("none mode intentionally skips GitHub and collects the local branch diff", () => {
@@ -149,6 +199,109 @@ test("none mode intentionally skips GitHub and collects the local branch diff", 
   assert.deepEqual(context.validation, { valid: true, diagnostics: [] });
 });
 
+test("whole-file collection uses the base version for a deleted file", () => {
+  const deletedPatch =
+    "diff --git a/src/old.js b/src/old.js\n" +
+    "deleted file mode 100644\n" +
+    "--- a/src/old.js\n" +
+    "+++ /dev/null\n" +
+    "@@ -1 +0,0 @@\n" +
+    "-export const old = true;\n";
+  const run = fakeRunner({
+    "git rev-parse --show-toplevel": "C:/work/widgets\n",
+    "git branch --show-current": "feature/widgets\n",
+    "git rev-parse HEAD": "abc123\n",
+    "git remote get-url origin": "https://github.com/acme/widgets.git\n",
+    "git status --short --untracked-files=normal": " D src/old.js\n",
+    "git diff --binary --no-ext-diff origin/main": deletedPatch,
+    "git apply --numstat -": "0\t1\tsrc/old.js\n",
+    "git show origin/main:src/old.js": "export const old = true;\n",
+  });
+
+  const context = collectPrContext(
+    { repo: "C:/work/widgets", pr: "none", base: "origin/main" },
+    run,
+  );
+  const fullFiles = collectFileContents(context, run);
+
+  assert.deepEqual(fullFiles.files, [
+    {
+      path: "src/old.js",
+      revision: "base",
+      content: "export const old = true;\n",
+    },
+  ]);
+});
+
+test("GitHub whole-file collection batches fork blobs in bounded groups", () => {
+  const files = Array.from({ length: 21 }, (_, index) => ({
+    path: `src/file-${index}.js`,
+    oldPath: `src/file-${index}.js`,
+    additions: 1,
+    deletions: 0,
+    binary: false,
+    generated: false,
+    type: "javascript",
+  }));
+  const diff = files
+    .map(
+      (file) =>
+        `diff --git a/${file.path} b/${file.path}\n--- a/${file.path}\n+++ b/${file.path}\n@@ -0,0 +1 @@\n+updated\n`,
+    )
+    .join("");
+  const calls = [];
+  const run = (command, args) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    assert.equal(command, "gh");
+    assert.equal(args[0], "api");
+    assert.equal(args[1], "graphql");
+    assert.equal(args.includes("owner=fork-owner"), true);
+    assert.equal(args.includes("name=widgets-fork"), true);
+    const expressions = args.filter((arg) => /^expr\d+=/.test(arg));
+    const repository = Object.fromEntries(
+      expressions.map((expression, index) => [
+        `f${index}`,
+        {
+          byteSize: 8,
+          isBinary: false,
+          isTruncated: false,
+          text: `${expression.slice(expression.indexOf(":") + 1)}\n`,
+        },
+      ]),
+    );
+    return JSON.stringify({ data: { repository } });
+  };
+  const context = {
+    schemaVersion: 1,
+    source: "github",
+    selection: { mode: "explicit", requested: "42" },
+    repository: {
+      root: "C:/work/widgets",
+      remote: "https://github.com/acme/widgets.git",
+      owner: "acme",
+      name: "widgets",
+    },
+    git: { branch: "main", headSha: "local", dirty: false, status: [] },
+    pullRequest: {
+      number: 42,
+      headSha: "head123",
+      baseSha: "base123",
+      headRepository: "fork-owner/widgets-fork",
+    },
+    diff,
+    preflight: { files },
+    changeGroups: {},
+    collectionDiagnostics: [],
+    validation: { valid: true, diagnostics: [] },
+  };
+
+  const fullFiles = collectFileContents(context, run);
+
+  assert.equal(calls.length, 3);
+  assert.equal(fullFiles.files.length, 21);
+  assert.equal(fullFiles.files[20].content, "src/file-20.js\n");
+});
+
 test("auto mode falls back to local context when the branch has no pull request", () => {
   const run = fakeRunner({
     "git rev-parse --show-toplevel": "C:/work/widgets\n",
@@ -156,7 +309,7 @@ test("auto mode falls back to local context when the branch has no pull request"
     "git rev-parse HEAD": "abc123\n",
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
-    "gh pr view --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments":
+    "gh pr view --json number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,labels,statusCheckRollup,reviews,comments":
       new Error("no pull requests found for branch"),
     "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": "origin/main\n",
     "git diff --binary --no-ext-diff origin/main": patch,
@@ -178,7 +331,7 @@ test("auto mode warns when GitHub context is unavailable", () => {
     "git rev-parse HEAD": "abc123\n",
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
-    "gh pr view --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments":
+    "gh pr view --json number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,labels,statusCheckRollup,reviews,comments":
       new Error("Could not run 'gh': spawn gh ENOENT"),
     "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": "origin/main\n",
     "git diff --binary --no-ext-diff origin/main": patch,
@@ -208,9 +361,9 @@ test("explicit mode passes a pull request URL to GitHub selection", () => {
     "git remote get-url origin": "https://github.com/acme/widgets.git\n",
     "git status --short --untracked-files=normal": "",
     "git apply --numstat -": "1\t0\tsrc/app.js\n1\t1\tpackage-lock.json\n-\t-\tassets/logo.png\n",
-    [`gh pr view ${selector} --json number,url,title,body,baseRefName,headRefName,headRefOid,labels,statusCheckRollup,reviews,comments`]: `${JSON.stringify({ ...prJson, url: selector })}\n`,
+    [`gh pr view ${selector} --json number,url,title,body,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,labels,statusCheckRollup,reviews,comments`]: `${JSON.stringify({ ...prJson, url: selector })}\n`,
     "gh api --paginate --slurp repos/other/project/pulls/42/comments": "[]\n",
-    [`gh pr diff ${selector} --patch`]: patch,
+    [`gh pr diff ${selector}`]: patch,
   });
 
   const context = collectPrContext({ repo: "C:/work/widgets", pr: selector }, run);
@@ -221,7 +374,11 @@ test("explicit mode passes a pull request URL to GitHub selection", () => {
     run.calls.some((call) => call.startsWith(`gh pr view ${selector} `)),
     true,
   );
-  assert.equal(run.calls.includes(`gh pr diff ${selector} --patch`), true);
+  assert.equal(run.calls.includes(`gh pr diff ${selector}`), true);
+  assert.equal(
+    run.calls.some((call) => call.endsWith(" --patch")),
+    false,
+  );
 });
 
 test("validation reports actionable paths for incomplete GitHub context", () => {

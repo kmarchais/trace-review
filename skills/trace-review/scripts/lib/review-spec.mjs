@@ -106,6 +106,7 @@ export function validateReviewSpec(spec, options = {}) {
             "github",
             "diff",
             "diffFile",
+            "fileContentsFile",
             "diagrams",
             "blocks",
             "groups",
@@ -151,6 +152,16 @@ export function validateReviewSpec(spec, options = {}) {
             const diffPath = path.isAbsolute(diffFile) ? diffFile : path.resolve(baseDir, diffFile);
             if (!fs.existsSync(diffPath)) {
                 add("diff-file-not-found", `${root}.diffFile`, `Diff file '${pr.diffFile}' does not exist.`, `Resolved path: ${diffPath}`);
+            }
+        }
+        if (pr.fileContentsFile !== undefined) {
+            if (requireString(pr.fileContentsFile, `${root}.fileContentsFile`) && checkFiles) {
+                const contentsPath = path.isAbsolute(pr.fileContentsFile)
+                    ? pr.fileContentsFile
+                    : path.resolve(baseDir, pr.fileContentsFile);
+                if (!fs.existsSync(contentsPath)) {
+                    add("file-contents-not-found", `${root}.fileContentsFile`, `Full-file bundle '${pr.fileContentsFile}' does not exist.`, `Resolved path: ${contentsPath}`);
+                }
             }
         }
         if (pr.blocks !== undefined) {

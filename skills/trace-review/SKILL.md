@@ -69,7 +69,8 @@ recommended policy block and the deterministic conventions schema v1 detects.
 ### 1. Collect facts and the diff — never dump the diff into chat
 
 Run the context collector first. It writes a validated, compact fact pack to
-`.review/context.json` and the heavy patch to `.review/context.patch`.
+`.review/context.json`, the heavy patch to `.review/context.patch`, and bounded
+whole-file content to `.review/context.files.json`.
 
 ```bash
 # Default: detect the current branch's PR, then fall back to a local diff
@@ -107,6 +108,10 @@ errors, binaries, and likely generated files. Read `context.json` before the
 patch: it already contains the title, description, branches, labels, checks,
 reviews, conversation comments, inline GitHub review comments, and candidate
 change groups.
+
+The collector requests GitHub's aggregate PR diff, so files changed by several
+commits appear once in their final review shape. Do not replace the collected
+patch with `gh pr diff --patch`, which emits per-commit patch material.
 
 Multiple PRs → run the collector once per explicit PR with distinct output
 paths.
@@ -222,7 +227,7 @@ Minimum viable spec:
   "title": "Review: harden auth flow",
   "reviewId": "harden-auth",
   "prs": [
-    { "title": "Add credential validation", "summary": "Rejects empty creds; timestamps tokens.", "diffFile": "context.patch", "groupFile": "groups.json" }
+    { "title": "Add credential validation", "summary": "Rejects empty creds; timestamps tokens.", "diffFile": "context.patch", "fileContentsFile": "context.files.json", "groupFile": "groups.json" }
   ]
 }
 ```
@@ -244,6 +249,12 @@ Minimum viable spec:
   authentication and the live PR head before any write.
 - `diffFile` is resolved **relative to the spec file**. (Or inline the diff as
   a `"diff"` string for tiny changes.)
+- `fileContentsFile` points to the collector's bounded, text-only companion
+  bundle. It enables the **View file** action on every diff file without
+  asking the language model to reproduce source code. Deleted files show their
+  base version; binary, unavailable, and oversized files explain why they
+  cannot be displayed.
+  SVG files open in a sanitized **Image** view and retain an exact **Code** view.
 - Run `node <skill-dir>/scripts/validate-review-spec.mjs --spec
   .review/spec.json` to inspect contract diagnostics without generating HTML.
   The build command runs the same validation and refuses invalid specs.
