@@ -1,20 +1,32 @@
 name: Release skill bundle
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag matching package.json
+        required: true
+        default: v0.2.0
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-skill-bundle
+  cancel-in-progress: false
+
 jobs:
-  upload-skill-bundle:
+  release:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
     steps:
-      - name: Check out the release tag
+      - name: Check out main
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: main
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v6
@@ -29,26 +41,59 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Verify the release tag
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: bun run check:release-tag -- "$RELEASE_TAG"
+      - name: Verify the release version and tag
+        run: |
+          bun run check:release-tag -- "$RELEASE_TAG"
+          if git rev-parse --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo "Tag $RELEASE_TAG already exists." >&2
+            exit 1
+          fi
+          test -f "docs/releases/$RELEASE_TAG.md"
 
-      - name: Validate the repository
+      - name: Validate the source repository
         run: bun run check
 
-      - name: Build the minimal skill archive
-        run: bun run bundle:skill
+      - name: Build release artifacts
+        run: |
+          bun run bundle:skill
+          bun run stage:skill
 
-      - name: Verify the standard installable skill
+      - name: Verify the staged distribution locally
         run: |
           install_dir="$(mktemp -d)"
           gh skill install . trace-review --from-local --dir "$install_dir"
           node "$install_dir/trace-review/scripts/validate-review-spec.mjs" \
             --spec "$install_dir/trace-review/examples/review-spec.json"
 
-      - name: Attach the archive to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" dist/trace-review-skill.zip --clobber
+      - name: Create the tag-only distribution commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f skills/trace-review
+          git commit -m "Build $RELEASE_TAG skill distribution"
+          git tag --annotate "$RELEASE_TAG" --message "Trace Review $RELEASE_TAG"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Verify both tagged remote installers
+        run: |
+          gh_dir="$(mktemp -d)"
+          gh skill install "$GITHUB_REPOSITORY" "trace-review@$RELEASE_TAG" --dir "$gh_dir"
+          node "$gh_dir/trace-review/scripts/validate-review-spec.mjs" \
+            --spec "$gh_dir/trace-review/examples/review-spec.json"
+
+          npx_dir="$(mktemp -d)"
+          cd "$npx_dir"
+          npx --yes skills@latest add \
+            "https://github.com/$GITHUB_REPOSITORY/tree/$RELEASE_TAG/skills/trace-review" \
+            --agent codex --yes
+          npx_skill="$(find "$npx_dir" -path '*/trace-review/SKILL.md' -print -quit)"
+          test -n "$npx_skill"
+          node "$(dirname "$npx_skill")/scripts/validate-review-spec.mjs" \
+            --spec "$(dirname "$npx_skill")/examples/review-spec.json"
+
+      - name: Publish the release
+        run: |
+          gh release create "$RELEASE_TAG" dist/trace-review-skill.zip \
+            --title "Trace Review $RELEASE_TAG" \
+            --notes-file "docs/releases/$RELEASE_TAG.md" \
+            --verify-tag
