@@ -24,8 +24,6 @@ Required results:
 
 - the release tag matches the version in `package.json`;
 - the complete test suite passes;
-- the checked-in `skills/trace-review/` tree matches its source and compiled
-  runtime;
 - `dist/trace-review-skill.zip` builds and its isolated smoke test passes;
 - the general example and C++ reference spec pass schema validation;
 - malicious-content, comment-orphan, grouping, and LM finding tests remain
@@ -56,23 +54,28 @@ narrow viewport sizes:
 Record the browser versions, operating system, reviewer, date, and any accepted
 exceptions in the release PR.
 
-Use [releases/v0.1.0.md](releases/v0.1.0.md) as the initial release body and
+Use [releases/v0.1.0.md](releases/v0.1.0.md) as the release body and
 record the manual-review evidence beneath its validation section.
 
 ## Distribution check
 
-Before publishing, install the checked-in distribution into a temporary
-directory:
+Run the **Release skill bundle** workflow with the version tag from
+`package.json`. It builds a tag-only distribution commit, so compiled runtime
+files remain absent from `main`.
+
+Before publishing the release, the workflow installs the generated tag through
+both supported installers:
 
 ```bash
-gh skill install . trace-review --from-local --dir <temporary-directory>
+gh skill install kmarchais/trace-review trace-review@v0.1.0 --dir <temporary-directory>
+npx skills add \
+  https://github.com/kmarchais/trace-review/tree/v0.1.0/skills/trace-review \
+  --agent codex --yes
 ```
 
-Confirm that only the release files are copied and run the installed example
-validator with Node 22. Then publish the release, confirm that
-`trace-review-skill.zip` is attached, and install the tagged remote skill with
-both documented installers. Run one workspace review plus one LM-analysis
-review in a disposable repository. Confirm that the documented Node, Git, and
-optional GitHub CLI requirements are sufficient and that no repository
-contents are written outside `.review/` unless the user chooses another output
-path.
+The workflow runs the installed example validator with Node 22 before it
+publishes the release and attaches `trace-review-skill.zip`. Afterward, run one
+workspace review plus one LM-analysis review in a disposable repository.
+Confirm that the documented Node, Git, and optional GitHub CLI requirements are
+sufficient and that no repository contents are written outside `.review/`
+unless the user chooses another output path.

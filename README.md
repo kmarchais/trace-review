@@ -37,16 +37,17 @@ The reproducible [C++ reference review](examples/cpp-reference/README.md) includ
 
 Requires Node 22+, Git, and optionally GitHub CLI for pull-request context and native review publishing.
 
-Install globally and choose any detected coding agent:
+GitHub CLI installs the latest release for any supported coding agent:
 
 ```bash
-npx skills add kmarchais/trace-review --skill trace-review --global
+gh skill install kmarchais/trace-review trace-review --agent codex --scope user
+gh skill install kmarchais/trace-review trace-review --agent claude-code --scope user
 ```
 
-For a non-interactive Codex installation:
+The `skills` installer can install the same tagged release:
 
 ```bash
-npx skills add kmarchais/trace-review --skill trace-review --global --agent codex --yes
+npx skills add https://github.com/kmarchais/trace-review/tree/v0.1.0/skills/trace-review --global
 ```
 
 The installer selects the correct directory for the requested coding agent. As a manual fallback, download [`trace-review-skill.zip`](https://github.com/kmarchais/trace-review/releases/latest/download/trace-review-skill.zip).
@@ -61,7 +62,7 @@ The installer selects the correct directory for the requested coding agent. As a
 - Or ask your coding agent to review a branch or pull request with Trace Review.
 - For a GitHub-backed review, use **Share review → GitHub review** to preview native threads and summary fallbacks before publishing.
 
-See the installable [SKILL.md](skills/trace-review/SKILL.md), the [review specification](REVIEW-SPEC.md), and the [operational boundaries](docs/LIMITATIONS.md).
+See the authored [skill instructions](SKILL.source.md), the [review specification](REVIEW-SPEC.md), and the [operational boundaries](docs/LIMITATIONS.md).
 
 ## Develop
 
@@ -69,9 +70,8 @@ The repository uses strict TypeScript, Bun, ESLint, and Prettier. The release bu
 
 ```bash
 bun install
-bun run sync:skill
 bun run check
 bun run bundle:skill
 ```
 
-`skills/trace-review/` is the checked-in cross-agent installation source. `bun run check` rejects it when it no longer matches the authored files or compiled runtime.
+`main` contains only authored TypeScript, documentation, and templates. Releases compile and stage the cross-agent skill in a tag-only commit, then validate that tag with both installers.

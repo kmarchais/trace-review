@@ -61,22 +61,6 @@ interface SkillFile {
 
 const BINARY_DISTRIBUTION_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp", ".zip"]);
 
-export interface SkillDistributionDiff {
-  missing: string[];
-  changed: string[];
-  unexpected: string[];
-}
-
-function walkFiles(directory: string, root = directory): string[] {
-  if (!fs.existsSync(directory)) return [];
-  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const entryPath = path.join(directory, entry.name);
-    return entry.isDirectory()
-      ? walkFiles(entryPath, root)
-      : [path.relative(root, entryPath).replaceAll(path.sep, "/")];
-  });
-}
-
 function readSkillFiles(root: string, runtimeRoot: string): SkillFile[] {
   return SKILL_BUNDLE_FILES.map((relativePath) => {
     const sourceRoot = SKILL_BUNDLE_RUNTIME_FILES.includes(
@@ -98,38 +82,7 @@ function readSkillFiles(root: string, runtimeRoot: string): SkillFile[] {
   });
 }
 
-export function inspectSkillDistribution({
-  root,
-  runtimeRoot = path.join(root, "dist", "runtime"),
-  skillRoot = path.join(root, "skills", "trace-review"),
-}: {
-  root: string;
-  runtimeRoot?: string;
-  skillRoot?: string;
-}): SkillDistributionDiff {
-  const expected = new Map(
-    readSkillFiles(root, runtimeRoot).map((file) => [file.relativePath, file.data]),
-  );
-  const actual = new Set(walkFiles(skillRoot));
-  const missing: string[] = [];
-  const changed: string[] = [];
-
-  for (const [relativePath, data] of expected) {
-    if (!actual.has(relativePath)) {
-      missing.push(relativePath);
-    } else if (!fs.readFileSync(path.join(skillRoot, relativePath)).equals(data)) {
-      changed.push(relativePath);
-    }
-  }
-
-  return {
-    missing,
-    changed,
-    unexpected: [...actual].filter((relativePath) => !expected.has(relativePath)).sort(),
-  };
-}
-
-export function syncSkillDistribution({
+export function stageSkillDistribution({
   root,
   runtimeRoot = path.join(root, "dist", "runtime"),
   skillRoot = path.join(root, "skills", "trace-review"),

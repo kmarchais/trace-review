@@ -37,7 +37,9 @@ jobs:
 
       - name: Smoke-test standard skill installation
         run: |
+          stage_root="$(mktemp -d)"
+          bun run stage:skill -- "$stage_root/skills/trace-review"
           install_dir="$(mktemp -d)"
-          gh skill install . trace-review --from-local --dir "$install_dir"
+          gh skill install "$stage_root" trace-review --from-local --dir "$install_dir"
           node "$install_dir/trace-review/scripts/validate-review-spec.mjs" \
             --spec "$install_dir/trace-review/examples/review-spec.json"
