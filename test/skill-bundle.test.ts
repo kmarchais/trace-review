@@ -6,11 +6,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   buildSkillBundle,
-  inspectSkillDistribution,
   listZipEntries,
   readZipEntries,
   SKILL_BUNDLE_FILES,
   SKILL_BUNDLE_RUNTIME_FILES,
+  stageSkillDistribution,
 } from "../scripts/lib/skill-bundle.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,12 +22,13 @@ function expectedDistributionData(file: string): Buffer {
     : Buffer.from(fs.readFileSync(file, "utf8").replace(/\r\n?/g, "\n"));
 }
 
-test("checked-in installable skill distribution matches the release inputs", () => {
-  assert.deepEqual(inspectSkillDistribution({ root }), {
-    missing: [],
-    changed: [],
-    unexpected: [],
-  });
+test("release skill distribution is staged outside the source tree", (t) => {
+  const stageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-stage-test-"));
+  t.after(() => fs.rmSync(stageRoot, { recursive: true, force: true }));
+
+  assert.deepEqual(stageSkillDistribution({ root, skillRoot: stageRoot }), [...SKILL_BUNDLE_FILES]);
+  assert.ok(fs.existsSync(path.join(stageRoot, "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(stageRoot, "scripts", "trace-review.mjs")));
 });
 
 test("skill documents composable LM and pull-request shortcuts", () => {

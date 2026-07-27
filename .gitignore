@@ -4,3 +4,4 @@ dist/
 node_modules/
 output/playwright/
 review-smoke.html
+skills/trace-review/

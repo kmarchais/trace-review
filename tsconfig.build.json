@@ -10,7 +10,7 @@
   "include": ["scripts/**/*.mts"],
   "exclude": [
     "scripts/build-skill-bundle.mts",
-    "scripts/sync-skill-distribution.mts",
+    "scripts/stage-skill-distribution.mts",
     "scripts/lib/skill-bundle.mts"
   ]
 }
