@@ -37,6 +37,10 @@ test("skill documents composable LM and pull-request shortcuts", () => {
   assert.match(skill, /`pr <number>` and `pr #<number>` select that pull request/);
   assert.match(skill, /`lm pr 8`, `pr 8 ai`, and `pr #8 lm`/);
   assert.match(skill, /write `"mode": "lm-analysis"` and pass only\s+the number to `--pr`/);
+  assert.match(skill, /trace-review\.mjs prepare/);
+  assert.match(skill, /trace-review\.mjs finish/);
+  assert.match(skill, /If `prepare` succeeds, do not call the low-level scripts, `git`, or `gh`/);
+  assert.match(skill, /Write only `\.review\/review-result\.json`/);
 });
 
 test("minimal skill bundle is complete, runnable, and excludes repository-only files", (t) => {

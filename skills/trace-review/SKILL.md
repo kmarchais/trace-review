@@ -15,7 +15,7 @@ The heavy lifting lives in a **template + build script** so you spend almost no
 tokens: diffs are read from files on disk (never echoed into chat), and you
 only author a short JSON spec.
 
-**Do NOT hand-write HTML.** Always go through `build-review.mjs`.
+**Do NOT hand-write HTML.** Always build it through `trace-review.mjs finish`.
 
 ## Three explicit modes
 
@@ -66,215 +66,82 @@ recommended policy block and the deterministic conventions schema v1 detects.
 
 ## Workflow (the agent path)
 
-### 1. Collect facts and the diff — never dump the diff into chat
+The public workflow has two commands and one model-authored result. The
+orchestrator owns collection, validation, spec generation, metrics, and HTML
+building; the language model never generates HTML.
 
-Run the context collector first. It writes a validated, compact fact pack to
-`.review/context.json`, the heavy patch to `.review/context.patch`, and bounded
-whole-file content to `.review/context.files.json`.
+### 1. Prepare once
 
-```bash
-# Default: detect the current branch's PR, then fall back to a local diff
-node <skill-dir>/scripts/collect-pr-context.mjs
-
-# Explicit PR selection by number or URL
-node <skill-dir>/scripts/collect-pr-context.mjs --pr 123
-node <skill-dir>/scripts/collect-pr-context.mjs --pr https://github.com/org/repo/pull/123
-
-# Intentionally disable remote context
-node <skill-dir>/scripts/collect-pr-context.mjs --no-remote --base main
-```
-
-For `/trace-review pr 8`, normalize the user-facing selector and run the
-collector with `--pr 8`. Pull-request numbers are resolved against the
-repository selected by the current working directory or `--repo`.
-
-Use `--repo <path>` when the command is not run inside the target repository,
-and `--out` / `--diff-out` to choose other output locations. In automatic mode,
-an unavailable `gh` command or a branch with no PR falls back to a local diff.
-Remote failures produce a visible warning and a `remote-context-unavailable`
-diagnostic; a confirmed no-PR response uses `current-branch-pr-not-found`.
-Explicit PR selection fails with an installation/local-mode hint instead of
-silently reviewing something else.
-
-For an already-created patch, run the standalone deterministic inventory:
+Run from the repository under review:
 
 ```bash
-node <skill-dir>/scripts/review-preflight.mjs --diff .review/context.patch \
-  --out .review/preflight.json
+node <skill-dir>/scripts/trace-review.mjs prepare --repo <repo> \
+  --pr auto --mode workspace
 ```
 
-Preflight reports patch validity, byte and line counts, file types, whitespace
-errors, binaries, and likely generated files. Read `context.json` before the
-patch: it already contains the title, description, branches, labels, checks,
-reviews, conversation comments, inline GitHub review comments, and candidate
-change groups.
+Use `--pr 8` for `pr 8`, `--mode lm-analysis` for `lm` or `ai`, and both for
+`lm pr 8`. For a local-only review use `--pr none --base <ref>`. Deep audit
+requires `--mode deep-audit --explicit`. Use a distinct `--dir` for each review
+when processing multiple PRs.
 
-The collector requests GitHub's aggregate PR diff, so files changed by several
-commits appear once in their final review shape. Do not replace the collected
-patch with `gh pr diff --patch`, which emits per-commit patch material.
+If `prepare` succeeds, do not call the low-level scripts, `git`, or `gh`.
+Read `.review/analysis-input.json`, then read `.review/context.patch` once.
+The input contains compact repository and PR facts, candidate change units,
+contracts, and paths to bounded whole-file content. Read a full file only to
+verify a concrete candidate finding.
 
-Multiple PRs → run the collector once per explicit PR with distinct output
-paths.
+### 2. Write one result
 
-### 2. Generate and validate semantic change groups
-
-The collector includes deterministic **candidate facts** in its context. For an
-existing patch, write those candidates separately:
-
-```bash
-node <skill-dir>/scripts/detect-mechanical-groups.mjs \
-  --diff .review/context.patch --out .review/candidates.json
-```
-
-The detector inventories changes at hunk/line-range granularity. It recognizes pure
-renames, formatting-only changes, lockfiles, import/include changes, and
-repeated includes. Every group carries intent, evidence, risk, confidence, and
-reviewer checks. Binary/generated uncertainty is placed in **Needs inspection**;
-anything unmatched stays visible in **Unclassified**.
-
-Those fixed classifier labels are evidence for the LM, never the final group
-names shown to a reviewer. In every mode, read the candidate facts and patch,
-then produce `.review/grouping-result.json`:
+Write only `.review/review-result.json`:
 
 ```json
 {
+  "summary": "The change hardens session lifecycle handling.",
   "groups": [
     {
       "title": "Session lifecycle contract",
-      "intent": "Review opening and timeout behavior as one source-file decision.",
+      "intent": "Review opening and timeout behavior as one decision.",
       "risk": "medium",
       "confidence": 0.91,
       "evidence": ["The source file owns both lifecycle hunks."],
-      "reviewerChecks": ["Check lifecycle compatibility and timeout behavior."],
+      "reviewerChecks": ["Check compatibility and timeout behavior."],
       "titleEvidence": {
         "changeIds": ["src/session.js#h0"],
-        "rationale": "This hunk introduces the session lifecycle entry point."
+        "rationale": "This hunk introduces the lifecycle entry point."
       },
       "changeIds": ["src/session.js#h0", "src/session.js#h1"],
       "readAfter": []
     }
-  ]
-}
-```
-
-Group titles must be generated from the actual change. Do not expose recurring
-classifier names such as **Definitions**, **Consumers**, or **Associated
-tests**. Assign every change unit exactly once. Within a group, collect all of
-that group's hunks for a file into one file block. The same file may appear in
-another group when separate hunks belong to a genuinely different review
-decision; use change-specific group titles and intents to make that split
-explicit.
-
-Finalize and validate the LM result:
-
-```bash
-node <skill-dir>/scripts/finalize-lm-groups.mjs \
-  --candidates .review/candidates.json \
-  --result .review/grouping-result.json \
-  --out .review/groups.json
-```
-
-Treat any validation failure as a hard stop. The finalizer rejects generic
-titles, unknown/missing/overlapping change units, incomplete rationales, and
-invalid dependency references. Group generation is required
-even in workspace mode; workspace mode omits LM *findings*, not LM-organized
-review structure.
-
-### 3. Prepare focused LM input when requested
-
-For `lm-analysis`, prepare a compact analyzer input from the collected context:
-
-```bash
-node <skill-dir>/scripts/prepare-lm-analysis.mjs \
-  --context .review/context.json --out .review/analysis-input.json
-```
-
-Read `analysis-input.json` first. It carries PR context, deterministic preflight
-facts, candidate groups, dependency order, a risk assessment, the diff path,
-and a fact-derived finding budget. The raw patch remains separately available
-for verifying candidate findings; it is not the analyzer's only input.
-
-Use `--mode deep-audit` only when the fact pack is high risk. When the user
-explicitly requests a deep audit, also pass `--explicit`. The command otherwise
-refuses to escalate a low- or medium-risk review.
-
-Produce `analysis-result.json` with `verdict`, `global`, and `findings`, then
-validate and convert it:
-
-```bash
-node <skill-dir>/scripts/finalize-lm-analysis.mjs \
-  --input .review/analysis-input.json \
-  --result .review/analysis-result.json \
-  --out .review/review.json
-```
-
-Do not bypass a finding-budget or contract failure. Reduce noise or fix missing
-evidence before copying the resulting review object into the review spec.
-
-### 4. Read the facts and write a short spec
-
-Read the collected context and patches to understand the change, then write
-`.review/spec.json`.
-Keep the summary tight — say *what changed and why*, not a line-by-line
-retelling. Copy the shape from [examples/review-spec.json](examples/review-spec.json).
-
-Minimum viable spec:
-
-```json
-{
-  "schemaVersion": 1,
-  "mode": "workspace",
-  "title": "Review: harden auth flow",
-  "reviewId": "harden-auth",
-  "prs": [
-    { "title": "Add credential validation", "summary": "Rejects empty creds; timestamps tokens.", "diffFile": "context.patch", "fileContentsFile": "context.files.json", "groupFile": "groups.json" }
-  ]
-}
-```
-
-- When collected context has `source: "github"`, add a publication target from
-  the validated context:
-
-  ```json
-  "github": {
-    "repository": "owner/repository",
-    "pullRequest": 123,
-    "headSha": "the-collected-head-sha"
+  ],
+  "review": {
+    "verdict": "comment",
+    "global": "The implementation is focused; one edge case needs attention.",
+    "findings": []
   }
-  ```
+}
+```
 
-  Use `repository.owner` + `repository.name`, `pullRequest.number`, and
-  `pullRequest.headSha`. Omit `github` for local-only reviews. This metadata
-  enables plan preparation only; the publisher independently checks `gh`
-  authentication and the live PR head before any write.
-- `diffFile` is resolved **relative to the spec file**. (Or inline the diff as
-  a `"diff"` string for tiny changes.)
-- `fileContentsFile` points to the collector's bounded, text-only companion
-  bundle. It enables the **View file** action on every diff file without
-  asking the language model to reproduce source code. Deleted files show their
-  base version; binary, unavailable, and oversized files explain why they
-  cannot be displayed.
-  SVG files open in a sanitized **Image** view and retain an exact **Code** view.
-- Run `node <skill-dir>/scripts/validate-review-spec.mjs --spec
-  .review/spec.json` to inspect contract diagnostics without generating HTML.
-  The build command runs the same validation and refuses invalid specs.
-- `groupFile` is resolved relative to the spec and revalidated against the
-  current patch at build time. It should point to the finalized LM grouping.
-  `autoGroups: true` remains a low-level deterministic fallback for tests and
-  diagnostics; do not use it for a reviewer-facing document.
-- `reviewId` keys the reviewer's saved comments — **keep it stable** across
-  rebuilds so comments survive a regenerate.
+Workspace mode omits `review`. LM analysis and deep audit require it. Assign
+every candidate change ID exactly once. Generate titles from the actual change,
+not classifier labels such as **Definitions**, **Consumers**, or **Associated
+tests**. Keep findings sparse and evidence-backed.
 
-The page is a two-column workspace: **left = the PR** (the summary you compose),
-**right = the review** (global comment on top, diff below). The left panel is
-shown only when there's PR context; a bare diff gets no left panel. You have
-two ways to fill the PR summary:
+### 3. Finish once
 
-- **Simple:** set `summary` (markdown) and optionally `diagrams` (an array).
-  They lay out as one prose block + the diagrams. Good default.
-- **Free-form:** set a `blocks` array and compose the panel yourself — prose,
-  stat tiles, a risk table, a callout, diagrams, in whatever order fits.
-  `blocks` **replaces** `summary`/`diagrams` when present.
+```bash
+node <skill-dir>/scripts/trace-review.mjs finish \
+  --input .review/analysis-input.json \
+  --result .review/review-result.json --open
+```
+
+`finish` validates the result, finalizes groups and findings, creates the spec,
+builds the HTML, and writes `.review/run-metrics.json`. The default `.review/`
+directory is added to the repository's local Git exclude file, so generated
+review artifacts do not enter commits.
+
+Treat validation failures as hard stops and correct the one result file. The
+lower-level scripts are diagnostic interfaces only; use them when the
+orchestrator itself reports an error, not as extra workflow steps.
 
 ### Summary blocks
 
@@ -381,22 +248,7 @@ files** (a rename, an added `#include`, a signature tweak). Add a `groups` array
   changes. A rename that *also* edits the file is a normal reviewable file (and
   you can put it in a group). You rarely need to list renames in `groups`.
 
-### 5. Build and open
-
-```bash
-node <skill-dir>/scripts/build-review.mjs --spec .review/spec.json --out .review/review.html --metrics-out .review/metrics.json --open
-```
-
-`--metrics-out` is recommended for real pull requests. It records generation
-time, estimated spec and avoided-patch tokens, size, and word-diff limits
-without storing patch contents. After the review, fill in actual model usage,
-review time, grouping quality, and finding relevance using
-[docs/REAL-PR-METRICS.md](docs/REAL-PR-METRICS.md).
-
-`--open` launches the default browser (Windows `start` / macOS `open` /
-Linux `xdg-open`). Drop it and just tell the user the path if you prefer.
-
-### 6. Re-import the reviewer's comments
+### Re-import the reviewer's comments
 
 In the doc the reviewer hovers a line and clicks the **+** in its gutter to
 comment (works in both unified and split view — comments follow the line, not
