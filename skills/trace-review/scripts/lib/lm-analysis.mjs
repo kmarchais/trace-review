@@ -23,12 +23,12 @@ function compactTarget(context) {
     return {
         repository: context.repository?.nameWithOwner ||
             [context.repository?.owner, context.repository?.name].filter(Boolean).join("/"),
-        branch: context.repository?.branch || "",
-        headSha: context.repository?.headSha || "",
+        branch: context.repository?.branch || context.git?.branch || "",
+        headSha: pullRequest.headSha || context.repository?.headSha || context.git?.headSha || "",
         number: pullRequest.number ?? null,
         url: pullRequest.url || "",
-        title: pullRequest.title || context.repository?.branch || "Local changes",
-        description: pullRequest.body || "",
+        title: pullRequest.title || context.repository?.branch || context.git?.branch || "Local changes",
+        description: pullRequest.body || pullRequest.description || "",
         labels: pullRequest.labels || [],
         checks: pullRequest.checks || [],
         reviews: pullRequest.reviews || [],
