@@ -437,11 +437,22 @@
   .file-modal-title { min-width:0; }
   .file-modal-title h3 { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .file-modal-title p { margin:2px 0 0; color:var(--muted); font-size:.75rem; }
+  .file-modal-head { gap:14px; }
+  .file-view-tabs { display:flex; gap:3px; margin-left:auto; }
+  .file-view-tabs[hidden] { display:none; }
+  .file-view-tabs button { border:1px solid var(--control-border); background:var(--control-bg); color:var(--text); padding:5px 9px; cursor:pointer; font:500 .72rem var(--font-heading); }
+  .file-view-tabs button:first-child { border-radius:var(--radius-sm) 0 0 var(--radius-sm); }
+  .file-view-tabs button:last-child { border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
+  .file-view-tabs button[aria-selected="true"] { border-color:var(--primary); color:var(--primary); background:var(--card); }
   .full-file-wrap { padding:0; background:var(--card); }
   table.full-file { width:100%; border-collapse:collapse; table-layout:fixed; font:12px/20px var(--mono); }
   table.full-file .ln { width:58px; }
   table.full-file .code { padding:0 14px; white-space:pre; overflow:visible; }
   .full-file-unavailable { margin:24px; color:var(--muted); }
+  .full-file-image { padding:24px; overflow:auto; background:repeating-conic-gradient(var(--card) 0 25%,var(--panel) 0 50%) 50%/20px 20px; }
+  .full-file-image[hidden], .full-file-wrap[hidden] { display:none; }
+  .full-file-image svg { display:block; width:auto; height:auto; max-width:100%; max-height:100%; margin:auto; cursor:zoom-in; }
+  .full-file-image.zoomed svg { max-width:none; max-height:none; cursor:zoom-out; }
   .modal-head { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:var(--panel); color:var(--header-text); border-bottom:1px solid var(--border); }
   .modal-head h3 { margin:0; color:var(--header-text); }
   .modal-body { padding:16px 18px; overflow:auto; }
@@ -545,10 +556,15 @@
 
 <div class="modal" id="fileModal" hidden>
   <div class="modal-card file-modal-card" role="dialog" aria-modal="true" aria-labelledby="fileModalTitle">
-    <div class="modal-head">
+    <div class="modal-head file-modal-head">
       <div class="file-modal-title"><h3 id="fileModalTitle">File</h3><p id="fileModalMeta"></p></div>
+      <div class="file-view-tabs" id="fileModalTabs" role="tablist" aria-label="SVG view" hidden>
+        <button type="button" role="tab" data-file-view="image" aria-selected="true">Image</button>
+        <button type="button" role="tab" data-file-view="code" aria-selected="false">Code</button>
+      </div>
       <button class="icon-btn" id="closeFileModal" aria-label="Close file viewer">✕</button>
     </div>
+    <div class="modal-body full-file-image" id="fileModalImage" role="tabpanel" hidden></div>
     <div class="modal-body full-file-wrap" id="fileModalCode"></div>
   </div>
 </div>
@@ -1536,10 +1552,21 @@ function eventElement(event) {
   const fileModalTitle = document.getElementById("fileModalTitle");
   const fileModalMeta = document.getElementById("fileModalMeta");
   const fileModalCode = document.getElementById("fileModalCode");
+  const fileModalImage = document.getElementById("fileModalImage");
+  const fileModalTabs = document.getElementById("fileModalTabs");
+  function selectFileView(mode2) {
+    fileModalTabs.querySelectorAll("[data-file-view]").forEach((button) => {
+      button.setAttribute("aria-selected", String(button.dataset.fileView === mode2));
+    });
+    fileModalImage.hidden = mode2 !== "image";
+    fileModalCode.hidden = mode2 !== "code";
+  }
   function closeFileModal() {
     fileModal.hidden = true;
     fileModalCode.innerHTML = "";
+    fileModalImage.innerHTML = "";
   }
+  fileModalTabs.querySelectorAll("[data-file-view]").forEach((button) => button.addEventListener("click", () => selectFileView(button.dataset.fileView === "image" ? "image" : "code")));
   document.querySelectorAll(".view-file-btn").forEach((button) => {
     button.addEventListener("click", () => {
       const fileEl = button.closest(".file");
@@ -1550,9 +1577,25 @@ function eventElement(event) {
       if (typeof file.fullFile.content === "string") {
         const lines = hlLines(file.fullFile.content.replace(/\n$/, ""), file.lang);
         fileModalCode.innerHTML = '<table class="full-file"><tbody>' + lines.map((line, index) => `<tr><td class="ln">${index + 1}</td><td class="code"><code>${line || " "}</code></td></tr>`).join("") + "</tbody></table>";
+        if (file.fullFile.svgPreview) {
+          fileModalTabs.hidden = false;
+          fileModalImage.innerHTML = file.fullFile.svgPreview;
+          fileModalImage.classList.remove("zoomed");
+          const preview = fileModalImage.querySelector("svg");
+          if (preview) {
+            preview.title = "Click to toggle actual size";
+            preview.addEventListener("click", () => fileModalImage.classList.toggle("zoomed"));
+          }
+          selectFileView("image");
+        } else {
+          fileModalTabs.hidden = true;
+          selectFileView("code");
+        }
       } else {
         const message = file.fullFile.unavailable === "binary" ? "Binary files cannot be displayed." : file.fullFile.unavailable === "too-large" ? "This file is too large to embed in the review." : "The complete file was not available when this review was built.";
         fileModalCode.innerHTML = `<p class="full-file-unavailable">${escAttr(message)}</p>`;
+        fileModalTabs.hidden = true;
+        selectFileView("code");
       }
       fileModal.hidden = false;
     });

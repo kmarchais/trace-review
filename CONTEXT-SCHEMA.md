@@ -32,7 +32,8 @@ side, and line anchors.
 
 The companion whole-file bundle stores at most 1 MiB per text file and 10 MiB
 in total. It records the post-change version, or the base version for a deleted
-file. Binary, oversized, and unavailable files are represented without content.
+file. GitHub text blobs are collected in bounded batches. Binary, oversized,
+and unavailable files are represented without content.
 
 ## Compatibility
 

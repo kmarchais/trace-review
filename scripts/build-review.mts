@@ -179,6 +179,7 @@ interface ClientFileData {
     revision: "head" | "base";
     content?: string;
     unavailable?: "binary" | "too-large" | "missing";
+    svgPreview?: string;
   };
 }
 
@@ -379,7 +380,47 @@ const SVG_ATTRS = new Set([
   "patterntransform",
   "href",
   "xlink:href",
+  "style",
 ]);
+
+const SVG_STYLE_PROPERTIES = new Set([
+  "fill",
+  "fill-opacity",
+  "stroke",
+  "stroke-width",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "stroke-dasharray",
+  "stroke-dashoffset",
+  "stroke-opacity",
+  "opacity",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "text-anchor",
+]);
+
+function sanitizeSvgStyle(source: string): string {
+  return source
+    .split(";")
+    .map((declaration) => declaration.trim())
+    .filter(Boolean)
+    .flatMap((declaration) => {
+      const separator = declaration.indexOf(":");
+      if (separator < 1) return [];
+      const property = declaration.slice(0, separator).trim().toLowerCase();
+      const value = declaration.slice(separator + 1).trim();
+      if (
+        !SVG_STYLE_PROPERTIES.has(property) ||
+        /url|expression|javascript|@import|\\|[<>"']/i.test(value) ||
+        !/^[#(),.%\w\s-]+$/.test(value)
+      ) {
+        return [];
+      }
+      return [`${property}:${value}`];
+    })
+    .join(";");
+}
 
 function sanitizeSvg(source: unknown): string {
   const input = String(source || "")
@@ -387,11 +428,11 @@ function sanitizeSvg(source: unknown): string {
     .replace(/<!doctype[\s\S]*?>/gi, "")
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(
-      /<(script|foreignObject|iframe|object|embed|style|link|image|audio|video)\b[\s\S]*?<\/\1\s*>/gi,
+      /<(script|foreignObject|iframe|object|embed|style|link|image|audio|video|metadata)\b[\s\S]*?<\/\1\s*>/gi,
       "",
     )
     .replace(
-      /<(script|foreignObject|iframe|object|embed|style|link|image|audio|video)\b[^>]*\/?>/gi,
+      /<(script|foreignObject|iframe|object|embed|style|link|image|audio|video|metadata)\b[^>]*\/?>/gi,
       "",
     );
   return input.replace(/<\/?([A-Za-z][\w:-]*)([^>]*)>/g, (whole, rawName, rawAttrs) => {
@@ -406,7 +447,10 @@ function sanitizeSvg(source: unknown): string {
       const lower = attrName.toLowerCase();
       if (lower.startsWith("on") || (!SVG_ATTRS.has(lower) && !lower.startsWith("aria-"))) continue;
       let value = match[3] ?? match[4] ?? "";
-      if (lower === "href" || lower === "xlink:href") {
+      if (lower === "style") {
+        value = sanitizeSvgStyle(value);
+        if (!value) continue;
+      } else if (lower === "href" || lower === "xlink:href") {
         value = safeUrl(value);
         if (!value || !value.startsWith("#")) continue;
       } else if (
@@ -989,6 +1033,9 @@ function renderPr(
         revision: file.isDeleted ? "base" : "head",
         unavailable: file.binary ? "binary" : "missing",
       } as const);
+    if (typeof data.fullFile.content === "string" && data.path.toLowerCase().endsWith(".svg")) {
+      data.fullFile.svgPreview = sanitizeSvg(data.fullFile.content);
+    }
     return data;
   };
   const changeGroups = resolveChangeGroups(pr, text);

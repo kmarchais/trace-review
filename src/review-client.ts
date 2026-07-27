@@ -83,6 +83,7 @@ interface ClientFile {
     revision: "head" | "base";
     content?: string;
     unavailable?: "binary" | "too-large" | "missing";
+    svgPreview?: string;
   };
 }
 
@@ -1173,10 +1174,27 @@ function eventElement(event: Event): UiElement | null {
   const fileModalTitle = document.getElementById("fileModalTitle");
   const fileModalMeta = document.getElementById("fileModalMeta");
   const fileModalCode = document.getElementById("fileModalCode");
+  const fileModalImage = document.getElementById("fileModalImage");
+  const fileModalTabs = document.getElementById("fileModalTabs");
+  function selectFileView(mode: "image" | "code"): void {
+    fileModalTabs.querySelectorAll("[data-file-view]").forEach((button) => {
+      button.setAttribute("aria-selected", String(button.dataset.fileView === mode));
+    });
+    fileModalImage.hidden = mode !== "image";
+    fileModalCode.hidden = mode !== "code";
+  }
   function closeFileModal(): void {
     fileModal.hidden = true;
     fileModalCode.innerHTML = "";
+    fileModalImage.innerHTML = "";
   }
+  fileModalTabs
+    .querySelectorAll("[data-file-view]")
+    .forEach((button) =>
+      button.addEventListener("click", () =>
+        selectFileView(button.dataset.fileView === "image" ? "image" : "code"),
+      ),
+    );
   document.querySelectorAll(".view-file-btn").forEach((button) => {
     button.addEventListener("click", () => {
       const fileEl = button.closest(".file");
@@ -1196,6 +1214,20 @@ function eventElement(event: Event): UiElement | null {
             )
             .join("") +
           "</tbody></table>";
+        if (file.fullFile.svgPreview) {
+          fileModalTabs.hidden = false;
+          fileModalImage.innerHTML = file.fullFile.svgPreview;
+          fileModalImage.classList.remove("zoomed");
+          const preview = fileModalImage.querySelector("svg");
+          if (preview) {
+            preview.title = "Click to toggle actual size";
+            preview.addEventListener("click", () => fileModalImage.classList.toggle("zoomed"));
+          }
+          selectFileView("image");
+        } else {
+          fileModalTabs.hidden = true;
+          selectFileView("code");
+        }
       } else {
         const message =
           file.fullFile.unavailable === "binary"
@@ -1204,6 +1236,8 @@ function eventElement(event: Event): UiElement | null {
               ? "This file is too large to embed in the review."
               : "The complete file was not available when this review was built.";
         fileModalCode.innerHTML = `<p class="full-file-unavailable">${escAttr(message)}</p>`;
+        fileModalTabs.hidden = true;
+        selectFileView("code");
       }
       fileModal.hidden = false;
     });

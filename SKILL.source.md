@@ -109,6 +109,10 @@ patch: it already contains the title, description, branches, labels, checks,
 reviews, conversation comments, inline GitHub review comments, and candidate
 change groups.
 
+The collector requests GitHub's aggregate PR diff, so files changed by several
+commits appear once in their final review shape. Do not replace the collected
+patch with `gh pr diff --patch`, which emits per-commit patch material.
+
 Multiple PRs → run the collector once per explicit PR with distinct output
 paths.
 
@@ -250,6 +254,7 @@ Minimum viable spec:
   asking the language model to reproduce source code. Deleted files show their
   base version; binary, unavailable, and oversized files explain why they
   cannot be displayed.
+  SVG files open in a sanitized **Image** view and retain an exact **Code** view.
 - Run `node <skill-dir>/scripts/validate-review-spec.mjs --spec
   .review/spec.json` to inspect contract diagnostics without generating HTML.
   The build command runs the same validation and refuses invalid specs.

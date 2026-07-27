@@ -46,7 +46,8 @@ Choosing it changes the analysis workflow, not the meaning of a finding.
 An optional `fileContentsFile` points to the collector's bounded text bundle
 and enables the per-file whole-file viewer. Deleted entries contain their base
 version; binary, oversized, or unavailable entries carry an explanation
-instead of content.
+instead of content. SVG entries offer a sanitized Image view alongside their
+exact Code view.
 Reviewer-facing skill output uses one finalized LM-generated `groupFile` (or
 embedded `changeGroups`) whose `provenance` is `"lm"`. Group files are resolved
 relative to the specification and revalidated against the patch when the
