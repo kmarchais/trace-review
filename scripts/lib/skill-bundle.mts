@@ -27,6 +27,7 @@ export const SKILL_BUNDLE_RUNTIME_FILES = Object.freeze([
   "scripts/prepare-lm-analysis.mjs",
   "scripts/publish-github-review.mjs",
   "scripts/review-preflight.mjs",
+  "scripts/trace-review.mjs",
   "scripts/validate-review-spec.mjs",
   "scripts/lib/cli.mjs",
   "scripts/lib/change-groups.mjs",

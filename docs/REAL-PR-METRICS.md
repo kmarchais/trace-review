@@ -4,17 +4,19 @@ Phase 5 adds a sidecar measurement file so review quality and performance can
 be compared across real pull requests without putting repository contents into
 telemetry.
 
-Generate the review and its measurement together:
+The normal two-command workflow writes `.review/run-metrics.json`
+automatically:
 
 ```bash
-bun run review -- \
-  --spec .review/spec.json \
-  --out .review/review.html \
-  --metrics-out .review/metrics.json
+node <skill-dir>/scripts/trace-review.mjs prepare --repo <repo> --mode lm-analysis
+node <skill-dir>/scripts/trace-review.mjs finish \
+  --input .review/analysis-input.json --result .review/review-result.json
 ```
 
 The generated record contains:
 
+- preparation and finishing duration, internal command count, and an expected
+  five agent actions (prepare, two bounded reads, one result write, finish);
 - patch size, file count, changed-line count, approximate spec tokens, and the
   patch-token volume kept out of the model context;
 - HTML size and generation time;

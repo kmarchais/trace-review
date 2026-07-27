@@ -16,10 +16,9 @@ The language model does not generate the HTML document. It creates structured re
 
 ```text
 local diff or pull request
-  → scripts collect and parse the changes
-  → optional LM review or grouping
-  → validated review specification
-  → scripts + template build review.html
+  → prepare collects facts and the diff
+  → the LM writes one structured result
+  → finish validates it and builds review.html from the template
 ```
 
 The result is a portable local page with light and dark themes, diff controls, review progress, comments, Markdown export, and optional confirmed publication as a native GitHub review.

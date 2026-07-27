@@ -105,6 +105,28 @@ test("focused LM analysis receives compact facts and candidate groups, not raw d
   assert.equal(JSON.stringify(input).includes("diff --git"), false);
 });
 
+test("focused input accepts the collector's current local and pull-request fields", () => {
+  const input = prepareAnalysisInput(
+    {
+      ...context,
+      repository: { root: "C:/work/widgets", owner: "acme", name: "widgets" },
+      git: { branch: "feature/current-shape", headSha: "local123" },
+      pullRequest: {
+        number: 43,
+        title: "Use current collector fields",
+        description: "Collector description.",
+        headSha: "pr456",
+      },
+    },
+    { mode: "lm-analysis" },
+  );
+
+  assert.equal(input.target.repository, "acme/widgets");
+  assert.equal(input.target.branch, "feature/current-shape");
+  assert.equal(input.target.headSha, "pr456");
+  assert.equal(input.target.description, "Collector description.");
+});
+
 test("legacy focused-analysis names are rejected", () => {
   for (const mode of ["ai-analysis", "review"]) {
     assert.throws(
