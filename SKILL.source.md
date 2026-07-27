@@ -25,13 +25,19 @@ only author a short JSON spec.
 | **LM analysis** (on request) | Set `"mode": "lm-analysis"` and emit a `review` object for every PR. | Adds sparse language-model findings: a global assessment plus severity-tagged, line-anchored comments. |
 | **Deep audit** (explicit/high-risk only) | Set `"mode": "deep-audit"` after the user requests or accepts deeper analysis. | Uses the same finding contract after broader dependency, failure-mode, and test analysis. |
 
-Default is **workspace**. Add LM analysis when the user invokes
-`/trace-review lm-analysis`, or asks for it in words ("review this and add your
-findings").
-Invoking `/trace-review` (or `… no-review`) stays in workspace mode
-— don't spend tokens analysing the diff unless asked. Deep audit is never
-silently selected. See [REVIEW-SPEC.md](REVIEW-SPEC.md) for the versioned
-contract.
+Default is **workspace**. Normalize invocation shortcuts before starting:
+
+- `lm`, `ai`, and `lm-analysis` select LM analysis.
+- `pr <number>` and `pr #<number>` select that pull request in the current
+  repository.
+- Shortcuts compose in any order: `lm pr 8`, `pr 8 ai`, and `pr #8 lm` all
+  select PR 8 with LM analysis.
+
+Keep canonical values internally: write `"mode": "lm-analysis"` and pass only
+the number to `--pr`. A PR shortcut without `lm` or `ai` stays in workspace
+mode. Invoking `/trace-review` (or `… no-review`) also stays in workspace mode.
+Deep audit is never silently selected. See
+[REVIEW-SPEC.md](REVIEW-SPEC.md) for the versioned contract.
 
 Paths below are relative to the installed `trace-review/` skill directory. Run
 commands from any working directory; pass absolute paths for
@@ -76,6 +82,10 @@ node <skill-dir>/scripts/collect-pr-context.mjs --pr https://github.com/org/repo
 # Intentionally disable remote context
 node <skill-dir>/scripts/collect-pr-context.mjs --no-remote --base main
 ```
+
+For `/trace-review pr 8`, normalize the user-facing selector and run the
+collector with `--pr 8`. Pull-request numbers are resolved against the
+repository selected by the current working directory or `--repo`.
 
 Use `--repo <path>` when the command is not run inside the target repository,
 and `--out` / `--diff-out` to choose other output locations. In automatic mode,
