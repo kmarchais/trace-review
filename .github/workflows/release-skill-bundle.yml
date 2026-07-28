@@ -6,7 +6,7 @@ on:
       tag:
         description: Version tag matching package.json
         required: true
-        default: v0.1.1
+        default: v0.1.2
 
 permissions:
   contents: write
