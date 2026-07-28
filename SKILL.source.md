@@ -397,8 +397,9 @@ Viewer controls:
 - **Range selection** — drag across contiguous diff gutters within one hunk and
   side to add a block comment, create a GitHub-compatible suggested change, or
   export a syntax-colored before/after diff. The export preview is selectable
-  and supports rich-text copy plus HTML, SVG, and PNG downloads. Suggested
-  changes are offered only on the new-file side.
+  and supports PowerPoint-friendly editable-table copy plus HTML, SVG, and PNG
+  downloads. Image exports switch between a full side-by-side comparison and a
+  compact unified diff. Suggested changes are offered only on the new-file side.
 - **Git order / Grouped order** — every grouped review can return to the raw
   patch sequence for verification. Viewed state, navigation, and progress share
   the same file identity in both representations.

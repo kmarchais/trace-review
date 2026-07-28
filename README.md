@@ -25,8 +25,10 @@ The result is a portable local page with light and dark themes, diff controls, r
 
 Drag across a contiguous block of diff gutters to comment on the range, create
 a GitHub-compatible suggested change, or export a syntax-colored before/after
-diff. The selectable preview can be copied as rich text or downloaded as HTML,
-SVG, or PNG for websites, presentations, and documentation.
+diff. The selectable preview can be copied as a PowerPoint-friendly editable
+table or downloaded as HTML, SVG, or PNG for websites, presentations, and
+documentation. Image and SVG exports can use a full side-by-side comparison or
+a narrower compact unified diff.
 
 | Mode          | Review behavior                               |
 | ------------- | --------------------------------------------- |

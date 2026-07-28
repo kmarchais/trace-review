@@ -1369,8 +1369,12 @@ function eventElement(event: Event): UiElement | null {
   const carbonModal = document.getElementById("carbonModal");
   const carbonSelectable = document.getElementById("carbonSelectable");
   const carbonCanvas = document.getElementById("carbonCanvas") as unknown as HTMLCanvasElement;
-  let carbonFilename = "diff-selection";
+  let carbonFilenameBase = "diff-selection";
+  let carbonLayout: "split" | "compact" = "split";
+  let carbonFile = "";
+  let carbonRows: ExportPairRow[] = [];
   let carbonHtml = "";
+  let carbonClipboardHtml = "";
   let carbonSvg = "";
   let carbonPlain = "";
 
@@ -1538,25 +1542,45 @@ function eventElement(event: Event): UiElement | null {
     );
   }
 
-  function selectableExportWidth(rows: ExportPairRow[]): number {
+  function compactExportRows(rows: ExportPairRow[]): ExportSide[] {
+    return rows.flatMap((row) => {
+      if (row.old?.kind === "ctx" && row.next?.kind === "ctx" && row.old.code === row.next.code) {
+        return [row.next];
+      }
+      return [row.old, row.next].filter((side): side is ExportSide => !!side);
+    });
+  }
+
+  function selectableExportWidth(rows: ExportPairRow[], layout: "split" | "compact"): number {
     const longest = Math.max(
       28,
       ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
     );
-    return Math.max(720, 240 + longest * 16.4);
+    return layout === "compact"
+      ? Math.max(640, 150 + longest * 8.2)
+      : Math.max(720, 240 + longest * 16.4);
   }
 
-  function carbonPreview(file: string, rows: ExportPairRow[]): string {
+  function carbonPreview(file: string, rows: ExportPairRow[], layout: "split" | "compact"): string {
+    const table =
+      layout === "compact"
+        ? `<table class="carbon-table compact"><thead><tr><th>Unified diff</th></tr></thead><tbody>` +
+          compactExportRows(rows)
+            .map((side) => `<tr>${previewSide(side)}</tr>`)
+            .join("") +
+          `</tbody></table>`
+        : `<table class="carbon-table"><thead><tr><th>Before</th><th>After</th></tr></thead><tbody>` +
+          rows.map((row) => `<tr>${previewSide(row.old)}${previewSide(row.next)}</tr>`).join("") +
+          `</tbody></table>`;
     return (
-      `<div class="carbon-sheet" style="width:${selectableExportWidth(rows)}px"><div class="carbon-window">` +
+      `<div class="carbon-sheet" style="width:${selectableExportWidth(rows, layout)}px"><div class="carbon-window">` +
       `<div class="carbon-window-head"><span class="carbon-dots">` +
       `<span class="carbon-dot" style="background:#ff5f56"></span>` +
       `<span class="carbon-dot" style="background:#ffbd2e"></span>` +
       `<span class="carbon-dot" style="background:#27c93f"></span></span>` +
       `<span class="carbon-window-title">${escAttr(file)}</span><span></span></div>` +
-      `<table class="carbon-table"><thead><tr><th>Before</th><th>After</th></tr></thead><tbody>` +
-      rows.map((row) => `<tr>${previewSide(row.old)}${previewSide(row.next)}</tr>`).join("") +
-      `</tbody></table></div></div>`
+      table +
+      `</div></div>`
     );
   }
 
@@ -1582,7 +1606,7 @@ function eventElement(event: Event): UiElement | null {
 
   function carbonRichDocument(file: string, rows: ExportPairRow[]): string {
     const body =
-      `<div style="box-sizing:border-box;width:${selectableExportWidth(rows)}px;padding:24px;border-radius:16px;background:linear-gradient(125deg,#7c3aed,#2563eb 52%,#0891b2)">` +
+      `<div style="box-sizing:border-box;width:${selectableExportWidth(rows, "split")}px;padding:24px;border-radius:16px;background:linear-gradient(125deg,#7c3aed,#2563eb 52%,#0891b2)">` +
       `<div style="overflow:hidden;border-radius:14px;color:#e6edf3;background:#0d1117">` +
       `<div style="padding:16px 20px;color:#c9d1d9;font:600 13px ui-monospace,monospace;text-align:center">${escAttr(file)}</div>` +
       `<table style="width:100%;border-collapse:collapse;table-layout:fixed;font:13px/24px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">` +
@@ -1593,6 +1617,50 @@ function eventElement(event: Event): UiElement | null {
         .join("") +
       `</tbody></table></div></div>`;
     return `<!doctype html><html><head><meta charset="utf-8"><title>${escAttr(file)} diff</title></head><body>${body}</body></html>`;
+  }
+
+  function powerPointSide(side: ExportSide | undefined, border: boolean, fontSize: number): string {
+    const borderStyle = border ? "border-left:1px solid #30363d;" : "";
+    const background =
+      side?.kind === "add" ? "#17351f" : side?.kind === "del" ? "#351b20" : "#0d1117";
+    if (!side) {
+      return `<td width="480" bgcolor="${background}" style="${borderStyle}width:360pt;height:14pt;padding:0 5pt;background:${background}"></td>`;
+    }
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    const markerColor =
+      side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
+    return (
+      `<td width="480" bgcolor="${background}" style="${borderStyle}width:360pt;height:14pt;padding:0 5pt;background:${background};` +
+      `font-family:Consolas,'Courier New',monospace;font-size:${fontSize}pt;line-height:14pt;mso-line-height-rule:exactly;color:#e6edf3;white-space:nowrap">` +
+      `<nobr><span style="display:inline-block;width:28pt;color:#8b949e;text-align:right">${escAttr(side.line)}</span>` +
+      `<span style="display:inline-block;width:12pt;color:${markerColor}">${marker}</span>` +
+      `<span style="color:#e6edf3;mso-no-proof:yes">${inlineSyntax(side.html || escAttr(side.code))}</span></nobr></td>`
+    );
+  }
+
+  function powerPointClipboardTable(file: string, rows: ExportPairRow[]): string {
+    const longest = Math.max(
+      28,
+      ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
+    );
+    const fontSize = Math.max(5, Math.min(8.5, Math.floor((500 / longest) * 4) / 4));
+    return (
+      `<table width="960" border="0" cellspacing="0" cellpadding="0" bgcolor="#0d1117" ` +
+      `style="width:720pt;border-collapse:collapse;table-layout:fixed;background:#0d1117">` +
+      `<tr><td colspan="2" align="center" bgcolor="#0d1117" style="height:28pt;padding:0 8pt;background:#0d1117;` +
+      `color:#c9d1d9;font-family:Consolas,'Courier New',monospace;font-size:9pt;font-weight:bold">${escAttr(file)}</td></tr>` +
+      `<tr><td width="480" bgcolor="#161b22" style="width:360pt;height:18pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
+      `font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">BEFORE</td>` +
+      `<td width="480" bgcolor="#161b22" style="width:360pt;height:18pt;padding:0 6pt;border-left:1px solid #30363d;` +
+      `background:#161b22;color:#8b949e;font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">AFTER</td></tr>` +
+      rows
+        .map(
+          (row) =>
+            `<tr>${powerPointSide(row.old, false, fontSize)}${powerPointSide(row.next, true, fontSize)}</tr>`,
+        )
+        .join("") +
+      `</table>`
+    );
   }
 
   function carbonPlainText(rows: ExportPairRow[]): string {
@@ -1625,7 +1693,47 @@ function eventElement(event: Event): UiElement | null {
     );
   }
 
-  function buildCarbonSvg(file: string, rows: ExportPairRow[]): string {
+  function buildCarbonSvg(
+    file: string,
+    rows: ExportPairRow[],
+    layout: "split" | "compact",
+  ): string {
+    if (layout === "compact") {
+      const compactRows = compactExportRows(rows);
+      const longest = Math.max(28, ...compactRows.map((row) => row.code.length));
+      const contentWidth = Math.min(1200, 104 + longest * 8.2);
+      const width = 56 + contentWidth;
+      const height = 130 + compactRows.length * 25;
+      const rowMarkup = compactRows
+        .map((row, index) => {
+          const y = 112 + index * 25;
+          const background =
+            row.kind === "add"
+              ? "rgba(46,160,67,.18)"
+              : row.kind === "del"
+                ? "rgba(248,81,73,.16)"
+                : "transparent";
+          return (
+            `<rect x="29" y="${y - 18}" width="${contentWidth - 1}" height="25" fill="${background}"/>` +
+            `<g clip-path="url(#compactClip)">${svgCode(row, 68, y)}</g>`
+          );
+        })
+        .join("");
+      return (
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+        `<defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1">` +
+        `<stop stop-color="#7c3aed"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#0891b2"/></linearGradient>` +
+        `<clipPath id="compactClip"><rect x="29" y="88" width="${contentWidth - 4}" height="${height - 112}"/></clipPath></defs>` +
+        `<rect width="${width}" height="${height}" rx="16" fill="url(#background)"/>` +
+        `<rect x="28" y="24" width="${width - 56}" height="${height - 48}" rx="14" fill="#0d1117"/>` +
+        `<circle cx="50" cy="48" r="6" fill="#ff5f56"/><circle cx="70" cy="48" r="6" fill="#ffbd2e"/><circle cx="90" cy="48" r="6" fill="#27c93f"/>` +
+        `<g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14">` +
+        `<text x="${width / 2}" y="53" fill="#c9d1d9" text-anchor="middle" font-weight="600">${escAttr(file)}</text>` +
+        `<text x="42" y="82" fill="#8b949e" font-size="11" font-weight="600">UNIFIED DIFF</text>` +
+        rowMarkup +
+        `</g></svg>`
+      );
+    }
     const longest = Math.max(
       28,
       ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
@@ -1665,15 +1773,44 @@ function eventElement(event: Event): UiElement | null {
     );
   }
 
-  function drawCarbonCanvas(file: string, rows: ExportPairRow[]): void {
+  function drawCanvasCode(
+    context: CanvasRenderingContext2D,
+    side: ExportSide | undefined,
+    x: number,
+    y: number,
+  ): void {
+    if (!side) return;
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    context.font = "14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    context.fillStyle = "#6e7681";
+    context.textAlign = "right";
+    context.fillText(side.line, x, y);
+    context.textAlign = "left";
+    context.fillStyle =
+      side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
+    context.fillText(marker, x + 17, y);
+    let codeX = x + 39;
+    for (const segment of syntaxSegments(side.html || escAttr(side.code))) {
+      context.fillStyle = segment.color;
+      context.fillText(segment.text, codeX, y);
+      codeX += context.measureText(segment.text).width;
+    }
+  }
+
+  function drawCarbonCanvas(
+    file: string,
+    rows: ExportPairRow[],
+    layout: "split" | "compact",
+  ): void {
     const scale = 2;
+    const compactRows = compactExportRows(rows);
     const longest = Math.max(
       28,
       ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
     );
     const columnWidth = Math.min(960, 104 + longest * 8.2);
-    const width = 56 + columnWidth * 2;
-    const height = 130 + rows.length * 25;
+    const width = 56 + columnWidth * (layout === "compact" ? 1 : 2);
+    const height = 130 + (layout === "compact" ? compactRows.length : rows.length) * 25;
     carbonCanvas.width = width * scale;
     carbonCanvas.height = height * scale;
     const context = carbonCanvas.getContext("2d");
@@ -1702,6 +1839,24 @@ function eventElement(event: Event): UiElement | null {
     context.textAlign = "left";
     context.font = "600 11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
     context.fillStyle = "#8b949e";
+    if (layout === "compact") {
+      context.fillText("UNIFIED DIFF", 42, 82);
+      compactRows.forEach((row, index) => {
+        const y = 112 + index * 25;
+        if (row.kind !== "ctx") {
+          context.fillStyle = row.kind === "add" ? "rgba(46,160,67,.18)" : "rgba(248,81,73,.16)";
+          context.fillRect(29, y - 18, columnWidth - 1, 25);
+        }
+        context.save();
+        context.beginPath();
+        context.rect(29, y - 19, columnWidth - 4, 25);
+        context.clip();
+        drawCanvasCode(context, row, 68, y);
+        context.restore();
+      });
+      return;
+    }
+
     context.fillText("BEFORE", 42, 82);
     context.fillText("AFTER", 42 + columnWidth, 82);
     context.strokeStyle = "#30363d";
@@ -1709,25 +1864,6 @@ function eventElement(event: Event): UiElement | null {
     context.moveTo(28 + columnWidth, 68);
     context.lineTo(28 + columnWidth, height - 24);
     context.stroke();
-
-    const drawSide = (side: ExportSide | undefined, x: number, y: number) => {
-      if (!side) return;
-      const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
-      context.font = "14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-      context.fillStyle = "#6e7681";
-      context.textAlign = "right";
-      context.fillText(side.line, x, y);
-      context.textAlign = "left";
-      context.fillStyle =
-        side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
-      context.fillText(marker, x + 17, y);
-      let codeX = x + 39;
-      for (const segment of syntaxSegments(side.html || escAttr(side.code))) {
-        context.fillStyle = segment.color;
-        context.fillText(segment.text, codeX, y);
-        codeX += context.measureText(segment.text).width;
-      }
-    };
 
     rows.forEach((row, index) => {
       const y = 112 + index * 25;
@@ -1743,25 +1879,33 @@ function eventElement(event: Event): UiElement | null {
       context.beginPath();
       context.rect(29, y - 19, columnWidth - 4, 25);
       context.clip();
-      drawSide(row.old, 68, y);
+      drawCanvasCode(context, row.old, 68, y);
       context.restore();
       context.save();
       context.beginPath();
       context.rect(29 + columnWidth, y - 19, columnWidth - 4, 25);
       context.clip();
-      drawSide(row.next, 68 + columnWidth, y);
+      drawCanvasCode(context, row.next, 68 + columnWidth, y);
       context.restore();
     });
   }
 
-  function openCarbonExport(selection: DiffRangeSelection): void {
-    const rows = buildExportRows(selection);
-    carbonSelectable.innerHTML = carbonPreview(selection.file, rows);
-    carbonHtml = carbonRichDocument(selection.file, rows);
-    carbonSvg = buildCarbonSvg(selection.file, rows);
-    carbonPlain = carbonPlainText(rows);
-    drawCarbonCanvas(selection.file, rows);
+  function renderCarbonVisuals(): void {
+    carbonSelectable.innerHTML = carbonPreview(carbonFile, carbonRows, carbonLayout);
+    carbonSvg = buildCarbonSvg(carbonFile, carbonRows, carbonLayout);
+    drawCarbonCanvas(carbonFile, carbonRows, carbonLayout);
+    carbonModal.querySelectorAll("[data-carbon-layout]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.carbonLayout === carbonLayout));
+    });
+  }
 
+  function openCarbonExport(selection: DiffRangeSelection): void {
+    carbonFile = selection.file;
+    carbonRows = buildExportRows(selection);
+    carbonHtml = carbonRichDocument(carbonFile, carbonRows);
+    carbonClipboardHtml = powerPointClipboardTable(carbonFile, carbonRows);
+    carbonPlain = carbonPlainText(carbonRows);
+    renderCarbonVisuals();
     const first = selection.rows[0]?.line || "";
     const last = selection.rows.at(-1)?.line || first;
     document.getElementById("carbonModalMeta").textContent =
@@ -1769,7 +1913,7 @@ function eventElement(event: Event): UiElement | null {
       " · " +
       (first === last ? "line " + first : "lines " + first + "–" + last) +
       " · selectable before and after";
-    carbonFilename =
+    carbonFilenameBase =
       (selection.file
         .split("/")
         .pop()
@@ -1781,6 +1925,12 @@ function eventElement(event: Event): UiElement | null {
     carbonModal.hidden = false;
   }
 
+  carbonModal.querySelectorAll("[data-carbon-layout]").forEach((button) => {
+    button.addEventListener("click", () => {
+      carbonLayout = button.dataset.carbonLayout === "compact" ? "compact" : "split";
+      renderCarbonVisuals();
+    });
+  });
   document.getElementById("closeCarbonModal").addEventListener("click", () => {
     carbonModal.hidden = true;
   });
@@ -1793,21 +1943,28 @@ function eventElement(event: Event): UiElement | null {
     copied.hidden = false;
     setTimeout(() => (copied.hidden = true), 1800);
   };
-  const downloadCarbon = (content: BlobPart, type: string, extension: string) => {
+  const currentCarbonFilename = () =>
+    carbonFilenameBase + (carbonLayout === "compact" ? "-compact" : "");
+  const downloadCarbon = (
+    content: BlobPart,
+    type: string,
+    extension: string,
+    layoutAware = true,
+  ) => {
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([content], { type }));
-    link.download = carbonFilename + extension;
+    link.download = (layoutAware ? currentCarbonFilename() : carbonFilenameBase) + extension;
     link.click();
     URL.revokeObjectURL(link.href);
   };
   document.getElementById("downloadCarbonBtn").addEventListener("click", () => {
     const link = document.createElement("a");
     link.href = carbonCanvas.toDataURL("image/png");
-    link.download = carbonFilename + ".png";
+    link.download = currentCarbonFilename() + ".png";
     link.click();
   });
   document.getElementById("downloadCarbonHtmlBtn").addEventListener("click", () => {
-    downloadCarbon(carbonHtml, "text/html;charset=utf-8", ".html");
+    downloadCarbon(carbonHtml, "text/html;charset=utf-8", ".html", false);
   });
   document.getElementById("downloadCarbonSvgBtn").addEventListener("click", () => {
     downloadCarbon(carbonSvg, "image/svg+xml;charset=utf-8", ".svg");
@@ -1816,19 +1973,25 @@ function eventElement(event: Event): UiElement | null {
     try {
       await navigator.clipboard.write([
         new ClipboardItem({
-          "text/html": new Blob([carbonHtml], { type: "text/html" }),
+          "text/html": new Blob([carbonClipboardHtml], { type: "text/html" }),
           "text/plain": new Blob([carbonPlain], { type: "text/plain" }),
         }),
       ]);
-      showCarbonCopied("Rich text copied ✓");
+      showCarbonCopied("PowerPoint table copied ✓");
     } catch {
+      const clipboardTable = document.createElement("div");
+      clipboardTable.innerHTML = carbonClipboardHtml;
+      clipboardTable.style.position = "fixed";
+      clipboardTable.style.left = "-10000px";
+      document.body.appendChild(clipboardTable);
       const range = document.createRange();
-      range.selectNodeContents(carbonSelectable);
+      range.selectNodeContents(clipboardTable);
       const selection = window.getSelection();
       selection?.removeAllRanges();
       selection?.addRange(range);
-      if (document.execCommand("copy")) showCarbonCopied("Rich text copied ✓");
+      if (document.execCommand("copy")) showCarbonCopied("PowerPoint table copied ✓");
       selection?.removeAllRanges();
+      clipboardTable.remove();
     }
   });
   document.getElementById("copyCarbonBtn").addEventListener("click", () => {
