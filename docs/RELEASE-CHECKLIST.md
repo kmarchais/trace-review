@@ -8,7 +8,7 @@ and a person completes the interface checks below.
 Run from the repository root:
 
 ```bash
-bun run check:release-tag -- v0.1.0
+bun run check:release-tag -- v0.1.1
 bun run check
 bun run bundle:skill
 bun run validate:example
@@ -54,7 +54,7 @@ narrow viewport sizes:
 Record the browser versions, operating system, reviewer, date, and any accepted
 exceptions in the release PR.
 
-Use [releases/v0.1.0.md](releases/v0.1.0.md) as the release body and
+Use [releases/v0.1.1.md](releases/v0.1.1.md) as the release body and
 record the manual-review evidence beneath its validation section.
 
 ## Distribution check
@@ -67,9 +67,9 @@ Before publishing the release, the workflow installs the generated tag through
 both supported installers:
 
 ```bash
-gh skill install kmarchais/trace-review trace-review@v0.1.0 --dir <temporary-directory>
+gh skill install kmarchais/trace-review trace-review@v0.1.1 --dir <temporary-directory>
 npx skills add \
-  https://github.com/kmarchais/trace-review/tree/v0.1.0/skills/trace-review \
+  https://github.com/kmarchais/trace-review/tree/v0.1.1/skills/trace-review \
   --agent codex --yes
 ```
 
