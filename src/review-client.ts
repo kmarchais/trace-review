@@ -1369,8 +1369,35 @@ function eventElement(event: Event): UiElement | null {
   const carbonModal = document.getElementById("carbonModal");
   const carbonSelectable = document.getElementById("carbonSelectable");
   const carbonCanvas = document.getElementById("carbonCanvas") as unknown as HTMLCanvasElement;
+  type CarbonTheme = "aurora" | "sunset" | "forest" | "slate";
+  const carbonThemes: Record<
+    CarbonTheme,
+    { css: string; office: string; stops: [string, string, string] }
+  > = {
+    aurora: {
+      css: "linear-gradient(125deg,#7c3aed,#2563eb 52%,#0891b2)",
+      office: "#3155c6",
+      stops: ["#7c3aed", "#2563eb", "#0891b2"],
+    },
+    sunset: {
+      css: "linear-gradient(125deg,#db2777,#ea580c 52%,#f59e0b)",
+      office: "#dc5a25",
+      stops: ["#db2777", "#ea580c", "#f59e0b"],
+    },
+    forest: {
+      css: "linear-gradient(125deg,#166534,#059669 52%,#0f766e)",
+      office: "#14745c",
+      stops: ["#166534", "#059669", "#0f766e"],
+    },
+    slate: {
+      css: "linear-gradient(125deg,#334155,#475569 52%,#1e293b)",
+      office: "#3e4b5d",
+      stops: ["#334155", "#475569", "#1e293b"],
+    },
+  };
   let carbonFilenameBase = "diff-selection";
   let carbonLayout: "split" | "compact" = "split";
+  let carbonTheme: CarbonTheme = "aurora";
   let carbonFile = "";
   let carbonRows: ExportPairRow[] = [];
   let carbonHtml = "";
@@ -1582,7 +1609,7 @@ function eventElement(event: Event): UiElement | null {
           rows.map((row) => `<tr>${previewSide(row.old)}${previewSide(row.next)}</tr>`).join("") +
           `</tbody></table>`;
     return (
-      `<div class="carbon-sheet" style="width:${selectableExportWidth(rows, layout)}px"><div class="carbon-window">` +
+      `<div class="carbon-sheet" style="width:${selectableExportWidth(rows, layout)}px;background:${carbonThemes[carbonTheme].css}"><div class="carbon-window">` +
       `<div class="carbon-window-head"><span class="carbon-dots">` +
       `<span class="carbon-dot" style="background:#ff5f56"></span>` +
       `<span class="carbon-dot" style="background:#ffbd2e"></span>` +
@@ -1629,19 +1656,16 @@ function eventElement(event: Event): UiElement | null {
   }
 
   function powerPointSide(
-    side: ExportSide | undefined,
+    side: ExportSide,
     border: boolean,
     fontSize: number,
     width: number,
   ): string {
     const borderStyle = border ? "border-left:1px solid #30363d;" : "";
     const background =
-      side?.kind === "add" ? "#17351f" : side?.kind === "del" ? "#351b20" : "#0d1117";
+      side.kind === "add" ? "#17351f" : side.kind === "del" ? "#351b20" : "#0d1117";
     const widthPoints = width === 960 ? 720 : 360;
     const lineHeight = Math.max(7, fontSize + 1.5);
-    if (!side) {
-      return `<td width="${width}" bgcolor="${background}" style="${borderStyle}width:${widthPoints}pt;height:${lineHeight}pt;padding:0 5pt;background:${background}"></td>`;
-    }
     const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
     const markerColor =
       side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
@@ -1651,6 +1675,17 @@ function eventElement(event: Event): UiElement | null {
       `<nobr><span style="display:inline-block;width:28pt;color:#8b949e;text-align:right">${escAttr(side.line)}</span>` +
       `<span style="display:inline-block;width:12pt;color:${markerColor}">${marker}</span>` +
       `<span style="color:#e6edf3;mso-no-proof:yes;mso-spacerun:yes">${officeSyntax(side.html || escAttr(side.code))}</span></nobr></td>`
+    );
+  }
+
+  function powerPointColumn(sides: ExportSide[], border: boolean, fontSize: number): string {
+    const borderStyle = border ? "border-left:1px solid #30363d;" : "";
+    return (
+      `<td width="480" valign="top" bgcolor="#0d1117" style="${borderStyle}width:360pt;padding:0;background:#0d1117;vertical-align:top">` +
+      `<table width="480" border="0" cellspacing="0" cellpadding="0" bgcolor="#0d1117" ` +
+      `style="width:360pt;border-collapse:collapse;table-layout:fixed;background:#0d1117">` +
+      sides.map((side) => `<tr>${powerPointSide(side, false, fontSize, 480)}</tr>`).join("") +
+      `</table></td>`
     );
   }
 
@@ -1680,20 +1715,33 @@ function eventElement(event: Event): UiElement | null {
     const body =
       layout === "compact"
         ? exportRows.map((row) => `<tr>${powerPointSide(row, false, fontSize, 960)}</tr>`).join("")
-        : rows
-            .map(
-              (row) =>
-                `<tr>${powerPointSide(row.old, false, fontSize, 480)}${powerPointSide(row.next, true, fontSize, 480)}</tr>`,
-            )
-            .join("");
-    return (
+        : `<tr>${powerPointColumn(
+            rows.flatMap((row) => (row.old ? [row.old] : [])),
+            false,
+            fontSize,
+          )}${powerPointColumn(
+            rows.flatMap((row) => (row.next ? [row.next] : [])),
+            true,
+            fontSize,
+          )}</tr>`;
+    const codeTable =
       `<table width="960" border="0" cellspacing="0" cellpadding="0" bgcolor="#0d1117" ` +
       `style="width:720pt;border-collapse:collapse;table-layout:fixed;background:#0d1117">` +
-      `<tr><td colspan="${columnCount}" align="center" bgcolor="#0d1117" style="height:24pt;padding:0 8pt;background:#0d1117;` +
-      `color:#c9d1d9;font-family:Consolas,'Courier New',monospace;font-size:9pt;font-weight:bold">${escAttr(file)}</td></tr>` +
+      `<tr><td colspan="${columnCount}" bgcolor="#0d1117" style="height:24pt;padding:0 8pt;background:#0d1117;color:#c9d1d9">` +
+      `<table width="100%" border="0" cellspacing="0" cellpadding="0"><tr>` +
+      `<td width="110" style="width:82.5pt;font-family:Arial,sans-serif;font-size:10pt;white-space:nowrap">` +
+      `<span style="color:#ff5f56">●</span>&nbsp;<span style="color:#ffbd2e">●</span>&nbsp;<span style="color:#27c93f">●</span></td>` +
+      `<td align="center" style="font-family:Consolas,'Courier New',monospace;font-size:9pt;font-weight:bold;color:#c9d1d9">${escAttr(file)}</td>` +
+      `<td width="110" style="width:82.5pt"></td></tr></table></td></tr>` +
       heading +
       body +
-      `</table>`
+      `</table>`;
+    const accent = carbonThemes[carbonTheme].office;
+    return (
+      `<table width="1000" border="0" cellspacing="0" cellpadding="0" bgcolor="${accent}" ` +
+      `style="width:750pt;border-collapse:collapse;background:${accent}"><tr>` +
+      `<td bgcolor="${accent}" style="padding:14pt;background:${accent}">${codeTable}</td>` +
+      `</tr></table>`
     );
   }
 
@@ -1732,6 +1780,7 @@ function eventElement(event: Event): UiElement | null {
     rows: ExportPairRow[],
     layout: "split" | "compact",
   ): string {
+    const [start, middle, end] = carbonThemes[carbonTheme].stops;
     if (layout === "compact") {
       const compactRows = compactExportRows(rows);
       const longest = Math.max(28, ...compactRows.map((row) => row.code.length));
@@ -1756,7 +1805,7 @@ function eventElement(event: Event): UiElement | null {
       return (
         `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
         `<defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1">` +
-        `<stop stop-color="#7c3aed"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#0891b2"/></linearGradient>` +
+        `<stop stop-color="${start}"/><stop offset=".52" stop-color="${middle}"/><stop offset="1" stop-color="${end}"/></linearGradient>` +
         `<clipPath id="compactClip"><rect x="29" y="88" width="${contentWidth - 4}" height="${height - 112}"/></clipPath></defs>` +
         `<rect width="${width}" height="${height}" rx="16" fill="url(#background)"/>` +
         `<rect x="28" y="24" width="${width - 56}" height="${height - 48}" rx="14" fill="#0d1117"/>` +
@@ -1791,7 +1840,7 @@ function eventElement(event: Event): UiElement | null {
     return (
       `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
       `<defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1">` +
-      `<stop stop-color="#7c3aed"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#0891b2"/></linearGradient>` +
+      `<stop stop-color="${start}"/><stop offset=".52" stop-color="${middle}"/><stop offset="1" stop-color="${end}"/></linearGradient>` +
       `<clipPath id="oldClip"><rect x="29" y="88" width="${columnWidth - 4}" height="${height - 112}"/></clipPath>` +
       `<clipPath id="newClip"><rect x="${29 + columnWidth}" y="88" width="${columnWidth - 4}" height="${height - 112}"/></clipPath></defs>` +
       `<rect width="${width}" height="${height}" rx="16" fill="url(#background)"/>` +
@@ -1852,9 +1901,10 @@ function eventElement(event: Event): UiElement | null {
     context.scale(scale, scale);
 
     const background = context.createLinearGradient(0, 0, width, height);
-    background.addColorStop(0, "#7c3aed");
-    background.addColorStop(0.52, "#2563eb");
-    background.addColorStop(1, "#0891b2");
+    const [start, middle, end] = carbonThemes[carbonTheme].stops;
+    background.addColorStop(0, start);
+    background.addColorStop(0.52, middle);
+    background.addColorStop(1, end);
     context.fillStyle = background;
     context.fillRect(0, 0, width, height);
     roundRect(context, 28, 24, width - 56, height - 48, 14);
@@ -1932,6 +1982,9 @@ function eventElement(event: Event): UiElement | null {
     carbonModal.querySelectorAll("[data-carbon-layout]").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.carbonLayout === carbonLayout));
     });
+    carbonModal.querySelectorAll("[data-carbon-theme]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.carbonTheme === carbonTheme));
+    });
   }
 
   function openCarbonExport(selection: DiffRangeSelection): void {
@@ -1962,6 +2015,13 @@ function eventElement(event: Event): UiElement | null {
   carbonModal.querySelectorAll("[data-carbon-layout]").forEach((button) => {
     button.addEventListener("click", () => {
       carbonLayout = button.dataset.carbonLayout === "compact" ? "compact" : "split";
+      renderCarbonVisuals();
+    });
+  });
+  carbonModal.querySelectorAll("[data-carbon-theme]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const theme = button.dataset.carbonTheme as CarbonTheme;
+      if (theme in carbonThemes) carbonTheme = theme;
       renderCarbonVisuals();
     });
   });

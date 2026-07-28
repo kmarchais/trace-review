@@ -29,7 +29,10 @@ diff. The selectable preview can be copied as a PowerPoint-friendly editable
 table or downloaded as HTML, SVG, or PNG for websites, presentations, and
 documentation. Image, SVG, and PowerPoint exports follow the selected layout:
 a full side-by-side comparison or a narrower compact unified diff. PowerPoint
-exports use tightly spaced rows while preserving code indentation.
+exports use tightly spaced rows while preserving code indentation; side-by-side
+columns flow independently so added and removed runs do not create blank gaps.
+The export dialog offers presentation-ready background presets, and editable
+PowerPoint copies include the selected accent frame and window controls.
 
 | Mode          | Review behavior                               |
 | ------------- | --------------------------------------------- |
