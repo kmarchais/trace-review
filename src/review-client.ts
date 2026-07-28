@@ -1532,6 +1532,15 @@ function eventElement(event: Event): UiElement | null {
     );
   }
 
+  function officeSyntax(html: string): string {
+    return inlineSyntax(html)
+      .split(/(<[^>]+>)/g)
+      .map((part) =>
+        part.startsWith("<") ? part : part.replace(/\t/g, "    ").replace(/ /g, "&nbsp;"),
+      )
+      .join("");
+  }
+
   function previewSide(side?: ExportSide): string {
     if (!side) return `<td></td>`;
     const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
@@ -1634,7 +1643,7 @@ function eventElement(event: Event): UiElement | null {
       `font-family:Consolas,'Courier New',monospace;font-size:${fontSize}pt;line-height:14pt;mso-line-height-rule:exactly;color:#e6edf3;white-space:nowrap">` +
       `<nobr><span style="display:inline-block;width:28pt;color:#8b949e;text-align:right">${escAttr(side.line)}</span>` +
       `<span style="display:inline-block;width:12pt;color:${markerColor}">${marker}</span>` +
-      `<span style="color:#e6edf3;mso-no-proof:yes">${inlineSyntax(side.html || escAttr(side.code))}</span></nobr></td>`
+      `<span style="color:#e6edf3;mso-no-proof:yes;mso-spacerun:yes">${officeSyntax(side.html || escAttr(side.code))}</span></nobr></td>`
     );
   }
 
