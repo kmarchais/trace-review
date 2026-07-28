@@ -419,6 +419,15 @@
   .comment-box textarea { font-family:var(--font-body); min-height:40px; }
   .comment-actions { margin-top:6px; }
   .comment-actions button { font-size:.76rem; background:none; border:none; color:var(--red); cursor:pointer; }
+  .range-selected-cell { box-shadow:inset 0 0 0 999px color-mix(in srgb,var(--semantic-info) 18%,transparent)!important; }
+  .range-toolbar { position:fixed; z-index:70; display:flex; align-items:center; gap:5px; padding:6px;
+    color:var(--text); background:var(--card); border:1px solid var(--border); border-radius:var(--radius-md); box-shadow:var(--shadow-md); }
+  .range-toolbar[hidden] { display:none; }
+  .range-location { max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    padding:0 6px; color:var(--muted); font:600 .7rem var(--font-heading); }
+  .range-toolbar button { border:1px solid var(--control-border); border-radius:var(--radius-sm); padding:5px 8px;
+    color:var(--text); background:var(--control-bg); cursor:pointer; font:500 .72rem var(--font-heading); }
+  .range-toolbar button:hover { background:var(--control-hover); }
   .orphan-panel { margin-top:12px; border:1px solid var(--orange); border-radius:8px; background:color-mix(in srgb,var(--orange) 9%,var(--card)); }
   .orphan-panel[hidden] { display:none; }
   .orphan-panel summary { cursor:pointer; padding:9px 11px; color:var(--orange); font-family:var(--font-heading); font-weight:700; }
@@ -437,6 +446,9 @@
   .modal[hidden] { display:none; }
   .modal-card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius-md); width:min(760px,100%); max-height:85vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:var(--shadow-md); }
   .file-modal-card { width:min(1180px,96vw); height:min(900px,92vh); }
+  .carbon-modal-card { width:min(1120px,96vw); max-height:94vh; }
+  .carbon-preview { padding:24px; overflow:auto; background:#111827; }
+  .carbon-preview canvas { display:block; max-width:100%; height:auto; margin:auto; border-radius:14px; box-shadow:0 18px 45px rgba(0,0,0,.35); }
   .file-modal-title { min-width:0; }
   .file-modal-title h3 { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .file-modal-title p { margin:2px 0 0; color:var(--muted); font-size:.75rem; }
@@ -600,6 +612,21 @@ Summary fallbacks: 0</pre>
   </div>
 </div>
 
+<div class="modal" id="carbonModal" hidden>
+  <div class="modal-card carbon-modal-card" role="dialog" aria-modal="true" aria-labelledby="carbonModalTitle">
+    <div class="modal-head">
+      <div><h3 id="carbonModalTitle">Export selected diff</h3><p class="hint" id="carbonModalMeta"></p></div>
+      <button class="icon-btn" id="closeCarbonModal" aria-label="Close image export">✕</button>
+    </div>
+    <div class="carbon-preview"><canvas id="carbonCanvas"></canvas></div>
+    <div class="modal-foot">
+      <span class="copied" id="carbonCopied" hidden>Copied ✓</span>
+      <button class="btn" id="copyCarbonBtn">Copy image</button>
+      <button class="btn btn-primary" id="downloadCarbonBtn">Download PNG</button>
+    </div>
+  </div>
+</div>
+
 <aside id="progressDock" class="progress-dock" hidden></aside>
 <aside id="fileTree" class="file-tree" hidden>
   <div class="ft-head">
@@ -612,6 +639,12 @@ Summary fallbacks: 0</pre>
   <div class="ft-body"></div>
 </aside>
 <div id="lightbox" class="lightbox" hidden><div class="lb-inner"></div></div>
+<div id="rangeToolbar" class="range-toolbar" hidden>
+  <span class="range-location" data-range-location></span>
+  <button type="button" data-range-comment>Comment</button>
+  <button type="button" data-range-suggest>Suggest change</button>
+  <button type="button" data-range-image>Export image</button>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cmake.min.js"></script>

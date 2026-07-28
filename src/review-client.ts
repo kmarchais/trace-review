@@ -94,6 +94,19 @@ interface SplitPair {
   ctx?: boolean;
 }
 
+interface DiffRangeSelection {
+  file: string;
+  oldSide: boolean;
+  gutters: UiElement[];
+  start: UiElement;
+  end: UiElement;
+  rows: Array<{
+    line: string;
+    code: string;
+    kind: "add" | "del" | "ctx";
+  }>;
+}
+
 interface Attachment {
   name: string;
   type: string;
@@ -497,7 +510,7 @@ function eventElement(event: Event): UiElement | null {
   }
 
   // ---- comment rows ----
-  function createCommentRow(g: UiElement, prefill?: string): UiElement {
+  function createCommentRow(g: UiElement, prefill?: string, selectedStartKey?: string): UiElement {
     const tr = g.closest("tr");
     const mount = g.closest(".diff-mount");
     const pr = g.closest("section.pr").dataset.pr ?? "";
@@ -553,7 +566,12 @@ function eventElement(event: Event): UiElement | null {
         option.textContent = candidateLine;
         startSelect.appendChild(option);
       });
-    startSelect.value = saved?.startKey && candidates.has(saved.startKey) ? saved.startKey : key;
+    startSelect.value =
+      selectedStartKey && candidates.has(selectedStartKey)
+        ? selectedStartKey
+        : saved?.startKey && candidates.has(saved.startKey)
+          ? saved.startKey
+          : key;
     const updateLocation = () => {
       const startLine = candidates.get(startSelect.value) || String(endLine);
       location.textContent =
@@ -622,6 +640,7 @@ function eventElement(event: Event): UiElement | null {
       renderOrphans();
       crow.remove();
     });
+    if (prefill && !saved) store();
     return ta;
   }
   function applyComments(mount: UiElement): void {
@@ -1147,8 +1166,317 @@ function eventElement(event: Event): UiElement | null {
   document.getElementById("main").addEventListener("click", (e) => {
     const g = eventElement(e)?.closest(".gutter");
     if (!g || g.classList.contains("empty") || !g.dataset.key) return;
+    if (g.dataset.rangeClick === "ignore") {
+      delete g.dataset.rangeClick;
+      return;
+    }
     const ta = createCommentRow(g, "");
     if (ta) ta.focus();
+  });
+
+  // ---- drag-select a contiguous diff range ----
+  const rangeToolbar = document.getElementById("rangeToolbar");
+  let rangeDrag:
+    | {
+        anchor: UiElement;
+        current: UiElement;
+        moved: boolean;
+        x: number;
+        y: number;
+      }
+    | undefined;
+  let activeRange: DiffRangeSelection | undefined;
+
+  function selectableGutters(anchor: UiElement): UiElement[] {
+    const table = anchor.closest("table.diff");
+    const anchorRow = anchor.closest("tr");
+    if (!table || !anchorRow) return [];
+    const rows = [...table.querySelectorAll("tr")];
+    const anchorIndex = rows.indexOf(anchorRow);
+    let first = anchorIndex;
+    let last = anchorIndex + 1;
+    while (first > 0 && !rows[first - 1].classList.contains("line-hunk")) first--;
+    while (last < rows.length && !rows[last].classList.contains("line-hunk")) last++;
+    const oldSide = (anchor.dataset.key || "").startsWith("o");
+    return rows
+      .slice(first, last)
+      .flatMap((row) => [...row.querySelectorAll(".gutter[data-key]")])
+      .filter(
+        (gutter) =>
+          gutter.dataset.file === anchor.dataset.file &&
+          (gutter.dataset.key || "").startsWith("o") === oldSide,
+      );
+  }
+
+  function rangeFor(anchor: UiElement, current: UiElement): DiffRangeSelection | undefined {
+    const candidates = selectableGutters(anchor);
+    const anchorIndex = candidates.indexOf(anchor);
+    const currentIndex = candidates.indexOf(current);
+    if (anchorIndex < 0 || currentIndex < 0) return undefined;
+    const [from, to] =
+      anchorIndex <= currentIndex ? [anchorIndex, currentIndex] : [currentIndex, anchorIndex];
+    const gutters = candidates.slice(from, to + 1);
+    const rows = gutters.map((gutter) => {
+      const codeCell = gutter.nextElementSibling;
+      return {
+        line: gutter.dataset.lineno || gutter.dataset.key || "",
+        code: gutter.dataset.code || "",
+        kind: codeCell?.classList.contains("line-add")
+          ? ("add" as const)
+          : codeCell?.classList.contains("line-del")
+            ? ("del" as const)
+            : ("ctx" as const),
+      };
+    });
+    return {
+      file: anchor.dataset.file || "",
+      oldSide: (anchor.dataset.key || "").startsWith("o"),
+      gutters,
+      start: gutters[0],
+      end: gutters[gutters.length - 1],
+      rows,
+    };
+  }
+
+  function clearRangeVisuals(): void {
+    document.querySelectorAll(".range-selected-cell").forEach((cell) => {
+      cell.classList.remove("range-selected-cell");
+    });
+  }
+
+  function paintRange(selection: DiffRangeSelection): void {
+    clearRangeVisuals();
+    for (const gutter of selection.gutters) {
+      gutter.classList.add("range-selected-cell");
+      gutter.previousElementSibling?.classList.add("range-selected-cell");
+      gutter.nextElementSibling?.classList.add("range-selected-cell");
+    }
+  }
+
+  function hideRangeToolbar(clear = true): void {
+    rangeToolbar.hidden = true;
+    if (clear) {
+      activeRange = undefined;
+      clearRangeVisuals();
+    }
+  }
+
+  function showRangeToolbar(selection: DiffRangeSelection, x: number, y: number): void {
+    activeRange = selection;
+    paintRange(selection);
+    const first = selection.rows[0]?.line || "";
+    const last = selection.rows.at(-1)?.line || first;
+    rangeToolbar.querySelector("[data-range-location]").textContent =
+      selection.file + " · " + (first === last ? "line " + first : "lines " + first + "–" + last);
+    rangeToolbar.querySelector("[data-range-suggest]").hidden = selection.oldSide;
+    rangeToolbar.hidden = false;
+    const width = rangeToolbar.offsetWidth;
+    const height = rangeToolbar.offsetHeight;
+    rangeToolbar.style.left = Math.max(12, Math.min(window.innerWidth - width - 12, x + 10)) + "px";
+    rangeToolbar.style.top =
+      Math.max(12, Math.min(window.innerHeight - height - 12, y + 10)) + "px";
+  }
+
+  document.getElementById("main").addEventListener("mousedown", (event) => {
+    const mouse = event as MouseEvent;
+    const gutter = eventElement(event)?.closest(".gutter[data-key]");
+    if (!gutter || gutter.classList.contains("empty") || mouse.button !== 0) return;
+    hideRangeToolbar();
+    rangeDrag = {
+      anchor: gutter,
+      current: gutter,
+      moved: false,
+      x: mouse.clientX,
+      y: mouse.clientY,
+    };
+  });
+
+  document.addEventListener("mousemove", (event) => {
+    if (!rangeDrag) return;
+    const mouse = event as MouseEvent;
+    const target = document
+      .elementFromPoint(mouse.clientX, mouse.clientY)
+      ?.closest(".gutter[data-key]") as UiElement | null;
+    if (!target || !selectableGutters(rangeDrag.anchor).includes(target)) return;
+    rangeDrag.current = target;
+    rangeDrag.moved ||= target !== rangeDrag.anchor;
+    rangeDrag.x = mouse.clientX;
+    rangeDrag.y = mouse.clientY;
+    const selection = rangeFor(rangeDrag.anchor, target);
+    if (selection) paintRange(selection);
+    event.preventDefault();
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!rangeDrag) return;
+    const drag = rangeDrag;
+    rangeDrag = undefined;
+    if (!drag.moved) {
+      clearRangeVisuals();
+      return;
+    }
+    const selection = rangeFor(drag.anchor, drag.current);
+    if (!selection) {
+      clearRangeVisuals();
+      return;
+    }
+    drag.current.dataset.rangeClick = "ignore";
+    showRangeToolbar(selection, drag.x, drag.y);
+  });
+
+  rangeToolbar.querySelector("[data-range-comment]").addEventListener("click", () => {
+    if (!activeRange) return;
+    const ta = createCommentRow(activeRange.end, "", activeRange.start.dataset.key);
+    hideRangeToolbar();
+    ta?.focus();
+  });
+
+  rangeToolbar.querySelector("[data-range-suggest]").addEventListener("click", () => {
+    if (!activeRange || activeRange.oldSide) return;
+    const replacement = activeRange.rows.map((row) => row.code).join("\n");
+    const ta = createCommentRow(
+      activeRange.end,
+      "```suggestion\n" + replacement + "\n```",
+      activeRange.start.dataset.key,
+    );
+    hideRangeToolbar();
+    ta?.focus();
+    ta?.setSelectionRange(14, 14 + replacement.length);
+  });
+
+  rangeToolbar.querySelector("[data-range-image]").addEventListener("click", () => {
+    if (!activeRange) return;
+    openCarbonExport(activeRange);
+    hideRangeToolbar();
+  });
+
+  const carbonModal = document.getElementById("carbonModal");
+  const carbonCanvas = document.getElementById("carbonCanvas") as unknown as HTMLCanvasElement;
+  let carbonFilename = "diff-selection.png";
+
+  function roundRect(
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number,
+  ): void {
+    context.beginPath();
+    context.moveTo(x + radius, y);
+    context.arcTo(x + width, y, x + width, y + height, radius);
+    context.arcTo(x + width, y + height, x, y + height, radius);
+    context.arcTo(x, y + height, x, y, radius);
+    context.arcTo(x, y, x + width, y, radius);
+    context.closePath();
+  }
+
+  function openCarbonExport(selection: DiffRangeSelection): void {
+    const scale = 2;
+    const longest = Math.max(
+      ...selection.rows.map((row) => row.code.length),
+      selection.file.length,
+    );
+    const width = Math.max(720, Math.min(1600, 210 + longest * 9));
+    const height = 112 + selection.rows.length * 25;
+    carbonCanvas.width = width * scale;
+    carbonCanvas.height = height * scale;
+    carbonCanvas.style.width = width + "px";
+    carbonCanvas.style.height = height + "px";
+    const context = carbonCanvas.getContext("2d");
+    if (!context) return;
+    context.scale(scale, scale);
+
+    const background = context.createLinearGradient(0, 0, width, height);
+    background.addColorStop(0, "#7c3aed");
+    background.addColorStop(0.52, "#2563eb");
+    background.addColorStop(1, "#0891b2");
+    context.fillStyle = background;
+    context.fillRect(0, 0, width, height);
+
+    roundRect(context, 28, 24, width - 56, height - 48, 14);
+    context.fillStyle = "#0d1117";
+    context.fill();
+    ["#ff5f56", "#ffbd2e", "#27c93f"].forEach((color, index) => {
+      context.beginPath();
+      context.arc(50 + index * 20, 48, 6, 0, Math.PI * 2);
+      context.fillStyle = color;
+      context.fill();
+    });
+
+    context.font = "600 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    context.fillStyle = "#c9d1d9";
+    context.textAlign = "center";
+    context.fillText(selection.file, width / 2, 53);
+    context.textAlign = "left";
+    context.font = "14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    selection.rows.forEach((row, index) => {
+      const y = 82 + index * 25;
+      if (row.kind !== "ctx") {
+        context.fillStyle = row.kind === "add" ? "rgba(46,160,67,.18)" : "rgba(248,81,73,.16)";
+        context.fillRect(29, y - 18, width - 58, 25);
+      }
+      context.fillStyle = "#6e7681";
+      context.textAlign = "right";
+      context.fillText(row.line, 79, y);
+      context.textAlign = "left";
+      context.fillStyle =
+        row.kind === "add" ? "#3fb950" : row.kind === "del" ? "#f85149" : "#8b949e";
+      context.fillText(row.kind === "add" ? "+" : row.kind === "del" ? "−" : " ", 96, y);
+      context.fillStyle = "#e6edf3";
+      context.fillText(row.code, 118, y, width - 150);
+    });
+
+    const first = selection.rows[0]?.line || "";
+    const last = selection.rows.at(-1)?.line || first;
+    document.getElementById("carbonModalMeta").textContent =
+      selection.file + " · " + (first === last ? "line " + first : "lines " + first + "–" + last);
+    carbonFilename =
+      selection.file
+        .split("/")
+        .pop()
+        ?.replace(/[^a-z0-9._-]+/gi, "-")
+        .replace(/\.[^.]+$/, "") +
+      "-lines-" +
+      first +
+      (first === last ? "" : "-" + last) +
+      ".png";
+    carbonModal.hidden = false;
+  }
+
+  document.getElementById("closeCarbonModal").addEventListener("click", () => {
+    carbonModal.hidden = true;
+  });
+  carbonModal.addEventListener("click", (event) => {
+    if (event.target === carbonModal) carbonModal.hidden = true;
+  });
+  document.getElementById("downloadCarbonBtn").addEventListener("click", () => {
+    const link = document.createElement("a");
+    link.href = carbonCanvas.toDataURL("image/png");
+    link.download = carbonFilename;
+    link.click();
+  });
+  document.getElementById("copyCarbonBtn").addEventListener("click", () => {
+    carbonCanvas.toBlob(async (blob) => {
+      if (!blob || !navigator.clipboard || typeof ClipboardItem === "undefined") return;
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        const copied = document.getElementById("carbonCopied");
+        copied.hidden = false;
+        setTimeout(() => (copied.hidden = true), 1800);
+      } catch {}
+    }, "image/png");
+  });
+
+  document.addEventListener("mousedown", (event) => {
+    if (
+      rangeToolbar.hidden ||
+      eventElement(event)?.closest("#rangeToolbar") ||
+      eventElement(event)?.closest(".gutter[data-key]")
+    ) {
+      return;
+    }
+    hideRangeToolbar();
   });
 
   // ---- general comments ----

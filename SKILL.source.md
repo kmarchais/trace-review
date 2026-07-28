@@ -394,6 +394,10 @@ Viewer controls:
   finding jumps into the diff.
 - **Unified / Split** toggle — lives on the **"Changes"** bar; switches inline
   vs side-by-side (persists; comments follow the line in both).
+- **Range selection** — drag across contiguous diff gutters within one hunk and
+  side to add a block comment, create a GitHub-compatible suggested change, or
+  export the selected diff as a Carbon-like PNG. Suggested changes are offered
+  only on the new-file side.
 - **Git order / Grouped order** — every grouped review can return to the raw
   patch sequence for verification. Viewed state, navigation, and progress share
   the same file identity in both representations.
