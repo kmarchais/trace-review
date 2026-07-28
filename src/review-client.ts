@@ -1678,15 +1678,11 @@ function eventElement(event: Event): UiElement | null {
     );
   }
 
-  function powerPointColumn(sides: ExportSide[], border: boolean, fontSize: number): string {
+  function powerPointEmptySide(border: boolean, fontSize: number, width: number): string {
     const borderStyle = border ? "border-left:1px solid #30363d;" : "";
-    return (
-      `<td width="480" valign="top" bgcolor="#0d1117" style="${borderStyle}width:360pt;padding:0;background:#0d1117;vertical-align:top">` +
-      `<table width="480" border="0" cellspacing="0" cellpadding="0" bgcolor="#0d1117" ` +
-      `style="width:360pt;border-collapse:collapse;table-layout:fixed;background:#0d1117">` +
-      sides.map((side) => `<tr>${powerPointSide(side, false, fontSize, 480)}</tr>`).join("") +
-      `</table></td>`
-    );
+    const widthPoints = width === 960 ? 720 : 360;
+    const lineHeight = Math.max(7, fontSize + 1.5);
+    return `<td width="${width}" bgcolor="#0d1117" style="${borderStyle}width:${widthPoints}pt;height:${lineHeight}pt;padding:0 5pt;background:#0d1117;font-size:${fontSize}pt;line-height:${lineHeight}pt;mso-line-height-rule:exactly">&nbsp;</td>`;
   }
 
   function powerPointClipboardTable(
@@ -1704,44 +1700,48 @@ function eventElement(event: Event): UiElement | null {
     const availableWidth = layout === "compact" ? 1000 : 500;
     const fontSize = Math.max(5, Math.min(8.5, Math.floor((availableWidth / longest) * 4) / 4));
     const columnCount = layout === "compact" ? 1 : 2;
+    const accent = carbonThemes[carbonTheme].office;
+    const frameCell = `<td width="20" bgcolor="${accent}" style="width:15pt;padding:0;background:${accent}">&nbsp;</td>`;
+    const before = rows.flatMap((row) => (row.old ? [row.old] : []));
+    const after = rows.flatMap((row) => (row.next ? [row.next] : []));
     const heading =
       layout === "compact"
-        ? `<tr><td width="960" bgcolor="#161b22" style="width:720pt;height:14pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
-          `font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">UNIFIED DIFF</td></tr>`
-        : `<tr><td width="480" bgcolor="#161b22" style="width:360pt;height:14pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
+        ? `<tr>${frameCell}<td width="960" bgcolor="#161b22" style="width:720pt;height:14pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
+          `font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">UNIFIED DIFF</td>${frameCell}</tr>`
+        : `<tr>${frameCell}<td width="480" bgcolor="#161b22" style="width:360pt;height:14pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
           `font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">BEFORE</td>` +
           `<td width="480" bgcolor="#161b22" style="width:360pt;height:14pt;padding:0 6pt;border-left:1px solid #30363d;` +
-          `background:#161b22;color:#8b949e;font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">AFTER</td></tr>`;
+          `background:#161b22;color:#8b949e;font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">AFTER</td>${frameCell}</tr>`;
     const body =
       layout === "compact"
-        ? exportRows.map((row) => `<tr>${powerPointSide(row, false, fontSize, 960)}</tr>`).join("")
-        : `<tr>${powerPointColumn(
-            rows.flatMap((row) => (row.old ? [row.old] : [])),
-            false,
-            fontSize,
-          )}${powerPointColumn(
-            rows.flatMap((row) => (row.next ? [row.next] : [])),
-            true,
-            fontSize,
-          )}</tr>`;
-    const codeTable =
-      `<table width="960" border="0" cellspacing="0" cellpadding="0" bgcolor="#0d1117" ` +
-      `style="width:720pt;border-collapse:collapse;table-layout:fixed;background:#0d1117">` +
-      `<tr><td colspan="${columnCount}" bgcolor="#0d1117" style="height:24pt;padding:0 8pt;background:#0d1117;color:#c9d1d9">` +
-      `<table width="100%" border="0" cellspacing="0" cellpadding="0"><tr>` +
-      `<td width="110" style="width:82.5pt;font-family:Arial,sans-serif;font-size:10pt;white-space:nowrap">` +
-      `<span style="color:#ff5f56">●</span>&nbsp;<span style="color:#ffbd2e">●</span>&nbsp;<span style="color:#27c93f">●</span></td>` +
-      `<td align="center" style="font-family:Consolas,'Courier New',monospace;font-size:9pt;font-weight:bold;color:#c9d1d9">${escAttr(file)}</td>` +
-      `<td width="110" style="width:82.5pt"></td></tr></table></td></tr>` +
-      heading +
-      body +
-      `</table>`;
-    const accent = carbonThemes[carbonTheme].office;
+        ? exportRows
+            .map(
+              (row) =>
+                `<tr>${frameCell}${powerPointSide(row, false, fontSize, 960)}${frameCell}</tr>`,
+            )
+            .join("")
+        : Array.from({ length: Math.max(before.length, after.length) }, (_, index) => {
+            const oldCell = before[index]
+              ? powerPointSide(before[index], false, fontSize, 480)
+              : powerPointEmptySide(false, fontSize, 480);
+            const nextCell = after[index]
+              ? powerPointSide(after[index], true, fontSize, 480)
+              : powerPointEmptySide(true, fontSize, 480);
+            return `<tr>${frameCell}${oldCell}${nextCell}${frameCell}</tr>`;
+          }).join("");
     return (
       `<table width="1000" border="0" cellspacing="0" cellpadding="0" bgcolor="${accent}" ` +
-      `style="width:750pt;border-collapse:collapse;background:${accent}"><tr>` +
-      `<td bgcolor="${accent}" style="padding:14pt;background:${accent}">${codeTable}</td>` +
-      `</tr></table>`
+      `style="width:750pt;border-collapse:collapse;table-layout:fixed;background:${accent}">` +
+      `<tr><td colspan="${columnCount + 2}" bgcolor="${accent}" style="height:14pt;padding:0;background:${accent}">&nbsp;</td></tr>` +
+      `<tr>${frameCell}<td colspan="${columnCount}" align="center" bgcolor="#0d1117" style="height:24pt;padding:0 8pt;background:#0d1117;` +
+      `font-family:Consolas,'Courier New',monospace;font-size:9pt;font-weight:bold;color:#c9d1d9">` +
+      `<span style="float:left;font-family:Arial,sans-serif;font-size:10pt;white-space:nowrap">` +
+      `<span style="color:#ff5f56">●</span>&nbsp;<span style="color:#ffbd2e">●</span>&nbsp;<span style="color:#27c93f">●</span></span>` +
+      `${escAttr(file)}</td>${frameCell}</tr>` +
+      heading +
+      body +
+      `<tr><td colspan="${columnCount + 2}" bgcolor="${accent}" style="height:14pt;padding:0;background:${accent}">&nbsp;</td></tr>` +
+      `</table>`
     );
   }
 
