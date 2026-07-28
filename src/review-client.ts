@@ -6,7 +6,7 @@ import {
   type GithubReviewPlan,
   type ReviewDraftComment,
 } from "../scripts/lib/github-review.mjs";
-import { renderInlineMarkdown } from "./inline-markdown.js";
+import { renderFindingMarkdown, renderInlineMarkdown } from "./inline-markdown.js";
 
 type UiElement = HTMLElement & { dataset: Record<string, string> };
 
@@ -257,6 +257,14 @@ function eventElement(event: Event): UiElement | null {
     }
     lines.push(cur + "</span>".repeat(stack.length));
     return lines;
+  }
+  function highlightMarkdownCode(root: ParentNode): void {
+    root.querySelectorAll("pre.md-code > code").forEach((code) => {
+      const language = /(?:^|\s)language-([a-z0-9_+-]+)/i.exec(code.className)?.[1];
+      if (!language) return;
+      code.innerHTML = hlLines(code.textContent || "", language).join("\n");
+      code.classList.add("hljs");
+    });
   }
   // annotate each row in a hunk with its highlighted HTML (r._hl)
   function annotateHl(h: ClientHunk, lang: string): void {
@@ -801,10 +809,11 @@ function eventElement(event: Event): UiElement | null {
     td.colSpan = tr.children.length;
     td.innerHTML = `<div class="ai-box">
       <div class="ai-box-head"><span class="who">✦ ${escAttr(REVIEWER)}</span><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span></div>
-      <div class="ai-box-body">${renderInlineMarkdown(c.body)}</div>
+      <div class="ai-box-body">${renderFindingMarkdown(c.body)}</div>
       <div class="ai-rationale"><strong>Why:</strong> ${renderInlineMarkdown(c.rationale)}</div>
       <div class="ai-box-actions"><button data-a="accept">✓ Accept</button><button data-a="dismiss">✕ Dismiss</button><button data-a="reply">Reply</button><span class="ai-state"></span></div>
     </div>`;
+    highlightMarkdownCode(td);
     row.appendChild(td);
     tr.after(row);
     const acc = td.querySelector('[data-a="accept"]'),
