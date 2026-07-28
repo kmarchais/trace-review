@@ -36,6 +36,51 @@ test("generator produces a complete, mode-labelled review document", (t) => {
   assert.match(html, /class="app-header"/);
   assert.match(html, /class="pr-cols"/);
   assert.match(html, /class="diff-block"/);
+  assert.match(html, /id="rangeToolbar"/);
+  assert.match(html, /data-range-comment/);
+  assert.match(html, /data-range-suggest/);
+  assert.match(html, /data-range-image/);
+  assert.match(html, /function selectableGutters\(anchor\)/);
+  assert.match(html, /function openCarbonExport\(selection\)/);
+  assert.match(html, /if \(prefill && !saved\)\s*store\(\)/);
+  assert.match(html, /codeCell\?\.classList\.contains\("line-add"\)/);
+  assert.match(html, /function buildExportRows\(selection\)/);
+  assert.match(html, /if \(hasBefore && hasAfter\)/);
+  assert.match(html, /function buildCarbonSvg\(file, rows, layout\)/);
+  assert.match(html, /function syntaxSegments\(html\)/);
+  assert.match(html, /function compactExportRows\(rows\)/);
+  assert.match(html, /data-carbon-layout="compact"/);
+  assert.match(html, /Image layout/);
+  assert.match(html, /function powerPointClipboardTable\(\s*file,\s*rows,\s*layout\s*\)/);
+  assert.match(html, /function officeSyntax\(html\)/);
+  assert.match(html, /replace\(\/ \/g, "&nbsp;"\)/);
+  assert.match(html, /mso-spacerun:yes/);
+  assert.match(html, /powerPointClipboardTable\(carbonFile, carbonRows, carbonLayout\)/);
+  assert.match(html, /layout === "compact"\s*\?\s*compactExportRows\(rows\)\s*:\s*\[\]/);
+  assert.match(html, /const lineHeight = Math\.max\(7, fontSize \+ 1\.5\)/);
+  assert.match(html, /function powerPointEmptySide\(\s*border,\s*fontSize,\s*width\s*\)/);
+  assert.match(html, /row\.old \? \[row\.old\] : \[\]/);
+  assert.match(html, /row\.next \? \[row\.next\] : \[\]/);
+  assert.match(html, /Math\.max\(before\.length, after\.length\)/);
+  assert.doesNotMatch(html, /function powerPointColumn/);
+  assert.match(html, /data-carbon-theme="sunset"/);
+  assert.match(html, /data-carbon-theme="none" aria-pressed="true"/);
+  assert.match(html, /const carbonThemes = \{/);
+  assert.match(html, /let carbonTheme = "none"/);
+  assert.match(html, /carbonThemes\[carbonTheme\]\.office/);
+  assert.match(html, /const hasBackground = carbonTheme !== "none"/);
+  assert.match(html, /const titleSpacer = "&nbsp;"\.repeat/);
+  assert.match(html, /width:32pt/);
+  assert.match(html, /width:18pt;padding-left:4pt/);
+  assert.match(html, /<span style="color:#ff5f56">●<\/span>/);
+  assert.match(html, /bgcolor="#0d1117"/);
+  assert.match(html, /<nobr>/);
+  assert.match(html, /id="carbonSelectable"/);
+  assert.match(html, /id="carbonCanvas"/);
+  assert.match(html, /Copy for PowerPoint/);
+  assert.match(html, /Download HTML/);
+  assert.match(html, /Download SVG/);
+  assert.match(html, /Download PNG/);
   assert.match(html, /id="review-data" type="application\/json"/);
   assert.match(html, /src\/widget\.hpp/);
   assert.match(html, /CMakeLists\.txt/);
@@ -82,6 +127,49 @@ test("each diff file can open its bounded whole-file content", (t) => {
   assert.match(html, /id="fileModal"/);
   assert.match(html, /const value = 2;\\n/);
   assert.match(html, /File after these changes/);
+});
+
+test("module TypeScript and common extension aliases select syntax languages", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-languages-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  fs.writeFileSync(
+    path.join(tempDir, "change.patch"),
+    [
+      "diff --git a/tool.mts b/tool.mts",
+      "--- a/tool.mts",
+      "+++ b/tool.mts",
+      "@@ -1 +1 @@",
+      "-export const value: number = 1;",
+      "+export const value: number = 2;",
+      "diff --git a/schema.graphql b/schema.graphql",
+      "--- a/schema.graphql",
+      "+++ b/schema.graphql",
+      "@@ -1 +1 @@",
+      "-type Query { old: Int }",
+      "+type Query { value: Int }",
+      "",
+    ].join("\n"),
+  );
+  fs.writeFileSync(
+    path.join(tempDir, "spec.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      prs: [{ title: "Syntax aliases", diffFile: "change.patch" }],
+    }),
+  );
+
+  const result = build(path.join(tempDir, "spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  const dataSource = /<script id="review-data" type="application\/json">([\s\S]*?)<\/script>/.exec(
+    html,
+  )?.[1];
+  assert.ok(dataSource);
+  const data = JSON.parse(dataSource);
+  assert.equal(data["pr-1__0"].lang, "typescript");
+  assert.equal(data["pr-1__1"].lang, "graphql");
 });
 
 test("SVG whole-file content offers sanitized image and exact code views", (t) => {

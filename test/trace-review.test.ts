@@ -98,3 +98,69 @@ test("prepare and finish provide one bounded orchestration path", (t) => {
   assert.equal(metrics.prepare.internalCommands, 3);
   assert.equal(metrics.finish.internalCommands, 3);
 });
+
+test("the command defaults to a quick workspace review", (t) => {
+  const repository = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-quick-"));
+  t.after(() => fs.rmSync(repository, { recursive: true, force: true }));
+
+  run("git", ["init", "-b", "main"], repository);
+  run("git", ["config", "user.email", "test@example.com"], repository);
+  run("git", ["config", "user.name", "Trace Review Test"], repository);
+  fs.writeFileSync(path.join(repository, "app.js"), "export const value = 1;\n");
+  run("git", ["add", "app.js"], repository);
+  run("git", ["commit", "-m", "Initial"], repository);
+  fs.writeFileSync(path.join(repository, "app.js"), "export const value = 2;\n");
+
+  const result = run(process.execPath, [cli, "--repo", repository, "--no-open"], repository);
+
+  const reviewDir = path.join(repository, ".review");
+  const reviewResult = JSON.parse(
+    fs.readFileSync(path.join(reviewDir, "review-result.json"), "utf8"),
+  );
+  assert.match(result.stdout, /Built .*review\.html/);
+  assert.ok(fs.statSync(path.join(reviewDir, "review.html")).size > 0);
+  assert.match(reviewResult.summary, /1 changed file/);
+  assert.ok(reviewResult.groups.length > 0);
+  assert.equal(reviewResult.review, undefined);
+  const grouping = JSON.parse(fs.readFileSync(path.join(reviewDir, "groups.json"), "utf8"));
+  assert.equal(grouping.provenance, "deterministic");
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(reviewDir, "review.html"), "utf8"),
+    /Suggested reading order/,
+  );
+});
+
+test("quick review accepts two Git revisions and reads files from the ending revision", (t) => {
+  const repository = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-revisions-"));
+  t.after(() => fs.rmSync(repository, { recursive: true, force: true }));
+
+  run("git", ["init", "-b", "main"], repository);
+  run("git", ["config", "user.email", "test@example.com"], repository);
+  run("git", ["config", "user.name", "Trace Review Test"], repository);
+  fs.writeFileSync(path.join(repository, "app.js"), "export const value = 1;\n");
+  run("git", ["add", "app.js"], repository);
+  run("git", ["commit", "-m", "Initial"], repository);
+  run("git", ["switch", "-c", "feature"], repository);
+  fs.writeFileSync(path.join(repository, "app.js"), "export const value = 2;\n");
+  run("git", ["add", "app.js"], repository);
+  run("git", ["commit", "-m", "Feature"], repository);
+  run("git", ["switch", "main"], repository);
+
+  run(process.execPath, [cli, "main", "feature", "--repo", repository, "--no-open"], repository);
+
+  const reviewDir = path.join(repository, ".review");
+  const context = JSON.parse(fs.readFileSync(path.join(reviewDir, "context.json"), "utf8"));
+  const fileContents = JSON.parse(
+    fs.readFileSync(path.join(reviewDir, "context.files.json"), "utf8"),
+  );
+  assert.deepEqual(context.git.diffArgs, ["main", "feature"]);
+  assert.equal(context.git.diffLabel, "main ↔ feature");
+  assert.match(fs.readFileSync(path.join(reviewDir, "context.patch"), "utf8"), /value = 2/);
+  assert.equal(fileContents.files[0].content, "export const value = 2;\n");
+  assert.ok(fs.statSync(path.join(reviewDir, "review.html")).size > 0);
+
+  run(process.execPath, [cli, "main...feature", "--repo", repository, "--no-open"], repository);
+  const rangeContext = JSON.parse(fs.readFileSync(path.join(reviewDir, "context.json"), "utf8"));
+  assert.deepEqual(rangeContext.git.diffArgs, ["main...feature"]);
+  assert.equal(rangeContext.git.diffLabel, "main...feature");
+});

@@ -10,11 +10,12 @@ import { errorMessage, parseJson } from "./lib/cli.mjs";
 type ReviewMode = "workspace" | "lm-analysis" | "deep-audit";
 
 interface Args {
-  command?: "prepare" | "finish";
+  command?: "quick" | "prepare" | "finish";
   repo: string;
   pr: string;
   mode: ReviewMode;
   base?: string;
+  revisions?: string[];
   dir?: string;
   input?: string;
   result?: string;
@@ -71,6 +72,7 @@ interface WorkflowInput {
 interface CombinedResult {
   summary?: string;
   groups?: unknown[];
+  groupingProvenance?: "deterministic";
   review?: {
     verdict?: string;
     global?: string;
@@ -84,6 +86,9 @@ const SCRIPT = (name: string): string => path.join(__dirname, `${name}.mjs`);
 function usage(message?: string): never {
   if (message) console.error(`Error: ${message}`);
   console.error(`Usage:
+  node trace-review.mjs [quick] [<revision> [<revision>]] [--repo <path>]
+    [--base <ref>] [--dir <path>] [--out <review.html>] [--no-open]
+
   node trace-review.mjs prepare [--repo <path>] [--pr auto|none|<number|url>]
     [--mode workspace|lm-analysis|deep-audit] [--base <ref>] [--dir <path>]
     [--explicit]
@@ -100,16 +105,19 @@ function normalizeMode(value: string): ReviewMode {
 }
 
 function parseArgs(argv: readonly string[]): Args {
-  const command = argv[0];
+  const first = argv[0];
+  const command = first === "quick" || first === "prepare" || first === "finish" ? first : "quick";
   const args: Args = {
-    command: command === "prepare" || command === "finish" ? command : undefined,
+    command,
     repo: process.cwd(),
-    pr: "auto",
+    pr: command === "quick" ? "none" : "auto",
     mode: "workspace",
+    ...(command === "quick" ? { revisions: [] } : {}),
     explicit: false,
-    open: false,
+    open: command === "quick",
   };
-  for (let index = args.command ? 1 : 0; index < argv.length; index++) {
+  const optionStart = first === "quick" || first === "prepare" || first === "finish" ? 1 : 0;
+  for (let index = optionStart; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--repo") args.repo = argv[++index];
     else if (arg === "--pr") args.pr = argv[++index];
@@ -121,7 +129,9 @@ function parseArgs(argv: readonly string[]): Args {
     else if (arg === "--out") args.out = argv[++index];
     else if (arg === "--explicit") args.explicit = true;
     else if (arg === "--open") args.open = true;
+    else if (arg === "--no-open") args.open = false;
     else if (arg === "--help" || arg === "-h") args.help = true;
+    else if (args.command === "quick" && !arg.startsWith("-")) args.revisions?.push(arg);
     else usage(`Unknown option: ${arg}`);
   }
   return args;
@@ -170,7 +180,7 @@ function ensureReviewExcluded(repositoryRoot: string, outputDir: string): void {
   fs.appendFileSync(excludePath, `${prefix}.review/\n`, "utf8");
 }
 
-function prepare(args: Args): void {
+function prepare(args: Args, announceNext = true): void {
   const started = performance.now();
   const repository = path.resolve(args.repo);
   const outputDir = path.resolve(args.dir || path.join(repository, ".review"));
@@ -198,6 +208,9 @@ function prepare(args: Args): void {
     "--files-out",
     filesPath,
     ...(args.base ? ["--base", args.base] : []),
+    ...(args.revisions !== undefined
+      ? ["--git-diff", ...args.revisions.flatMap((revision) => ["--revision", revision])]
+      : []),
   ];
   runScript("collect-pr-context", collectArgs, repository);
   const context = parseJson(fs.readFileSync(contextPath, "utf8")) as {
@@ -274,10 +287,102 @@ function prepare(args: Args): void {
   console.log(
     `Read ${inputPath} and ${path.resolve(path.dirname(inputPath), prepared.diff.path || "")}`,
   );
-  console.log(`Write one combined result to ${resultPath}`);
-  console.log(
-    `Then run: node "${path.join(__dirname, "trace-review.mjs")}" finish --input "${inputPath}" --result "${resultPath}" --open`,
-  );
+  if (announceNext) {
+    console.log(`Write one combined result to ${resultPath}`);
+    console.log(
+      `Then run: node "${path.join(__dirname, "trace-review.mjs")}" finish --input "${inputPath}" --result "${resultPath}" --open`,
+    );
+  }
+}
+
+interface QuickCandidateGroup {
+  title?: string;
+  kind?: string;
+  intent?: string;
+  risk?: string;
+  confidence?: number;
+  evidence?: string[];
+  reviewerChecks?: string[];
+  changes?: Array<{ id: string; file: string }>;
+}
+
+interface QuickCandidates {
+  groups?: QuickCandidateGroup[];
+  inventory?: Array<{ id: string; file: string }>;
+}
+
+function quickResult(input: WorkflowInput, candidates: QuickCandidates): CombinedResult {
+  const inventory = candidates.inventory || [];
+  if (!inventory.length) {
+    throw new Error("No tracked changes were found relative to the selected base.");
+  }
+
+  const groups = (candidates.groups || [])
+    .map((group) => {
+      const changes = group.changes || [];
+      const changeIds = changes.map((change) => change.id);
+      if (!changeIds.length) return undefined;
+      const files = [...new Set(changes.map((change) => change.file))];
+      const scope =
+        files.length === 1 ? files[0] : `${files[0]} and ${files.length - 1} other files`;
+      const classification = String(group.title || "changes").toLowerCase();
+      return {
+        title: `${scope}: ${classification}`,
+        kind: group.kind || "other",
+        intent: group.intent || "Review these related working-tree changes together.",
+        risk: group.risk || "medium",
+        confidence: group.confidence ?? 1,
+        evidence:
+          group.evidence && group.evidence.length > 0
+            ? group.evidence
+            : [`The deterministic classifier grouped ${changeIds.length} change units.`],
+        reviewerChecks:
+          group.reviewerChecks && group.reviewerChecks.length > 0
+            ? group.reviewerChecks
+            : ["Confirm the changes have the intended behavior."],
+        titleEvidence: {
+          changeIds: [changeIds[0]],
+          rationale: `The cited change grounds this group in ${scope}.`,
+        },
+        changeIds,
+        readAfter: [],
+      };
+    })
+    .filter((group): group is NonNullable<typeof group> => group !== undefined);
+
+  const totals = input.facts.preflight.totals;
+  return {
+    summary:
+      `Automatically prepared workspace review of ${totals.files} changed ` +
+      `file${totals.files === 1 ? "" : "s"} (+${totals.additions}/-${totals.deletions}).`,
+    groups,
+    groupingProvenance: "deterministic",
+  };
+}
+
+function quick(args: Args): void {
+  if (args.mode !== "workspace") {
+    throw new Error(
+      "Quick mode supports workspace reviews only; use prepare and finish for LM analysis.",
+    );
+  }
+  prepare(args, false);
+
+  const repository = path.resolve(args.repo);
+  const outputDir = path.resolve(args.dir || path.join(repository, ".review"));
+  const inputPath = path.join(outputDir, "analysis-input.json");
+  const resultPath = path.join(outputDir, "review-result.json");
+  const input = parseJson(fs.readFileSync(inputPath, "utf8")) as WorkflowInput;
+  const candidatesPath = path.resolve(path.dirname(inputPath), input.workflow.candidates);
+  const candidates = parseJson(fs.readFileSync(candidatesPath, "utf8")) as QuickCandidates;
+  writeJson(resultPath, quickResult(input, candidates));
+
+  finish({
+    ...args,
+    command: "finish",
+    input: inputPath,
+    result: resultPath,
+  });
 }
 
 function finish(args: Args): void {
@@ -311,6 +416,17 @@ function finish(args: Args): void {
     ],
     baseDir,
   );
+  if (result.groupingProvenance === "deterministic") {
+    if (input.mode !== "workspace") {
+      throw new Error("Deterministic grouping provenance is valid only in workspace mode.");
+    }
+    const grouping = parseJson(fs.readFileSync(resolveArtifact("groups"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    grouping.provenance = "deterministic";
+    writeJson(resolveArtifact("groups"), grouping);
+  }
 
   let review: unknown;
   let internalCommands = 2;
@@ -404,7 +520,8 @@ function finish(args: Args): void {
 const args = parseArgs(process.argv.slice(2));
 if (args.help || !args.command) usage();
 try {
-  if (args.command === "prepare") prepare(args);
+  if (args.command === "quick") quick(args);
+  else if (args.command === "prepare") prepare(args);
   else finish(args);
 } catch (error: unknown) {
   console.error(`Error: ${errorMessage(error)}`);

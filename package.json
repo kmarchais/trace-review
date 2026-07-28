@@ -17,7 +17,7 @@
     "bundle:skill": "bun run build && bun scripts/build-skill-bundle.mts",
     "stage:skill": "bun run build && bun scripts/stage-skill-distribution.mts",
     "review": "bun run build && node dist/runtime/scripts/build-review.mjs",
-    "trace-review": "bun run build && node dist/runtime/scripts/trace-review.mjs",
+    "trace-review": "bun run build && bun dist/runtime/scripts/trace-review.mjs",
     "publish:github": "bun run build && node dist/runtime/scripts/publish-github-review.mjs",
     "validate": "bun run build && node dist/runtime/scripts/validate-review-spec.mjs",
     "validate:example": "bun run build && node dist/runtime/scripts/validate-review-spec.mjs --spec examples/review-spec.json",

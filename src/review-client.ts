@@ -94,6 +94,32 @@ interface SplitPair {
   ctx?: boolean;
 }
 
+interface DiffRangeSelection {
+  file: string;
+  oldSide: boolean;
+  gutters: UiElement[];
+  tableRows: UiElement[];
+  start: UiElement;
+  end: UiElement;
+  rows: Array<{
+    line: string;
+    code: string;
+    kind: "add" | "del" | "ctx";
+  }>;
+}
+
+interface ExportSide {
+  line: string;
+  code: string;
+  kind: "add" | "del" | "ctx";
+  html?: string;
+}
+
+interface ExportPairRow {
+  old?: ExportSide;
+  next?: ExportSide;
+}
+
 interface Attachment {
   name: string;
   type: string;
@@ -497,7 +523,7 @@ function eventElement(event: Event): UiElement | null {
   }
 
   // ---- comment rows ----
-  function createCommentRow(g: UiElement, prefill?: string): UiElement {
+  function createCommentRow(g: UiElement, prefill?: string, selectedStartKey?: string): UiElement {
     const tr = g.closest("tr");
     const mount = g.closest(".diff-mount");
     const pr = g.closest("section.pr").dataset.pr ?? "";
@@ -553,7 +579,12 @@ function eventElement(event: Event): UiElement | null {
         option.textContent = candidateLine;
         startSelect.appendChild(option);
       });
-    startSelect.value = saved?.startKey && candidates.has(saved.startKey) ? saved.startKey : key;
+    startSelect.value =
+      selectedStartKey && candidates.has(selectedStartKey)
+        ? selectedStartKey
+        : saved?.startKey && candidates.has(saved.startKey)
+          ? saved.startKey
+          : key;
     const updateLocation = () => {
       const startLine = candidates.get(startSelect.value) || String(endLine);
       location.textContent =
@@ -622,6 +653,7 @@ function eventElement(event: Event): UiElement | null {
       renderOrphans();
       crow.remove();
     });
+    if (prefill && !saved) store();
     return ta;
   }
   function applyComments(mount: UiElement): void {
@@ -1147,8 +1179,947 @@ function eventElement(event: Event): UiElement | null {
   document.getElementById("main").addEventListener("click", (e) => {
     const g = eventElement(e)?.closest(".gutter");
     if (!g || g.classList.contains("empty") || !g.dataset.key) return;
+    if (g.dataset.rangeClick === "ignore") {
+      delete g.dataset.rangeClick;
+      return;
+    }
     const ta = createCommentRow(g, "");
     if (ta) ta.focus();
+  });
+
+  // ---- drag-select a contiguous diff range ----
+  const rangeToolbar = document.getElementById("rangeToolbar");
+  let rangeDrag:
+    | {
+        anchor: UiElement;
+        current: UiElement;
+        moved: boolean;
+        x: number;
+        y: number;
+      }
+    | undefined;
+  let activeRange: DiffRangeSelection | undefined;
+
+  function selectableGutters(anchor: UiElement): UiElement[] {
+    const table = anchor.closest("table.diff");
+    const anchorRow = anchor.closest("tr");
+    if (!table || !anchorRow) return [];
+    const rows = [...table.querySelectorAll("tr")];
+    const anchorIndex = rows.indexOf(anchorRow);
+    let first = anchorIndex;
+    let last = anchorIndex + 1;
+    while (first > 0 && !rows[first - 1].classList.contains("line-hunk")) first--;
+    while (last < rows.length && !rows[last].classList.contains("line-hunk")) last++;
+    const oldSide = (anchor.dataset.key || "").startsWith("o");
+    return rows
+      .slice(first, last)
+      .flatMap((row) => [...row.querySelectorAll(".gutter[data-key]")])
+      .filter(
+        (gutter) =>
+          gutter.dataset.file === anchor.dataset.file &&
+          (gutter.dataset.key || "").startsWith("o") === oldSide,
+      );
+  }
+
+  function rangeFor(anchor: UiElement, current: UiElement): DiffRangeSelection | undefined {
+    const candidates = selectableGutters(anchor);
+    const anchorIndex = candidates.indexOf(anchor);
+    const currentIndex = candidates.indexOf(current);
+    if (anchorIndex < 0 || currentIndex < 0) return undefined;
+    const [from, to] =
+      anchorIndex <= currentIndex ? [anchorIndex, currentIndex] : [currentIndex, anchorIndex];
+    const gutters = candidates.slice(from, to + 1);
+    const rows = gutters.map((gutter) => {
+      const tableRow = gutter.closest("tr");
+      const codeCell = gutter.nextElementSibling;
+      return {
+        line: gutter.dataset.lineno || gutter.dataset.key || "",
+        code: gutter.dataset.code || "",
+        kind:
+          tableRow.classList.contains("line-add") || codeCell?.classList.contains("line-add")
+            ? ("add" as const)
+            : tableRow.classList.contains("line-del") || codeCell?.classList.contains("line-del")
+              ? ("del" as const)
+              : ("ctx" as const),
+      };
+    });
+    return {
+      file: anchor.dataset.file || "",
+      oldSide: (anchor.dataset.key || "").startsWith("o"),
+      gutters,
+      tableRows: [...new Set(gutters.map((gutter) => gutter.closest("tr")))],
+      start: gutters[0],
+      end: gutters[gutters.length - 1],
+      rows,
+    };
+  }
+
+  function clearRangeVisuals(): void {
+    document.querySelectorAll(".range-selected-cell").forEach((cell) => {
+      cell.classList.remove("range-selected-cell");
+    });
+  }
+
+  function paintRange(selection: DiffRangeSelection): void {
+    clearRangeVisuals();
+    for (const gutter of selection.gutters) {
+      gutter.classList.add("range-selected-cell");
+      gutter.previousElementSibling?.classList.add("range-selected-cell");
+      gutter.nextElementSibling?.classList.add("range-selected-cell");
+    }
+  }
+
+  function hideRangeToolbar(clear = true): void {
+    rangeToolbar.hidden = true;
+    if (clear) {
+      activeRange = undefined;
+      clearRangeVisuals();
+    }
+  }
+
+  function showRangeToolbar(selection: DiffRangeSelection, x: number, y: number): void {
+    activeRange = selection;
+    paintRange(selection);
+    const first = selection.rows[0]?.line || "";
+    const last = selection.rows.at(-1)?.line || first;
+    rangeToolbar.querySelector("[data-range-location]").textContent =
+      selection.file + " · " + (first === last ? "line " + first : "lines " + first + "–" + last);
+    rangeToolbar.querySelector("[data-range-suggest]").hidden = selection.oldSide;
+    rangeToolbar.hidden = false;
+    const width = rangeToolbar.offsetWidth;
+    const height = rangeToolbar.offsetHeight;
+    rangeToolbar.style.left = Math.max(12, Math.min(window.innerWidth - width - 12, x + 10)) + "px";
+    rangeToolbar.style.top =
+      Math.max(12, Math.min(window.innerHeight - height - 12, y + 10)) + "px";
+  }
+
+  document.getElementById("main").addEventListener("mousedown", (event) => {
+    const mouse = event as MouseEvent;
+    const gutter = eventElement(event)?.closest(".gutter[data-key]");
+    if (!gutter || gutter.classList.contains("empty") || mouse.button !== 0) return;
+    hideRangeToolbar();
+    rangeDrag = {
+      anchor: gutter,
+      current: gutter,
+      moved: false,
+      x: mouse.clientX,
+      y: mouse.clientY,
+    };
+  });
+
+  document.addEventListener("mousemove", (event) => {
+    if (!rangeDrag) return;
+    const mouse = event as MouseEvent;
+    const target = document
+      .elementFromPoint(mouse.clientX, mouse.clientY)
+      ?.closest(".gutter[data-key]") as UiElement | null;
+    if (!target || !selectableGutters(rangeDrag.anchor).includes(target)) return;
+    rangeDrag.current = target;
+    rangeDrag.moved ||= target !== rangeDrag.anchor;
+    rangeDrag.x = mouse.clientX;
+    rangeDrag.y = mouse.clientY;
+    const selection = rangeFor(rangeDrag.anchor, target);
+    if (selection) paintRange(selection);
+    event.preventDefault();
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!rangeDrag) return;
+    const drag = rangeDrag;
+    rangeDrag = undefined;
+    if (!drag.moved) {
+      clearRangeVisuals();
+      return;
+    }
+    const selection = rangeFor(drag.anchor, drag.current);
+    if (!selection) {
+      clearRangeVisuals();
+      return;
+    }
+    drag.current.dataset.rangeClick = "ignore";
+    showRangeToolbar(selection, drag.x, drag.y);
+  });
+
+  rangeToolbar.querySelector("[data-range-comment]").addEventListener("click", () => {
+    if (!activeRange) return;
+    const ta = createCommentRow(activeRange.end, "", activeRange.start.dataset.key);
+    hideRangeToolbar();
+    ta?.focus();
+  });
+
+  rangeToolbar.querySelector("[data-range-suggest]").addEventListener("click", () => {
+    if (!activeRange || activeRange.oldSide) return;
+    const replacement = activeRange.rows.map((row) => row.code).join("\n");
+    const ta = createCommentRow(
+      activeRange.end,
+      "```suggestion\n" + replacement + "\n```",
+      activeRange.start.dataset.key,
+    );
+    hideRangeToolbar();
+    ta?.focus();
+    ta?.setSelectionRange(14, 14 + replacement.length);
+  });
+
+  rangeToolbar.querySelector("[data-range-image]").addEventListener("click", () => {
+    if (!activeRange) return;
+    openCarbonExport(activeRange);
+    hideRangeToolbar();
+  });
+
+  const carbonModal = document.getElementById("carbonModal");
+  const carbonSelectable = document.getElementById("carbonSelectable");
+  const carbonCanvas = document.getElementById("carbonCanvas") as unknown as HTMLCanvasElement;
+  type CarbonTheme = "none" | "aurora" | "sunset" | "forest" | "slate";
+  const carbonThemes: Record<
+    CarbonTheme,
+    { css: string; office: string; stops: [string, string, string] }
+  > = {
+    none: {
+      css: "transparent",
+      office: "#0d1117",
+      stops: ["#0d1117", "#0d1117", "#0d1117"],
+    },
+    aurora: {
+      css: "linear-gradient(125deg,#7c3aed,#2563eb 52%,#0891b2)",
+      office: "#3155c6",
+      stops: ["#7c3aed", "#2563eb", "#0891b2"],
+    },
+    sunset: {
+      css: "linear-gradient(125deg,#db2777,#ea580c 52%,#f59e0b)",
+      office: "#dc5a25",
+      stops: ["#db2777", "#ea580c", "#f59e0b"],
+    },
+    forest: {
+      css: "linear-gradient(125deg,#166534,#059669 52%,#0f766e)",
+      office: "#14745c",
+      stops: ["#166534", "#059669", "#0f766e"],
+    },
+    slate: {
+      css: "linear-gradient(125deg,#334155,#475569 52%,#1e293b)",
+      office: "#3e4b5d",
+      stops: ["#334155", "#475569", "#1e293b"],
+    },
+  };
+  let carbonFilenameBase = "diff-selection";
+  let carbonLayout: "split" | "compact" = "split";
+  let carbonTheme: CarbonTheme = "none";
+  let carbonFile = "";
+  let carbonRows: ExportPairRow[] = [];
+  let carbonHtml = "";
+  let carbonClipboardHtml = "";
+  let carbonSvg = "";
+  let carbonPlain = "";
+
+  function roundRect(
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number,
+  ): void {
+    context.beginPath();
+    context.moveTo(x + radius, y);
+    context.arcTo(x + width, y, x + width, y + height, radius);
+    context.arcTo(x + width, y + height, x, y + height, radius);
+    context.arcTo(x, y + height, x, y, radius);
+    context.arcTo(x, y, x + width, y, radius);
+    context.closePath();
+  }
+
+  function changedTableRow(row: UiElement): boolean {
+    return row.classList.contains("line-add") || row.classList.contains("line-del");
+  }
+
+  function selectedExportRows(selection: DiffRangeSelection): UiElement[] {
+    const table = selection.start.closest("table.diff");
+    if (table.classList.contains("split")) return selection.tableRows;
+    const rows = [...table.querySelectorAll("tr.line")].filter(
+      (row) => !row.classList.contains("line-hunk") && !row.classList.contains("line-info"),
+    );
+    const included = new Set(selection.tableRows);
+    for (const selected of selection.tableRows) {
+      if (!changedTableRow(selected)) continue;
+      const index = rows.indexOf(selected);
+      let first = index;
+      let last = index;
+      while (first > 0 && changedTableRow(rows[first - 1])) first--;
+      while (last + 1 < rows.length && changedTableRow(rows[last + 1])) last++;
+      const cluster = rows.slice(first, last + 1);
+      const hasBefore = cluster.some((row) => row.classList.contains("line-del"));
+      const hasAfter = cluster.some((row) => row.classList.contains("line-add"));
+      if (hasBefore && hasAfter) cluster.forEach((row) => included.add(row));
+    }
+    return rows.filter((row) => included.has(row));
+  }
+
+  function buildExportRows(selection: DiffRangeSelection): ExportPairRow[] {
+    const table = selection.start.closest("table.diff");
+    let rows: ExportPairRow[];
+    if (table.classList.contains("split")) {
+      rows = selectedExportRows(selection).map((row) => {
+        const cells = [...row.children] as UiElement[];
+        const oldCode = cells[2];
+        const newCode = cells[5];
+        return {
+          ...(oldCode && !oldCode.classList.contains("empty")
+            ? {
+                old: {
+                  line: cells[0]?.textContent || "",
+                  code: oldCode.textContent || "",
+                  kind: oldCode.classList.contains("line-del")
+                    ? ("del" as const)
+                    : ("ctx" as const),
+                },
+              }
+            : {}),
+          ...(newCode && !newCode.classList.contains("empty")
+            ? {
+                next: {
+                  line: cells[3]?.textContent || "",
+                  code: newCode.textContent || "",
+                  kind: newCode.classList.contains("line-add")
+                    ? ("add" as const)
+                    : ("ctx" as const),
+                },
+              }
+            : {}),
+        };
+      });
+    } else {
+      rows = [];
+      let deleted: ExportSide[] = [];
+      let added: ExportSide[] = [];
+      const flush = () => {
+        const count = Math.max(deleted.length, added.length);
+        for (let index = 0; index < count; index++) {
+          rows.push({ old: deleted[index], next: added[index] });
+        }
+        deleted = [];
+        added = [];
+      };
+      for (const row of selectedExportRows(selection)) {
+        const cells = [...row.children] as UiElement[];
+        const gutter = cells[2];
+        const code = gutter?.dataset.code || "";
+        if (row.classList.contains("line-del")) {
+          deleted.push({ line: cells[0]?.textContent || "", code, kind: "del" });
+        } else if (row.classList.contains("line-add")) {
+          added.push({ line: cells[1]?.textContent || "", code, kind: "add" });
+        } else {
+          flush();
+          rows.push({
+            old: { line: cells[0]?.textContent || "", code, kind: "ctx" },
+            next: { line: cells[1]?.textContent || "", code, kind: "ctx" },
+          });
+        }
+      }
+      flush();
+    }
+
+    const lang = Object.values(DATA).find((file) => file.path === selection.file)?.lang || "";
+    const oldHighlights = hlLines(rows.map((row) => row.old?.code || "").join("\n"), lang);
+    const newHighlights = hlLines(rows.map((row) => row.next?.code || "").join("\n"), lang);
+    rows.forEach((row, index) => {
+      if (row.old) row.old.html = oldHighlights[index];
+      if (row.next) row.next.html = newHighlights[index];
+    });
+    return rows;
+  }
+
+  function syntaxColor(classes: string): string {
+    if (/(?:^|\s)hljs-(comment|quote|meta)(?:\s|$)/.test(classes)) return "#8b949e";
+    if (/(?:^|\s)hljs-(keyword|selector-tag|subst)(?:\s|$)/.test(classes)) return "#ff7b72";
+    if (/(?:^|\s)hljs-(string|regexp|doctag)(?:\s|$)/.test(classes)) return "#a5d6ff";
+    if (/(?:^|\s)hljs-(number|literal|symbol|bullet)(?:\s|$)/.test(classes)) return "#79c0ff";
+    if (/(?:^|\s)hljs-(title|section|function)(?:\s|$)/.test(classes)) return "#d2a8ff";
+    if (/(?:^|\s)hljs-(type|built_in|class)(?:\s|$)/.test(classes)) return "#ffa657";
+    if (/(?:^|\s)hljs-(attr|attribute|property|variable)(?:\s|$)/.test(classes)) return "#79c0ff";
+    return "#e6edf3";
+  }
+
+  function syntaxSegments(html: string): Array<{ text: string; color: string }> {
+    const wrapper = document.createElement("span");
+    wrapper.innerHTML = html;
+    const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT);
+    const segments: Array<{ text: string; color: string }> = [];
+    let node = walker.nextNode();
+    while (node) {
+      let parent = node.parentElement;
+      let classes = "";
+      while (parent && parent !== wrapper) {
+        classes += " " + parent.className;
+        parent = parent.parentElement;
+      }
+      segments.push({ text: node.textContent || "", color: syntaxColor(classes) });
+      node = walker.nextNode();
+    }
+    return segments.length ? segments : [{ text: wrapper.textContent || "", color: "#e6edf3" }];
+  }
+
+  function inlineSyntax(html: string): string {
+    return html.replace(
+      /<span class="([^"]+)">/g,
+      (_match, classes: string) => `<span style="color:${syntaxColor(classes)}">`,
+    );
+  }
+
+  function officeSyntax(html: string): string {
+    return inlineSyntax(html)
+      .split(/(<[^>]+>)/g)
+      .map((part) =>
+        part.startsWith("<") ? part : part.replace(/\t/g, "    ").replace(/ /g, "&nbsp;"),
+      )
+      .join("");
+  }
+
+  function previewSide(side?: ExportSide): string {
+    if (!side) return `<td></td>`;
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    return (
+      `<td class="${side.kind}"><span class="carbon-line">${escAttr(side.line)}</span>` +
+      `<span class="carbon-marker">${marker}</span>` +
+      `<span class="carbon-code">${side.html || escAttr(side.code)}</span></td>`
+    );
+  }
+
+  function compactExportRows(rows: ExportPairRow[]): ExportSide[] {
+    return rows.flatMap((row) => {
+      if (row.old?.kind === "ctx" && row.next?.kind === "ctx" && row.old.code === row.next.code) {
+        return [row.next];
+      }
+      return [row.old, row.next].filter((side): side is ExportSide => !!side);
+    });
+  }
+
+  function selectableExportWidth(rows: ExportPairRow[], layout: "split" | "compact"): number {
+    const longest = Math.max(
+      28,
+      ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
+    );
+    return layout === "compact"
+      ? Math.max(640, 150 + longest * 8.2)
+      : Math.max(720, 240 + longest * 16.4);
+  }
+
+  function carbonPreview(file: string, rows: ExportPairRow[], layout: "split" | "compact"): string {
+    const table =
+      layout === "compact"
+        ? `<table class="carbon-table compact"><thead><tr><th>Unified diff</th></tr></thead><tbody>` +
+          compactExportRows(rows)
+            .map((side) => `<tr>${previewSide(side)}</tr>`)
+            .join("") +
+          `</tbody></table>`
+        : `<table class="carbon-table"><thead><tr><th>Before</th><th>After</th></tr></thead><tbody>` +
+          rows.map((row) => `<tr>${previewSide(row.old)}${previewSide(row.next)}</tr>`).join("") +
+          `</tbody></table>`;
+    return (
+      `<div class="carbon-sheet" style="width:${selectableExportWidth(rows, layout)}px;padding:${carbonTheme === "none" ? 0 : 24}px;background:${carbonThemes[carbonTheme].css}"><div class="carbon-window">` +
+      `<div class="carbon-window-head"><span class="carbon-dots">` +
+      `<span class="carbon-dot" style="background:#ff5f56"></span>` +
+      `<span class="carbon-dot" style="background:#ffbd2e"></span>` +
+      `<span class="carbon-dot" style="background:#27c93f"></span></span>` +
+      `<span class="carbon-window-title">${escAttr(file)}</span><span></span></div>` +
+      table +
+      `</div></div>`
+    );
+  }
+
+  function richSide(side: ExportSide | undefined, border: boolean): string {
+    const borderStyle = border ? "border-left:1px solid #30363d;" : "";
+    if (!side) return `<td style="${borderStyle}height:24px;padding:0 12px"></td>`;
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    const background =
+      side.kind === "add"
+        ? "rgba(46,160,67,.18)"
+        : side.kind === "del"
+          ? "rgba(248,81,73,.16)"
+          : "transparent";
+    const markerColor =
+      side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
+    return (
+      `<td style="${borderStyle}height:24px;padding:0 12px;white-space:pre;vertical-align:top;background:${background}">` +
+      `<span style="display:inline-block;width:44px;margin-right:8px;color:#6e7681;text-align:right">${escAttr(side.line)}</span>` +
+      `<span style="display:inline-block;width:18px;color:${markerColor}">${marker}</span>` +
+      `<span style="color:#e6edf3">${inlineSyntax(side.html || escAttr(side.code))}</span></td>`
+    );
+  }
+
+  function carbonRichDocument(file: string, rows: ExportPairRow[]): string {
+    const body =
+      `<div style="box-sizing:border-box;width:${selectableExportWidth(rows, "split")}px;padding:24px;border-radius:16px;background:linear-gradient(125deg,#7c3aed,#2563eb 52%,#0891b2)">` +
+      `<div style="overflow:hidden;border-radius:14px;color:#e6edf3;background:#0d1117">` +
+      `<div style="padding:16px 20px;color:#c9d1d9;font:600 13px ui-monospace,monospace;text-align:center">${escAttr(file)}</div>` +
+      `<table style="width:100%;border-collapse:collapse;table-layout:fixed;font:13px/24px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">` +
+      `<thead><tr><th style="padding:4px 12px;color:#8b949e;background:#161b22;text-align:left">Before</th>` +
+      `<th style="padding:4px 12px;color:#8b949e;background:#161b22;text-align:left;border-left:1px solid #30363d">After</th></tr></thead><tbody>` +
+      rows
+        .map((row) => `<tr>${richSide(row.old, false)}${richSide(row.next, true)}</tr>`)
+        .join("") +
+      `</tbody></table></div></div>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${escAttr(file)} diff</title></head><body>${body}</body></html>`;
+  }
+
+  function powerPointSide(
+    side: ExportSide,
+    border: boolean,
+    fontSize: number,
+    width: number,
+  ): string {
+    const borderStyle = border ? "border-left:1px solid #30363d;" : "";
+    const background =
+      side.kind === "add" ? "#17351f" : side.kind === "del" ? "#351b20" : "#0d1117";
+    const widthPoints = width === 960 ? 720 : 360;
+    const lineHeight = Math.max(7, fontSize + 1.5);
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    const markerColor =
+      side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
+    return (
+      `<td width="${width}" bgcolor="${background}" style="${borderStyle}width:${widthPoints}pt;height:${lineHeight}pt;padding:0 5pt;background:${background};` +
+      `font-family:Consolas,'Courier New',monospace;font-size:${fontSize}pt;line-height:${lineHeight}pt;mso-line-height-rule:exactly;color:#e6edf3;white-space:nowrap">` +
+      `<nobr><span style="display:inline-block;width:32pt;color:#8b949e;text-align:right">${escAttr(side.line)}</span>` +
+      `<span style="display:inline-block;width:18pt;padding-left:4pt;color:${markerColor}">${marker}</span>` +
+      `<span style="color:#e6edf3;mso-no-proof:yes;mso-spacerun:yes">${officeSyntax(side.html || escAttr(side.code))}</span></nobr></td>`
+    );
+  }
+
+  function powerPointEmptySide(border: boolean, fontSize: number, width: number): string {
+    const borderStyle = border ? "border-left:1px solid #30363d;" : "";
+    const widthPoints = width === 960 ? 720 : 360;
+    const lineHeight = Math.max(7, fontSize + 1.5);
+    return `<td width="${width}" bgcolor="#0d1117" style="${borderStyle}width:${widthPoints}pt;height:${lineHeight}pt;padding:0 5pt;background:#0d1117;font-size:${fontSize}pt;line-height:${lineHeight}pt;mso-line-height-rule:exactly">&nbsp;</td>`;
+  }
+
+  function powerPointClipboardTable(
+    file: string,
+    rows: ExportPairRow[],
+    layout: "split" | "compact",
+  ): string {
+    const exportRows = layout === "compact" ? compactExportRows(rows) : [];
+    const longest = Math.max(
+      28,
+      ...(layout === "compact"
+        ? exportRows.map((row) => row.code.length)
+        : rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0])),
+    );
+    const availableWidth = layout === "compact" ? 1000 : 500;
+    const fontSize = Math.max(5, Math.min(8.5, Math.floor((availableWidth / longest) * 4) / 4));
+    const columnCount = layout === "compact" ? 1 : 2;
+    const accent = carbonThemes[carbonTheme].office;
+    const hasBackground = carbonTheme !== "none";
+    const frameCell = hasBackground
+      ? `<td width="20" bgcolor="${accent}" style="width:15pt;padding:0;background:${accent}">&nbsp;</td>`
+      : "";
+    const tableColumnCount = columnCount + (hasBackground ? 2 : 0);
+    const frameRow = hasBackground
+      ? `<tr><td colspan="${tableColumnCount}" bgcolor="${accent}" style="height:14pt;padding:0;background:${accent}">&nbsp;</td></tr>`
+      : "";
+    const before = rows.flatMap((row) => (row.old ? [row.old] : []));
+    const after = rows.flatMap((row) => (row.next ? [row.next] : []));
+    const titleSpacer = "&nbsp;".repeat(Math.max(6, Math.floor((120 - file.length) / 2) - 5));
+    const heading =
+      layout === "compact"
+        ? `<tr>${frameCell}<td width="960" bgcolor="#161b22" style="width:720pt;height:14pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
+          `font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">UNIFIED DIFF</td>${frameCell}</tr>`
+        : `<tr>${frameCell}<td width="480" bgcolor="#161b22" style="width:360pt;height:14pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
+          `font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">BEFORE</td>` +
+          `<td width="480" bgcolor="#161b22" style="width:360pt;height:14pt;padding:0 6pt;border-left:1px solid #30363d;` +
+          `background:#161b22;color:#8b949e;font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">AFTER</td>${frameCell}</tr>`;
+    const body =
+      layout === "compact"
+        ? exportRows
+            .map(
+              (row) =>
+                `<tr>${frameCell}${powerPointSide(row, false, fontSize, 960)}${frameCell}</tr>`,
+            )
+            .join("")
+        : Array.from({ length: Math.max(before.length, after.length) }, (_, index) => {
+            const oldCell = before[index]
+              ? powerPointSide(before[index], false, fontSize, 480)
+              : powerPointEmptySide(false, fontSize, 480);
+            const nextCell = after[index]
+              ? powerPointSide(after[index], true, fontSize, 480)
+              : powerPointEmptySide(true, fontSize, 480);
+            return `<tr>${frameCell}${oldCell}${nextCell}${frameCell}</tr>`;
+          }).join("");
+    return (
+      `<table width="${hasBackground ? 1000 : 960}" border="0" cellspacing="0" cellpadding="0" bgcolor="${accent}" ` +
+      `style="width:${hasBackground ? 750 : 720}pt;border-collapse:collapse;table-layout:fixed;background:${accent}">` +
+      frameRow +
+      `<tr>${frameCell}<td colspan="${columnCount}" align="left" bgcolor="#0d1117" style="height:24pt;padding:0 8pt;background:#0d1117;` +
+      `font-family:Consolas,'Courier New',monospace;font-size:9pt;font-weight:bold;color:#c9d1d9">` +
+      `<span style="font-family:Arial,sans-serif;font-size:10pt;white-space:nowrap">` +
+      `<span style="color:#ff5f56">●</span>&nbsp;<span style="color:#ffbd2e">●</span>&nbsp;<span style="color:#27c93f">●</span></span>` +
+      `${titleSpacer}${escAttr(file)}</td>${frameCell}</tr>` +
+      heading +
+      body +
+      frameRow +
+      `</table>`
+    );
+  }
+
+  function carbonPlainText(rows: ExportPairRow[]): string {
+    return [
+      "Before\tAfter",
+      ...rows.map((row) => {
+        const old = row.old
+          ? `${row.old.line} ${row.old.kind === "del" ? "-" : " "} ${row.old.code}`
+          : "";
+        const next = row.next
+          ? `${row.next.line} ${row.next.kind === "add" ? "+" : " "} ${row.next.code}`
+          : "";
+        return old + "\t" + next;
+      }),
+    ].join("\n");
+  }
+
+  function svgCode(side: ExportSide | undefined, x: number, y: number): string {
+    if (!side) return "";
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    const markerColor =
+      side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
+    const spans = syntaxSegments(side.html || escAttr(side.code))
+      .map((segment) => `<tspan fill="${segment.color}">${escAttr(segment.text)}</tspan>`)
+      .join("");
+    return (
+      `<text x="${x}" y="${y}" fill="#6e7681" text-anchor="end">${escAttr(side.line)}</text>` +
+      `<text x="${x + 17}" y="${y}" fill="${markerColor}">${marker}</text>` +
+      `<text x="${x + 39}" y="${y}" xml:space="preserve">${spans}</text>`
+    );
+  }
+
+  function buildCarbonSvg(
+    file: string,
+    rows: ExportPairRow[],
+    layout: "split" | "compact",
+  ): string {
+    const [start, middle, end] = carbonThemes[carbonTheme].stops;
+    if (layout === "compact") {
+      const compactRows = compactExportRows(rows);
+      const longest = Math.max(28, ...compactRows.map((row) => row.code.length));
+      const contentWidth = Math.min(1200, 104 + longest * 8.2);
+      const width = 56 + contentWidth;
+      const height = 130 + compactRows.length * 25;
+      const rowMarkup = compactRows
+        .map((row, index) => {
+          const y = 112 + index * 25;
+          const background =
+            row.kind === "add"
+              ? "rgba(46,160,67,.18)"
+              : row.kind === "del"
+                ? "rgba(248,81,73,.16)"
+                : "transparent";
+          return (
+            `<rect x="29" y="${y - 18}" width="${contentWidth - 1}" height="25" fill="${background}"/>` +
+            `<g clip-path="url(#compactClip)">${svgCode(row, 68, y)}</g>`
+          );
+        })
+        .join("");
+      return (
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+        `<defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1">` +
+        `<stop stop-color="${start}"/><stop offset=".52" stop-color="${middle}"/><stop offset="1" stop-color="${end}"/></linearGradient>` +
+        `<clipPath id="compactClip"><rect x="29" y="88" width="${contentWidth - 4}" height="${height - 112}"/></clipPath></defs>` +
+        `<rect width="${width}" height="${height}" rx="16" fill="url(#background)"/>` +
+        `<rect x="28" y="24" width="${width - 56}" height="${height - 48}" rx="14" fill="#0d1117"/>` +
+        `<circle cx="50" cy="48" r="6" fill="#ff5f56"/><circle cx="70" cy="48" r="6" fill="#ffbd2e"/><circle cx="90" cy="48" r="6" fill="#27c93f"/>` +
+        `<g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14">` +
+        `<text x="${width / 2}" y="53" fill="#c9d1d9" text-anchor="middle" font-weight="600">${escAttr(file)}</text>` +
+        `<text x="42" y="82" fill="#8b949e" font-size="11" font-weight="600">UNIFIED DIFF</text>` +
+        rowMarkup +
+        `</g></svg>`
+      );
+    }
+    const longest = Math.max(
+      28,
+      ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
+    );
+    const columnWidth = Math.min(960, 104 + longest * 8.2);
+    const width = 56 + columnWidth * 2;
+    const height = 130 + rows.length * 25;
+    const rowMarkup = rows
+      .map((row, index) => {
+        const y = 112 + index * 25;
+        const oldBg = row.old?.kind === "del" ? "rgba(248,81,73,.16)" : "transparent";
+        const newBg = row.next?.kind === "add" ? "rgba(46,160,67,.18)" : "transparent";
+        return (
+          `<rect x="29" y="${y - 18}" width="${columnWidth - 1}" height="25" fill="${oldBg}"/>` +
+          `<rect x="${29 + columnWidth}" y="${y - 18}" width="${columnWidth - 1}" height="25" fill="${newBg}"/>` +
+          `<g clip-path="url(#oldClip)">${svgCode(row.old, 68, y)}</g>` +
+          `<g clip-path="url(#newClip)">${svgCode(row.next, 68 + columnWidth, y)}</g>`
+        );
+      })
+      .join("");
+    return (
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+      `<defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1">` +
+      `<stop stop-color="${start}"/><stop offset=".52" stop-color="${middle}"/><stop offset="1" stop-color="${end}"/></linearGradient>` +
+      `<clipPath id="oldClip"><rect x="29" y="88" width="${columnWidth - 4}" height="${height - 112}"/></clipPath>` +
+      `<clipPath id="newClip"><rect x="${29 + columnWidth}" y="88" width="${columnWidth - 4}" height="${height - 112}"/></clipPath></defs>` +
+      `<rect width="${width}" height="${height}" rx="16" fill="url(#background)"/>` +
+      `<rect x="28" y="24" width="${width - 56}" height="${height - 48}" rx="14" fill="#0d1117"/>` +
+      `<circle cx="50" cy="48" r="6" fill="#ff5f56"/><circle cx="70" cy="48" r="6" fill="#ffbd2e"/><circle cx="90" cy="48" r="6" fill="#27c93f"/>` +
+      `<g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14">` +
+      `<text x="${width / 2}" y="53" fill="#c9d1d9" text-anchor="middle" font-weight="600">${escAttr(file)}</text>` +
+      `<text x="42" y="82" fill="#8b949e" font-size="11" font-weight="600">BEFORE</text>` +
+      `<text x="${42 + columnWidth}" y="82" fill="#8b949e" font-size="11" font-weight="600">AFTER</text>` +
+      `<line x1="${28 + columnWidth}" y1="68" x2="${28 + columnWidth}" y2="${height - 24}" stroke="#30363d"/>` +
+      rowMarkup +
+      `</g></svg>`
+    );
+  }
+
+  function drawCanvasCode(
+    context: CanvasRenderingContext2D,
+    side: ExportSide | undefined,
+    x: number,
+    y: number,
+  ): void {
+    if (!side) return;
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    context.font = "14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    context.fillStyle = "#6e7681";
+    context.textAlign = "right";
+    context.fillText(side.line, x, y);
+    context.textAlign = "left";
+    context.fillStyle =
+      side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
+    context.fillText(marker, x + 17, y);
+    let codeX = x + 39;
+    for (const segment of syntaxSegments(side.html || escAttr(side.code))) {
+      context.fillStyle = segment.color;
+      context.fillText(segment.text, codeX, y);
+      codeX += context.measureText(segment.text).width;
+    }
+  }
+
+  function drawCarbonCanvas(
+    file: string,
+    rows: ExportPairRow[],
+    layout: "split" | "compact",
+  ): void {
+    const scale = 2;
+    const compactRows = compactExportRows(rows);
+    const longest = Math.max(
+      28,
+      ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
+    );
+    const columnWidth = Math.min(960, 104 + longest * 8.2);
+    const width = 56 + columnWidth * (layout === "compact" ? 1 : 2);
+    const height = 130 + (layout === "compact" ? compactRows.length : rows.length) * 25;
+    carbonCanvas.width = width * scale;
+    carbonCanvas.height = height * scale;
+    const context = carbonCanvas.getContext("2d");
+    if (!context) return;
+    context.scale(scale, scale);
+
+    const background = context.createLinearGradient(0, 0, width, height);
+    const [start, middle, end] = carbonThemes[carbonTheme].stops;
+    background.addColorStop(0, start);
+    background.addColorStop(0.52, middle);
+    background.addColorStop(1, end);
+    context.fillStyle = background;
+    context.fillRect(0, 0, width, height);
+    roundRect(context, 28, 24, width - 56, height - 48, 14);
+    context.fillStyle = "#0d1117";
+    context.fill();
+    ["#ff5f56", "#ffbd2e", "#27c93f"].forEach((color, index) => {
+      context.beginPath();
+      context.arc(50 + index * 20, 48, 6, 0, Math.PI * 2);
+      context.fillStyle = color;
+      context.fill();
+    });
+    context.font = "600 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    context.fillStyle = "#c9d1d9";
+    context.textAlign = "center";
+    context.fillText(file, width / 2, 53);
+    context.textAlign = "left";
+    context.font = "600 11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    context.fillStyle = "#8b949e";
+    if (layout === "compact") {
+      context.fillText("UNIFIED DIFF", 42, 82);
+      compactRows.forEach((row, index) => {
+        const y = 112 + index * 25;
+        if (row.kind !== "ctx") {
+          context.fillStyle = row.kind === "add" ? "rgba(46,160,67,.18)" : "rgba(248,81,73,.16)";
+          context.fillRect(29, y - 18, columnWidth - 1, 25);
+        }
+        context.save();
+        context.beginPath();
+        context.rect(29, y - 19, columnWidth - 4, 25);
+        context.clip();
+        drawCanvasCode(context, row, 68, y);
+        context.restore();
+      });
+      return;
+    }
+
+    context.fillText("BEFORE", 42, 82);
+    context.fillText("AFTER", 42 + columnWidth, 82);
+    context.strokeStyle = "#30363d";
+    context.beginPath();
+    context.moveTo(28 + columnWidth, 68);
+    context.lineTo(28 + columnWidth, height - 24);
+    context.stroke();
+
+    rows.forEach((row, index) => {
+      const y = 112 + index * 25;
+      if (row.old?.kind === "del") {
+        context.fillStyle = "rgba(248,81,73,.16)";
+        context.fillRect(29, y - 18, columnWidth - 1, 25);
+      }
+      if (row.next?.kind === "add") {
+        context.fillStyle = "rgba(46,160,67,.18)";
+        context.fillRect(29 + columnWidth, y - 18, columnWidth - 1, 25);
+      }
+      context.save();
+      context.beginPath();
+      context.rect(29, y - 19, columnWidth - 4, 25);
+      context.clip();
+      drawCanvasCode(context, row.old, 68, y);
+      context.restore();
+      context.save();
+      context.beginPath();
+      context.rect(29 + columnWidth, y - 19, columnWidth - 4, 25);
+      context.clip();
+      drawCanvasCode(context, row.next, 68 + columnWidth, y);
+      context.restore();
+    });
+  }
+
+  function renderCarbonVisuals(): void {
+    carbonSelectable.innerHTML = carbonPreview(carbonFile, carbonRows, carbonLayout);
+    carbonClipboardHtml = powerPointClipboardTable(carbonFile, carbonRows, carbonLayout);
+    carbonSvg = buildCarbonSvg(carbonFile, carbonRows, carbonLayout);
+    drawCarbonCanvas(carbonFile, carbonRows, carbonLayout);
+    carbonModal.querySelectorAll("[data-carbon-layout]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.carbonLayout === carbonLayout));
+    });
+    carbonModal.querySelectorAll("[data-carbon-theme]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.carbonTheme === carbonTheme));
+    });
+  }
+
+  function openCarbonExport(selection: DiffRangeSelection): void {
+    carbonFile = selection.file;
+    carbonRows = buildExportRows(selection);
+    carbonHtml = carbonRichDocument(carbonFile, carbonRows);
+    carbonPlain = carbonPlainText(carbonRows);
+    renderCarbonVisuals();
+    const first = selection.rows[0]?.line || "";
+    const last = selection.rows.at(-1)?.line || first;
+    document.getElementById("carbonModalMeta").textContent =
+      selection.file +
+      " · " +
+      (first === last ? "line " + first : "lines " + first + "–" + last) +
+      " · selectable before and after";
+    carbonFilenameBase =
+      (selection.file
+        .split("/")
+        .pop()
+        ?.replace(/[^a-z0-9._-]+/gi, "-")
+        .replace(/\.[^.]+$/, "") || "diff-selection") +
+      "-lines-" +
+      first +
+      (first === last ? "" : "-" + last);
+    carbonModal.hidden = false;
+  }
+
+  carbonModal.querySelectorAll("[data-carbon-layout]").forEach((button) => {
+    button.addEventListener("click", () => {
+      carbonLayout = button.dataset.carbonLayout === "compact" ? "compact" : "split";
+      renderCarbonVisuals();
+    });
+  });
+  carbonModal.querySelectorAll("[data-carbon-theme]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const theme = button.dataset.carbonTheme as CarbonTheme;
+      if (theme in carbonThemes) carbonTheme = theme;
+      renderCarbonVisuals();
+    });
+  });
+  document.getElementById("closeCarbonModal").addEventListener("click", () => {
+    carbonModal.hidden = true;
+  });
+  carbonModal.addEventListener("click", (event) => {
+    if (event.target === carbonModal) carbonModal.hidden = true;
+  });
+  const showCarbonCopied = (label = "Copied ✓") => {
+    const copied = document.getElementById("carbonCopied");
+    copied.textContent = label;
+    copied.hidden = false;
+    setTimeout(() => (copied.hidden = true), 1800);
+  };
+  const currentCarbonFilename = () =>
+    carbonFilenameBase + (carbonLayout === "compact" ? "-compact" : "");
+  const downloadCarbon = (
+    content: BlobPart,
+    type: string,
+    extension: string,
+    layoutAware = true,
+  ) => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([content], { type }));
+    link.download = (layoutAware ? currentCarbonFilename() : carbonFilenameBase) + extension;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+  document.getElementById("downloadCarbonBtn").addEventListener("click", () => {
+    const link = document.createElement("a");
+    link.href = carbonCanvas.toDataURL("image/png");
+    link.download = currentCarbonFilename() + ".png";
+    link.click();
+  });
+  document.getElementById("downloadCarbonHtmlBtn").addEventListener("click", () => {
+    downloadCarbon(carbonHtml, "text/html;charset=utf-8", ".html", false);
+  });
+  document.getElementById("downloadCarbonSvgBtn").addEventListener("click", () => {
+    downloadCarbon(carbonSvg, "image/svg+xml;charset=utf-8", ".svg");
+  });
+  document.getElementById("copyCarbonHtmlBtn").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([carbonClipboardHtml], { type: "text/html" }),
+          "text/plain": new Blob([carbonPlain], { type: "text/plain" }),
+        }),
+      ]);
+      showCarbonCopied("PowerPoint table copied ✓");
+    } catch {
+      const clipboardTable = document.createElement("div");
+      clipboardTable.innerHTML = carbonClipboardHtml;
+      clipboardTable.style.position = "fixed";
+      clipboardTable.style.left = "-10000px";
+      document.body.appendChild(clipboardTable);
+      const range = document.createRange();
+      range.selectNodeContents(clipboardTable);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      if (document.execCommand("copy")) showCarbonCopied("PowerPoint table copied ✓");
+      selection?.removeAllRanges();
+      clipboardTable.remove();
+    }
+  });
+  document.getElementById("copyCarbonBtn").addEventListener("click", () => {
+    carbonCanvas.toBlob(async (blob) => {
+      if (!blob || !navigator.clipboard || typeof ClipboardItem === "undefined") return;
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        showCarbonCopied();
+      } catch {}
+    }, "image/png");
+  });
+
+  document.addEventListener("mousedown", (event) => {
+    if (
+      rangeToolbar.hidden ||
+      eventElement(event)?.closest("#rangeToolbar") ||
+      eventElement(event)?.closest(".gutter[data-key]")
+    ) {
+      return;
+    }
+    hideRangeToolbar();
   });
 
   // ---- general comments ----

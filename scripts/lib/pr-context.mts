@@ -104,6 +104,9 @@ export interface GitFacts {
   dirty: boolean;
   status: string[];
   baseRef?: string;
+  headRef?: string;
+  diffArgs?: string[];
+  diffLabel?: string;
 }
 
 export interface ContextValidation {
@@ -143,6 +146,7 @@ export interface CollectOptions {
   pr?: string;
   repo?: string;
   base?: string;
+  revisions?: string[];
 }
 
 export const PR_FIELDS =
@@ -395,7 +399,15 @@ export function collectFileContents(
         }
         content = remote.content;
       } else if (revision === "base") {
-        content = run("git", ["show", `${context.git.baseRef}:${file.oldPath}`], {
+        const source =
+          context.git.baseRef === "INDEX"
+            ? `:${file.oldPath}`
+            : `${context.git.baseRef}:${file.oldPath}`;
+        content = run("git", ["show", source], {
+          cwd: context.repository.root,
+        });
+      } else if (context.git.headRef && context.git.headRef !== "WORKTREE") {
+        content = run("git", ["show", `${context.git.headRef}:${file.path}`], {
           cwd: context.repository.root,
         });
       } else {
@@ -628,6 +640,70 @@ function collectLocalContext(
   run: CommandRunner,
   collectionDiagnostics: ContextDiagnostic[] = [],
 ): CollectedContext {
+  if (options.revisions !== undefined) {
+    const revisions = options.revisions;
+    const diff = run("git", ["diff", "--binary", "--no-ext-diff", ...revisions], {
+      cwd: facts.repository.root,
+    });
+    let baseRef = "INDEX";
+    let headRef = "WORKTREE";
+    let diffLabel = "Working tree changes";
+    if (revisions.length === 1) {
+      const range = /^(.*?)(\.\.\.?)(.*)$/.exec(revisions[0]);
+      if (range) {
+        const left = range[1] || "HEAD";
+        const right = range[3] || "HEAD";
+        baseRef =
+          range[2] === "..."
+            ? trim(run("git", ["merge-base", left, right], { cwd: facts.repository.root }))
+            : left;
+        headRef = right;
+        diffLabel = `${left}${range[2]}${right}`;
+      } else {
+        baseRef = revisions[0];
+        diffLabel = `${revisions[0]} ↔ working tree`;
+      }
+    } else if (revisions.length === 2) {
+      [baseRef, headRef] = revisions;
+      diffLabel = `${baseRef} ↔ ${headRef}`;
+    } else if (revisions.length > 2) {
+      throw new Error("Quick revision comparisons accept at most two Git revisions.");
+    }
+    let headSha = facts.git.headSha;
+    if (headRef !== "WORKTREE") {
+      headSha = trim(
+        run("git", ["rev-parse", `${headRef}^{commit}`], { cwd: facts.repository.root }),
+      );
+    }
+    const preflight = preflightPatch(diff, run, facts.repository.root);
+    const context: CollectedContext = {
+      schemaVersion: 1,
+      source: "local",
+      selection: {
+        mode: "none",
+        requested: revisions.join(" "),
+        reason: "explicit-git-diff",
+      },
+      repository: facts.repository,
+      git: {
+        ...facts.git,
+        headSha,
+        baseRef,
+        headRef,
+        diffArgs: revisions,
+        diffLabel,
+      },
+      pullRequest: null,
+      diff,
+      preflight,
+      changeGroups: detectChangeGroups(diff, preflight),
+      collectionDiagnostics,
+      validation: { valid: false, diagnostics: [] },
+    };
+    context.validation = validateContext(context);
+    return context;
+  }
+
   let baseRef = options.base;
   if (!baseRef) {
     try {

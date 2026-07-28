@@ -23,6 +23,18 @@ local diff or pull request
 
 The result is a portable local page with light and dark themes, diff controls, review progress, comments, Markdown export, and optional confirmed publication as a native GitHub review.
 
+Drag across a contiguous block of diff gutters to comment on the range, create
+a GitHub-compatible suggested change, or export a syntax-colored before/after
+diff. The selectable preview can be copied as a PowerPoint-friendly editable
+table or downloaded as HTML, SVG, or PNG for websites, presentations, and
+documentation. Image, SVG, and PowerPoint exports follow the selected layout:
+a full side-by-side comparison or a narrower compact unified diff. PowerPoint
+exports use tightly spaced rows while preserving code indentation; side-by-side
+columns flow independently so added and removed runs do not create blank gaps.
+The export dialog defaults to no background and also offers presentation-ready
+color presets. Editable PowerPoint copies include the selected frame and window
+controls.
+
 | Mode          | Review behavior                               |
 | ------------- | --------------------------------------------- |
 | `workspace`   | Interactive diff without automatic findings   |
@@ -53,6 +65,26 @@ npx skills add https://github.com/kmarchais/trace-review/tree/v0.1.2/skills/trac
 The installer selects the correct directory for the requested coding agent. As a manual fallback, download [`trace-review-skill.zip`](https://github.com/kmarchais/trace-review/releases/latest/download/trace-review-skill.zip).
 
 ## Use
+
+From a source checkout, the quick command follows the common `git diff`
+revision forms:
+
+```bash
+bun trace-review                    # unstaged working-tree changes
+bun trace-review main               # main versus the working tree
+bun trace-review main feature       # two branches
+bun trace-review abc123 def456      # two commits
+bun trace-review main..feature      # two-dot range
+bun trace-review main...feature     # merge-base/three-dot range
+```
+
+Every form writes its supporting files to `.review/`, builds
+`.review/review.html`, and opens it. Add `--no-open` to generate the document
+without launching a browser. Quick mode accepts zero, one, or two revisions;
+Git flags such as `--cached` and pathspec filtering are not currently
+supported.
+
+The coding-agent workflow is also available:
 
 - `/trace-review` opens the workspace without automatic LM findings.
 - `/trace-review lm` or `/trace-review ai` adds focused LM findings.

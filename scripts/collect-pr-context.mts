@@ -22,14 +22,15 @@ function usage(message?: string): never {
   console.error(`Usage:
   node collect-pr-context.mjs [--repo <path>] [--pr auto|none|<number|url>]
     [--base <ref>] [--out <context.json>] [--diff-out <context.patch>]
-    [--files-out <context.files.json>]
+    [--files-out <context.files.json>] [--git-diff] [--revision <ref>]
 
 Options:
   --pr auto        Detect the current branch's pull request; fall back locally (default).
   --pr <number|url> Collect an explicitly selected pull request.
   --pr none        Intentionally disable remote context and collect a local diff.
   --no-remote      Alias for --pr none.
-  --base <ref>     Local diff base (default: origin's default branch, or HEAD).`);
+  --base <ref>     Local diff base (default: origin's default branch, or HEAD).
+  --git-diff       Use exact git-diff revision semantics; repeat --revision for refs.`);
   process.exit(message ? 1 : 0);
 }
 
@@ -43,7 +44,11 @@ function parseArgs(argv: readonly string[]): Args {
     else if (arg === "--out") args.out = argv[++index];
     else if (arg === "--diff-out") args.diffOut = argv[++index];
     else if (arg === "--files-out") args.filesOut = argv[++index];
-    else if (arg === "--no-remote") args.pr = "none";
+    else if (arg === "--git-diff") args.revisions = [];
+    else if (arg === "--revision") {
+      args.revisions ??= [];
+      args.revisions.push(argv[++index]);
+    } else if (arg === "--no-remote") args.pr = "none";
     else if (arg === "--help" || arg === "-h") args.help = true;
     else usage(`Unknown option: ${arg}`);
   }

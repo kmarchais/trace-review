@@ -66,9 +66,37 @@ recommended policy block and the deterministic conventions schema v1 detects.
 
 ## Workflow (the agent path)
 
-The public workflow has two commands and one model-authored result. The
+The full workflow has two commands and one model-authored result. The
 orchestrator owns collection, validation, spec generation, metrics, and HTML
-building; the language model never generates HTML.
+building; the language model never generates HTML. A deterministic quick path
+is available when no model-authored grouping or findings are needed.
+
+### Quick workspace review
+
+For a standalone review without model-authored grouping or findings, run this
+from the repository under review:
+
+```bash
+bun <skill-dir>/scripts/trace-review.mjs
+```
+
+With no revisions this follows bare `git diff` semantics. Common comparisons
+use the same positional revision forms:
+
+```bash
+bun <skill-dir>/scripts/trace-review.mjs main
+bun <skill-dir>/scripts/trace-review.mjs main feature
+bun <skill-dir>/scripts/trace-review.mjs abc123 def456
+bun <skill-dir>/scripts/trace-review.mjs main..feature
+bun <skill-dir>/scripts/trace-review.mjs main...feature
+```
+
+The command creates the deterministic workspace result and supporting files in
+`.review/`, builds `.review/review.html`, and opens it. Pass `--no-open` to
+build without launching a browser. Quick mode accepts zero, one, or two
+revisions; Git flags such as `--cached` and pathspec filtering are not
+currently supported. From a source checkout, replace the executable prefix
+with the package shortcut `bun trace-review`.
 
 ### 1. Prepare once
 
@@ -205,12 +233,14 @@ a reviewer should be able to act on every finding you leave.
 ### Change groups
 
 Prefer a finalized LM-generated `groupFile` (or embed it as `changeGroups`).
-Generated groups work at hunk granularity, display their rationale and
-dependencies, and follow the suggested reading order. Within each group, a file
-appears once even when several of its hunks are assigned there. A file may
-appear in multiple groups when its hunks implement separate decisions. The
-groups are read-only review context: the reviewer evaluates the proposed
-decisions rather than defining or repairing the grouping model.
+Generated groups work at hunk granularity and display their rationale. In
+LM-analysis and deep-audit modes they also show dependencies and a suggested
+reading order. Deterministic quick workspace reviews preserve classifier order
+without presenting it as a recommendation. Within each group, a file appears
+once even when several of its hunks are assigned there. A file may appear in
+multiple groups when its hunks implement separate decisions. The groups are
+read-only review context: the reviewer evaluates the proposed decisions rather
+than defining or repairing the grouping model.
 
 The legacy file-level `groups` array remains available for hand-authored specs:
 
@@ -364,6 +394,12 @@ Viewer controls:
   finding jumps into the diff.
 - **Unified / Split** toggle — lives on the **"Changes"** bar; switches inline
   vs side-by-side (persists; comments follow the line in both).
+- **Range selection** — drag across contiguous diff gutters within one hunk and
+  side to add a block comment, create a GitHub-compatible suggested change, or
+  export a syntax-colored before/after diff. The export preview is selectable
+  and supports PowerPoint-friendly editable-table copy plus HTML, SVG, and PNG
+  downloads. Image exports switch between a full side-by-side comparison and a
+  compact unified diff. Suggested changes are offered only on the new-file side.
 - **Git order / Grouped order** — every grouped review can return to the raw
   patch sequence for verification. Viewed state, navigation, and progress share
   the same file identity in both representations.
