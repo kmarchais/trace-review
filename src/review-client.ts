@@ -6,6 +6,7 @@ import {
   type GithubReviewPlan,
   type ReviewDraftComment,
 } from "../scripts/lib/github-review.mjs";
+import { renderInlineMarkdown } from "./inline-markdown.js";
 
 type UiElement = HTMLElement & { dataset: Record<string, string> };
 
@@ -788,12 +789,6 @@ function eventElement(event: Event): UiElement | null {
   });
 
   // ---- LM review (inline rows + findings list) ----
-  function miniMd(s: unknown): string {
-    return escAttr(s)
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/\n/g, "<br>");
-  }
   function insertAiRow(g: UiElement, c: AutomatedFinding, pr: string): void {
     const tr = g.closest("tr");
     const mount = g.closest(".diff-mount");
@@ -806,8 +801,8 @@ function eventElement(event: Event): UiElement | null {
     td.colSpan = tr.children.length;
     td.innerHTML = `<div class="ai-box">
       <div class="ai-box-head"><span class="who">✦ ${escAttr(REVIEWER)}</span><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span></div>
-      <div class="ai-box-body">${miniMd(c.body)}</div>
-      <div class="ai-rationale"><strong>Why:</strong> ${miniMd(c.rationale)}</div>
+      <div class="ai-box-body">${renderInlineMarkdown(c.body)}</div>
+      <div class="ai-rationale"><strong>Why:</strong> ${renderInlineMarkdown(c.rationale)}</div>
       <div class="ai-box-actions"><button data-a="accept">✓ Accept</button><button data-a="dismiss">✕ Dismiss</button><button data-a="reply">Reply</button><span class="ai-state"></span></div>
     </div>`;
     row.appendChild(td);
@@ -861,7 +856,7 @@ function eventElement(event: Event): UiElement | null {
         .map((c) => {
           const s = state.aiState[pr + " " + c.aid] || "";
           const statusHtml = s ? `<span class="fi-status ${s}">${s}</span>` : "";
-          return `<button class="finding-item sv-${escAttr(c.severity)}${s ? " done" : ""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}" data-aid="${escAttr(c.aid)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span><span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span>${statusHtml}</span><span class="finding-text">${escAttr(c.body)}</span></button>`;
+          return `<button class="finding-item sv-${escAttr(c.severity)}${s ? " done" : ""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}" data-aid="${escAttr(c.aid)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span><span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span>${statusHtml}</span><span class="finding-text">${renderInlineMarkdown(c.body)}</span></button>`;
         })
         .join("");
     });
