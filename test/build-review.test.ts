@@ -51,10 +51,13 @@ test("generator produces a complete, mode-labelled review document", (t) => {
   assert.match(html, /function compactExportRows\(rows\)/);
   assert.match(html, /data-carbon-layout="compact"/);
   assert.match(html, /Image layout/);
-  assert.match(html, /function powerPointClipboardTable\(file, rows\)/);
+  assert.match(html, /function powerPointClipboardTable\(\s*file,\s*rows,\s*layout\s*\)/);
   assert.match(html, /function officeSyntax\(html\)/);
   assert.match(html, /replace\(\/ \/g, "&nbsp;"\)/);
   assert.match(html, /mso-spacerun:yes/);
+  assert.match(html, /powerPointClipboardTable\(carbonFile, carbonRows, carbonLayout\)/);
+  assert.match(html, /layout === "compact"\s*\?\s*compactExportRows\(rows\)\s*:\s*\[\]/);
+  assert.match(html, /const lineHeight = Math\.max\(7, fontSize \+ 1\.5\)/);
   assert.match(html, /bgcolor="#0d1117"/);
   assert.match(html, /<nobr>/);
   assert.match(html, /id="carbonSelectable"/);

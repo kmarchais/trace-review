@@ -1628,46 +1628,71 @@ function eventElement(event: Event): UiElement | null {
     return `<!doctype html><html><head><meta charset="utf-8"><title>${escAttr(file)} diff</title></head><body>${body}</body></html>`;
   }
 
-  function powerPointSide(side: ExportSide | undefined, border: boolean, fontSize: number): string {
+  function powerPointSide(
+    side: ExportSide | undefined,
+    border: boolean,
+    fontSize: number,
+    width: number,
+  ): string {
     const borderStyle = border ? "border-left:1px solid #30363d;" : "";
     const background =
       side?.kind === "add" ? "#17351f" : side?.kind === "del" ? "#351b20" : "#0d1117";
+    const widthPoints = width === 960 ? 720 : 360;
+    const lineHeight = Math.max(7, fontSize + 1.5);
     if (!side) {
-      return `<td width="480" bgcolor="${background}" style="${borderStyle}width:360pt;height:14pt;padding:0 5pt;background:${background}"></td>`;
+      return `<td width="${width}" bgcolor="${background}" style="${borderStyle}width:${widthPoints}pt;height:${lineHeight}pt;padding:0 5pt;background:${background}"></td>`;
     }
     const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
     const markerColor =
       side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
     return (
-      `<td width="480" bgcolor="${background}" style="${borderStyle}width:360pt;height:14pt;padding:0 5pt;background:${background};` +
-      `font-family:Consolas,'Courier New',monospace;font-size:${fontSize}pt;line-height:14pt;mso-line-height-rule:exactly;color:#e6edf3;white-space:nowrap">` +
+      `<td width="${width}" bgcolor="${background}" style="${borderStyle}width:${widthPoints}pt;height:${lineHeight}pt;padding:0 5pt;background:${background};` +
+      `font-family:Consolas,'Courier New',monospace;font-size:${fontSize}pt;line-height:${lineHeight}pt;mso-line-height-rule:exactly;color:#e6edf3;white-space:nowrap">` +
       `<nobr><span style="display:inline-block;width:28pt;color:#8b949e;text-align:right">${escAttr(side.line)}</span>` +
       `<span style="display:inline-block;width:12pt;color:${markerColor}">${marker}</span>` +
       `<span style="color:#e6edf3;mso-no-proof:yes;mso-spacerun:yes">${officeSyntax(side.html || escAttr(side.code))}</span></nobr></td>`
     );
   }
 
-  function powerPointClipboardTable(file: string, rows: ExportPairRow[]): string {
+  function powerPointClipboardTable(
+    file: string,
+    rows: ExportPairRow[],
+    layout: "split" | "compact",
+  ): string {
+    const exportRows = layout === "compact" ? compactExportRows(rows) : [];
     const longest = Math.max(
       28,
-      ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
+      ...(layout === "compact"
+        ? exportRows.map((row) => row.code.length)
+        : rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0])),
     );
-    const fontSize = Math.max(5, Math.min(8.5, Math.floor((500 / longest) * 4) / 4));
+    const availableWidth = layout === "compact" ? 1000 : 500;
+    const fontSize = Math.max(5, Math.min(8.5, Math.floor((availableWidth / longest) * 4) / 4));
+    const columnCount = layout === "compact" ? 1 : 2;
+    const heading =
+      layout === "compact"
+        ? `<tr><td width="960" bgcolor="#161b22" style="width:720pt;height:14pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
+          `font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">UNIFIED DIFF</td></tr>`
+        : `<tr><td width="480" bgcolor="#161b22" style="width:360pt;height:14pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
+          `font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">BEFORE</td>` +
+          `<td width="480" bgcolor="#161b22" style="width:360pt;height:14pt;padding:0 6pt;border-left:1px solid #30363d;` +
+          `background:#161b22;color:#8b949e;font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">AFTER</td></tr>`;
+    const body =
+      layout === "compact"
+        ? exportRows.map((row) => `<tr>${powerPointSide(row, false, fontSize, 960)}</tr>`).join("")
+        : rows
+            .map(
+              (row) =>
+                `<tr>${powerPointSide(row.old, false, fontSize, 480)}${powerPointSide(row.next, true, fontSize, 480)}</tr>`,
+            )
+            .join("");
     return (
       `<table width="960" border="0" cellspacing="0" cellpadding="0" bgcolor="#0d1117" ` +
       `style="width:720pt;border-collapse:collapse;table-layout:fixed;background:#0d1117">` +
-      `<tr><td colspan="2" align="center" bgcolor="#0d1117" style="height:28pt;padding:0 8pt;background:#0d1117;` +
+      `<tr><td colspan="${columnCount}" align="center" bgcolor="#0d1117" style="height:24pt;padding:0 8pt;background:#0d1117;` +
       `color:#c9d1d9;font-family:Consolas,'Courier New',monospace;font-size:9pt;font-weight:bold">${escAttr(file)}</td></tr>` +
-      `<tr><td width="480" bgcolor="#161b22" style="width:360pt;height:18pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
-      `font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">BEFORE</td>` +
-      `<td width="480" bgcolor="#161b22" style="width:360pt;height:18pt;padding:0 6pt;border-left:1px solid #30363d;` +
-      `background:#161b22;color:#8b949e;font-family:Arial,sans-serif;font-size:7pt;font-weight:bold;text-transform:uppercase">AFTER</td></tr>` +
-      rows
-        .map(
-          (row) =>
-            `<tr>${powerPointSide(row.old, false, fontSize)}${powerPointSide(row.next, true, fontSize)}</tr>`,
-        )
-        .join("") +
+      heading +
+      body +
       `</table>`
     );
   }
@@ -1901,6 +1926,7 @@ function eventElement(event: Event): UiElement | null {
 
   function renderCarbonVisuals(): void {
     carbonSelectable.innerHTML = carbonPreview(carbonFile, carbonRows, carbonLayout);
+    carbonClipboardHtml = powerPointClipboardTable(carbonFile, carbonRows, carbonLayout);
     carbonSvg = buildCarbonSvg(carbonFile, carbonRows, carbonLayout);
     drawCarbonCanvas(carbonFile, carbonRows, carbonLayout);
     carbonModal.querySelectorAll("[data-carbon-layout]").forEach((button) => {
@@ -1912,7 +1938,6 @@ function eventElement(event: Event): UiElement | null {
     carbonFile = selection.file;
     carbonRows = buildExportRows(selection);
     carbonHtml = carbonRichDocument(carbonFile, carbonRows);
-    carbonClipboardHtml = powerPointClipboardTable(carbonFile, carbonRows);
     carbonPlain = carbonPlainText(carbonRows);
     renderCarbonVisuals();
     const first = selection.rows[0]?.line || "";

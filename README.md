@@ -27,8 +27,9 @@ Drag across a contiguous block of diff gutters to comment on the range, create
 a GitHub-compatible suggested change, or export a syntax-colored before/after
 diff. The selectable preview can be copied as a PowerPoint-friendly editable
 table or downloaded as HTML, SVG, or PNG for websites, presentations, and
-documentation. Image and SVG exports can use a full side-by-side comparison or
-a narrower compact unified diff.
+documentation. Image, SVG, and PowerPoint exports follow the selected layout:
+a full side-by-side comparison or a narrower compact unified diff. PowerPoint
+exports use tightly spaced rows while preserving code indentation.
 
 | Mode          | Review behavior                               |
 | ------------- | --------------------------------------------- |
