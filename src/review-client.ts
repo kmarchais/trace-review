@@ -98,6 +98,7 @@ interface DiffRangeSelection {
   file: string;
   oldSide: boolean;
   gutters: UiElement[];
+  tableRows: UiElement[];
   start: UiElement;
   end: UiElement;
   rows: Array<{
@@ -105,6 +106,18 @@ interface DiffRangeSelection {
     code: string;
     kind: "add" | "del" | "ctx";
   }>;
+}
+
+interface ExportSide {
+  line: string;
+  code: string;
+  kind: "add" | "del" | "ctx";
+  html?: string;
+}
+
+interface ExportPairRow {
+  old?: ExportSide;
+  next?: ExportSide;
 }
 
 interface Attachment {
@@ -1217,21 +1230,24 @@ function eventElement(event: Event): UiElement | null {
       anchorIndex <= currentIndex ? [anchorIndex, currentIndex] : [currentIndex, anchorIndex];
     const gutters = candidates.slice(from, to + 1);
     const rows = gutters.map((gutter) => {
+      const tableRow = gutter.closest("tr");
       const codeCell = gutter.nextElementSibling;
       return {
         line: gutter.dataset.lineno || gutter.dataset.key || "",
         code: gutter.dataset.code || "",
-        kind: codeCell?.classList.contains("line-add")
-          ? ("add" as const)
-          : codeCell?.classList.contains("line-del")
-            ? ("del" as const)
-            : ("ctx" as const),
+        kind:
+          tableRow.classList.contains("line-add") || codeCell?.classList.contains("line-add")
+            ? ("add" as const)
+            : tableRow.classList.contains("line-del") || codeCell?.classList.contains("line-del")
+              ? ("del" as const)
+              : ("ctx" as const),
       };
     });
     return {
       file: anchor.dataset.file || "",
       oldSide: (anchor.dataset.key || "").startsWith("o"),
       gutters,
+      tableRows: [...new Set(gutters.map((gutter) => gutter.closest("tr")))],
       start: gutters[0],
       end: gutters[gutters.length - 1],
       rows,
@@ -1351,8 +1367,12 @@ function eventElement(event: Event): UiElement | null {
   });
 
   const carbonModal = document.getElementById("carbonModal");
+  const carbonSelectable = document.getElementById("carbonSelectable");
   const carbonCanvas = document.getElementById("carbonCanvas") as unknown as HTMLCanvasElement;
-  let carbonFilename = "diff-selection.png";
+  let carbonFilename = "diff-selection";
+  let carbonHtml = "";
+  let carbonSvg = "";
+  let carbonPlain = "";
 
   function roundRect(
     context: CanvasRenderingContext2D,
@@ -1371,18 +1391,291 @@ function eventElement(event: Event): UiElement | null {
     context.closePath();
   }
 
-  function openCarbonExport(selection: DiffRangeSelection): void {
+  function changedTableRow(row: UiElement): boolean {
+    return row.classList.contains("line-add") || row.classList.contains("line-del");
+  }
+
+  function selectedExportRows(selection: DiffRangeSelection): UiElement[] {
+    const table = selection.start.closest("table.diff");
+    if (table.classList.contains("split")) return selection.tableRows;
+    const rows = [...table.querySelectorAll("tr.line")].filter(
+      (row) => !row.classList.contains("line-hunk") && !row.classList.contains("line-info"),
+    );
+    const included = new Set(selection.tableRows);
+    for (const selected of selection.tableRows) {
+      if (!changedTableRow(selected)) continue;
+      const index = rows.indexOf(selected);
+      let first = index;
+      let last = index;
+      while (first > 0 && changedTableRow(rows[first - 1])) first--;
+      while (last + 1 < rows.length && changedTableRow(rows[last + 1])) last++;
+      const cluster = rows.slice(first, last + 1);
+      const hasBefore = cluster.some((row) => row.classList.contains("line-del"));
+      const hasAfter = cluster.some((row) => row.classList.contains("line-add"));
+      if (hasBefore && hasAfter) cluster.forEach((row) => included.add(row));
+    }
+    return rows.filter((row) => included.has(row));
+  }
+
+  function buildExportRows(selection: DiffRangeSelection): ExportPairRow[] {
+    const table = selection.start.closest("table.diff");
+    let rows: ExportPairRow[];
+    if (table.classList.contains("split")) {
+      rows = selectedExportRows(selection).map((row) => {
+        const cells = [...row.children] as UiElement[];
+        const oldCode = cells[2];
+        const newCode = cells[5];
+        return {
+          ...(oldCode && !oldCode.classList.contains("empty")
+            ? {
+                old: {
+                  line: cells[0]?.textContent || "",
+                  code: oldCode.textContent || "",
+                  kind: oldCode.classList.contains("line-del")
+                    ? ("del" as const)
+                    : ("ctx" as const),
+                },
+              }
+            : {}),
+          ...(newCode && !newCode.classList.contains("empty")
+            ? {
+                next: {
+                  line: cells[3]?.textContent || "",
+                  code: newCode.textContent || "",
+                  kind: newCode.classList.contains("line-add")
+                    ? ("add" as const)
+                    : ("ctx" as const),
+                },
+              }
+            : {}),
+        };
+      });
+    } else {
+      rows = [];
+      let deleted: ExportSide[] = [];
+      let added: ExportSide[] = [];
+      const flush = () => {
+        const count = Math.max(deleted.length, added.length);
+        for (let index = 0; index < count; index++) {
+          rows.push({ old: deleted[index], next: added[index] });
+        }
+        deleted = [];
+        added = [];
+      };
+      for (const row of selectedExportRows(selection)) {
+        const cells = [...row.children] as UiElement[];
+        const gutter = cells[2];
+        const code = gutter?.dataset.code || "";
+        if (row.classList.contains("line-del")) {
+          deleted.push({ line: cells[0]?.textContent || "", code, kind: "del" });
+        } else if (row.classList.contains("line-add")) {
+          added.push({ line: cells[1]?.textContent || "", code, kind: "add" });
+        } else {
+          flush();
+          rows.push({
+            old: { line: cells[0]?.textContent || "", code, kind: "ctx" },
+            next: { line: cells[1]?.textContent || "", code, kind: "ctx" },
+          });
+        }
+      }
+      flush();
+    }
+
+    const lang = Object.values(DATA).find((file) => file.path === selection.file)?.lang || "";
+    const oldHighlights = hlLines(rows.map((row) => row.old?.code || "").join("\n"), lang);
+    const newHighlights = hlLines(rows.map((row) => row.next?.code || "").join("\n"), lang);
+    rows.forEach((row, index) => {
+      if (row.old) row.old.html = oldHighlights[index];
+      if (row.next) row.next.html = newHighlights[index];
+    });
+    return rows;
+  }
+
+  function syntaxColor(classes: string): string {
+    if (/(?:^|\s)hljs-(comment|quote|meta)(?:\s|$)/.test(classes)) return "#8b949e";
+    if (/(?:^|\s)hljs-(keyword|selector-tag|subst)(?:\s|$)/.test(classes)) return "#ff7b72";
+    if (/(?:^|\s)hljs-(string|regexp|doctag)(?:\s|$)/.test(classes)) return "#a5d6ff";
+    if (/(?:^|\s)hljs-(number|literal|symbol|bullet)(?:\s|$)/.test(classes)) return "#79c0ff";
+    if (/(?:^|\s)hljs-(title|section|function)(?:\s|$)/.test(classes)) return "#d2a8ff";
+    if (/(?:^|\s)hljs-(type|built_in|class)(?:\s|$)/.test(classes)) return "#ffa657";
+    if (/(?:^|\s)hljs-(attr|attribute|property|variable)(?:\s|$)/.test(classes)) return "#79c0ff";
+    return "#e6edf3";
+  }
+
+  function syntaxSegments(html: string): Array<{ text: string; color: string }> {
+    const wrapper = document.createElement("span");
+    wrapper.innerHTML = html;
+    const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT);
+    const segments: Array<{ text: string; color: string }> = [];
+    let node = walker.nextNode();
+    while (node) {
+      let parent = node.parentElement;
+      let classes = "";
+      while (parent && parent !== wrapper) {
+        classes += " " + parent.className;
+        parent = parent.parentElement;
+      }
+      segments.push({ text: node.textContent || "", color: syntaxColor(classes) });
+      node = walker.nextNode();
+    }
+    return segments.length ? segments : [{ text: wrapper.textContent || "", color: "#e6edf3" }];
+  }
+
+  function inlineSyntax(html: string): string {
+    return html.replace(
+      /<span class="([^"]+)">/g,
+      (_match, classes: string) => `<span style="color:${syntaxColor(classes)}">`,
+    );
+  }
+
+  function previewSide(side?: ExportSide): string {
+    if (!side) return `<td></td>`;
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    return (
+      `<td class="${side.kind}"><span class="carbon-line">${escAttr(side.line)}</span>` +
+      `<span class="carbon-marker">${marker}</span>` +
+      `<span class="carbon-code">${side.html || escAttr(side.code)}</span></td>`
+    );
+  }
+
+  function selectableExportWidth(rows: ExportPairRow[]): number {
+    const longest = Math.max(
+      28,
+      ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
+    );
+    return Math.max(720, 240 + longest * 16.4);
+  }
+
+  function carbonPreview(file: string, rows: ExportPairRow[]): string {
+    return (
+      `<div class="carbon-sheet" style="width:${selectableExportWidth(rows)}px"><div class="carbon-window">` +
+      `<div class="carbon-window-head"><span class="carbon-dots">` +
+      `<span class="carbon-dot" style="background:#ff5f56"></span>` +
+      `<span class="carbon-dot" style="background:#ffbd2e"></span>` +
+      `<span class="carbon-dot" style="background:#27c93f"></span></span>` +
+      `<span class="carbon-window-title">${escAttr(file)}</span><span></span></div>` +
+      `<table class="carbon-table"><thead><tr><th>Before</th><th>After</th></tr></thead><tbody>` +
+      rows.map((row) => `<tr>${previewSide(row.old)}${previewSide(row.next)}</tr>`).join("") +
+      `</tbody></table></div></div>`
+    );
+  }
+
+  function richSide(side: ExportSide | undefined, border: boolean): string {
+    const borderStyle = border ? "border-left:1px solid #30363d;" : "";
+    if (!side) return `<td style="${borderStyle}height:24px;padding:0 12px"></td>`;
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    const background =
+      side.kind === "add"
+        ? "rgba(46,160,67,.18)"
+        : side.kind === "del"
+          ? "rgba(248,81,73,.16)"
+          : "transparent";
+    const markerColor =
+      side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
+    return (
+      `<td style="${borderStyle}height:24px;padding:0 12px;white-space:pre;vertical-align:top;background:${background}">` +
+      `<span style="display:inline-block;width:44px;margin-right:8px;color:#6e7681;text-align:right">${escAttr(side.line)}</span>` +
+      `<span style="display:inline-block;width:18px;color:${markerColor}">${marker}</span>` +
+      `<span style="color:#e6edf3">${inlineSyntax(side.html || escAttr(side.code))}</span></td>`
+    );
+  }
+
+  function carbonRichDocument(file: string, rows: ExportPairRow[]): string {
+    const body =
+      `<div style="box-sizing:border-box;width:${selectableExportWidth(rows)}px;padding:24px;border-radius:16px;background:linear-gradient(125deg,#7c3aed,#2563eb 52%,#0891b2)">` +
+      `<div style="overflow:hidden;border-radius:14px;color:#e6edf3;background:#0d1117">` +
+      `<div style="padding:16px 20px;color:#c9d1d9;font:600 13px ui-monospace,monospace;text-align:center">${escAttr(file)}</div>` +
+      `<table style="width:100%;border-collapse:collapse;table-layout:fixed;font:13px/24px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">` +
+      `<thead><tr><th style="padding:4px 12px;color:#8b949e;background:#161b22;text-align:left">Before</th>` +
+      `<th style="padding:4px 12px;color:#8b949e;background:#161b22;text-align:left;border-left:1px solid #30363d">After</th></tr></thead><tbody>` +
+      rows
+        .map((row) => `<tr>${richSide(row.old, false)}${richSide(row.next, true)}</tr>`)
+        .join("") +
+      `</tbody></table></div></div>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${escAttr(file)} diff</title></head><body>${body}</body></html>`;
+  }
+
+  function carbonPlainText(rows: ExportPairRow[]): string {
+    return [
+      "Before\tAfter",
+      ...rows.map((row) => {
+        const old = row.old
+          ? `${row.old.line} ${row.old.kind === "del" ? "-" : " "} ${row.old.code}`
+          : "";
+        const next = row.next
+          ? `${row.next.line} ${row.next.kind === "add" ? "+" : " "} ${row.next.code}`
+          : "";
+        return old + "\t" + next;
+      }),
+    ].join("\n");
+  }
+
+  function svgCode(side: ExportSide | undefined, x: number, y: number): string {
+    if (!side) return "";
+    const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+    const markerColor =
+      side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
+    const spans = syntaxSegments(side.html || escAttr(side.code))
+      .map((segment) => `<tspan fill="${segment.color}">${escAttr(segment.text)}</tspan>`)
+      .join("");
+    return (
+      `<text x="${x}" y="${y}" fill="#6e7681" text-anchor="end">${escAttr(side.line)}</text>` +
+      `<text x="${x + 17}" y="${y}" fill="${markerColor}">${marker}</text>` +
+      `<text x="${x + 39}" y="${y}" xml:space="preserve">${spans}</text>`
+    );
+  }
+
+  function buildCarbonSvg(file: string, rows: ExportPairRow[]): string {
+    const longest = Math.max(
+      28,
+      ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
+    );
+    const columnWidth = Math.min(960, 104 + longest * 8.2);
+    const width = 56 + columnWidth * 2;
+    const height = 130 + rows.length * 25;
+    const rowMarkup = rows
+      .map((row, index) => {
+        const y = 112 + index * 25;
+        const oldBg = row.old?.kind === "del" ? "rgba(248,81,73,.16)" : "transparent";
+        const newBg = row.next?.kind === "add" ? "rgba(46,160,67,.18)" : "transparent";
+        return (
+          `<rect x="29" y="${y - 18}" width="${columnWidth - 1}" height="25" fill="${oldBg}"/>` +
+          `<rect x="${29 + columnWidth}" y="${y - 18}" width="${columnWidth - 1}" height="25" fill="${newBg}"/>` +
+          `<g clip-path="url(#oldClip)">${svgCode(row.old, 68, y)}</g>` +
+          `<g clip-path="url(#newClip)">${svgCode(row.next, 68 + columnWidth, y)}</g>`
+        );
+      })
+      .join("");
+    return (
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+      `<defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1">` +
+      `<stop stop-color="#7c3aed"/><stop offset=".52" stop-color="#2563eb"/><stop offset="1" stop-color="#0891b2"/></linearGradient>` +
+      `<clipPath id="oldClip"><rect x="29" y="88" width="${columnWidth - 4}" height="${height - 112}"/></clipPath>` +
+      `<clipPath id="newClip"><rect x="${29 + columnWidth}" y="88" width="${columnWidth - 4}" height="${height - 112}"/></clipPath></defs>` +
+      `<rect width="${width}" height="${height}" rx="16" fill="url(#background)"/>` +
+      `<rect x="28" y="24" width="${width - 56}" height="${height - 48}" rx="14" fill="#0d1117"/>` +
+      `<circle cx="50" cy="48" r="6" fill="#ff5f56"/><circle cx="70" cy="48" r="6" fill="#ffbd2e"/><circle cx="90" cy="48" r="6" fill="#27c93f"/>` +
+      `<g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14">` +
+      `<text x="${width / 2}" y="53" fill="#c9d1d9" text-anchor="middle" font-weight="600">${escAttr(file)}</text>` +
+      `<text x="42" y="82" fill="#8b949e" font-size="11" font-weight="600">BEFORE</text>` +
+      `<text x="${42 + columnWidth}" y="82" fill="#8b949e" font-size="11" font-weight="600">AFTER</text>` +
+      `<line x1="${28 + columnWidth}" y1="68" x2="${28 + columnWidth}" y2="${height - 24}" stroke="#30363d"/>` +
+      rowMarkup +
+      `</g></svg>`
+    );
+  }
+
+  function drawCarbonCanvas(file: string, rows: ExportPairRow[]): void {
     const scale = 2;
     const longest = Math.max(
-      ...selection.rows.map((row) => row.code.length),
-      selection.file.length,
+      28,
+      ...rows.flatMap((row) => [row.old?.code.length || 0, row.next?.code.length || 0]),
     );
-    const width = Math.max(720, Math.min(1600, 210 + longest * 9));
-    const height = 112 + selection.rows.length * 25;
+    const columnWidth = Math.min(960, 104 + longest * 8.2);
+    const width = 56 + columnWidth * 2;
+    const height = 130 + rows.length * 25;
     carbonCanvas.width = width * scale;
     carbonCanvas.height = height * scale;
-    carbonCanvas.style.width = width + "px";
-    carbonCanvas.style.height = height + "px";
     const context = carbonCanvas.getContext("2d");
     if (!context) return;
     context.scale(scale, scale);
@@ -1393,7 +1686,6 @@ function eventElement(event: Event): UiElement | null {
     background.addColorStop(1, "#0891b2");
     context.fillStyle = background;
     context.fillRect(0, 0, width, height);
-
     roundRect(context, 28, 24, width - 56, height - 48, 14);
     context.fillStyle = "#0d1117";
     context.fill();
@@ -1403,44 +1695,89 @@ function eventElement(event: Event): UiElement | null {
       context.fillStyle = color;
       context.fill();
     });
-
     context.font = "600 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
     context.fillStyle = "#c9d1d9";
     context.textAlign = "center";
-    context.fillText(selection.file, width / 2, 53);
+    context.fillText(file, width / 2, 53);
     context.textAlign = "left";
-    context.font = "14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-    selection.rows.forEach((row, index) => {
-      const y = 82 + index * 25;
-      if (row.kind !== "ctx") {
-        context.fillStyle = row.kind === "add" ? "rgba(46,160,67,.18)" : "rgba(248,81,73,.16)";
-        context.fillRect(29, y - 18, width - 58, 25);
-      }
+    context.font = "600 11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    context.fillStyle = "#8b949e";
+    context.fillText("BEFORE", 42, 82);
+    context.fillText("AFTER", 42 + columnWidth, 82);
+    context.strokeStyle = "#30363d";
+    context.beginPath();
+    context.moveTo(28 + columnWidth, 68);
+    context.lineTo(28 + columnWidth, height - 24);
+    context.stroke();
+
+    const drawSide = (side: ExportSide | undefined, x: number, y: number) => {
+      if (!side) return;
+      const marker = side.kind === "add" ? "+" : side.kind === "del" ? "−" : " ";
+      context.font = "14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
       context.fillStyle = "#6e7681";
       context.textAlign = "right";
-      context.fillText(row.line, 79, y);
+      context.fillText(side.line, x, y);
       context.textAlign = "left";
       context.fillStyle =
-        row.kind === "add" ? "#3fb950" : row.kind === "del" ? "#f85149" : "#8b949e";
-      context.fillText(row.kind === "add" ? "+" : row.kind === "del" ? "−" : " ", 96, y);
-      context.fillStyle = "#e6edf3";
-      context.fillText(row.code, 118, y, width - 150);
+        side.kind === "add" ? "#3fb950" : side.kind === "del" ? "#f85149" : "#8b949e";
+      context.fillText(marker, x + 17, y);
+      let codeX = x + 39;
+      for (const segment of syntaxSegments(side.html || escAttr(side.code))) {
+        context.fillStyle = segment.color;
+        context.fillText(segment.text, codeX, y);
+        codeX += context.measureText(segment.text).width;
+      }
+    };
+
+    rows.forEach((row, index) => {
+      const y = 112 + index * 25;
+      if (row.old?.kind === "del") {
+        context.fillStyle = "rgba(248,81,73,.16)";
+        context.fillRect(29, y - 18, columnWidth - 1, 25);
+      }
+      if (row.next?.kind === "add") {
+        context.fillStyle = "rgba(46,160,67,.18)";
+        context.fillRect(29 + columnWidth, y - 18, columnWidth - 1, 25);
+      }
+      context.save();
+      context.beginPath();
+      context.rect(29, y - 19, columnWidth - 4, 25);
+      context.clip();
+      drawSide(row.old, 68, y);
+      context.restore();
+      context.save();
+      context.beginPath();
+      context.rect(29 + columnWidth, y - 19, columnWidth - 4, 25);
+      context.clip();
+      drawSide(row.next, 68 + columnWidth, y);
+      context.restore();
     });
+  }
+
+  function openCarbonExport(selection: DiffRangeSelection): void {
+    const rows = buildExportRows(selection);
+    carbonSelectable.innerHTML = carbonPreview(selection.file, rows);
+    carbonHtml = carbonRichDocument(selection.file, rows);
+    carbonSvg = buildCarbonSvg(selection.file, rows);
+    carbonPlain = carbonPlainText(rows);
+    drawCarbonCanvas(selection.file, rows);
 
     const first = selection.rows[0]?.line || "";
     const last = selection.rows.at(-1)?.line || first;
     document.getElementById("carbonModalMeta").textContent =
-      selection.file + " · " + (first === last ? "line " + first : "lines " + first + "–" + last);
+      selection.file +
+      " · " +
+      (first === last ? "line " + first : "lines " + first + "–" + last) +
+      " · selectable before and after";
     carbonFilename =
-      selection.file
+      (selection.file
         .split("/")
         .pop()
         ?.replace(/[^a-z0-9._-]+/gi, "-")
-        .replace(/\.[^.]+$/, "") +
+        .replace(/\.[^.]+$/, "") || "diff-selection") +
       "-lines-" +
       first +
-      (first === last ? "" : "-" + last) +
-      ".png";
+      (first === last ? "" : "-" + last);
     carbonModal.hidden = false;
   }
 
@@ -1450,20 +1787,56 @@ function eventElement(event: Event): UiElement | null {
   carbonModal.addEventListener("click", (event) => {
     if (event.target === carbonModal) carbonModal.hidden = true;
   });
+  const showCarbonCopied = (label = "Copied ✓") => {
+    const copied = document.getElementById("carbonCopied");
+    copied.textContent = label;
+    copied.hidden = false;
+    setTimeout(() => (copied.hidden = true), 1800);
+  };
+  const downloadCarbon = (content: BlobPart, type: string, extension: string) => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([content], { type }));
+    link.download = carbonFilename + extension;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
   document.getElementById("downloadCarbonBtn").addEventListener("click", () => {
     const link = document.createElement("a");
     link.href = carbonCanvas.toDataURL("image/png");
-    link.download = carbonFilename;
+    link.download = carbonFilename + ".png";
     link.click();
+  });
+  document.getElementById("downloadCarbonHtmlBtn").addEventListener("click", () => {
+    downloadCarbon(carbonHtml, "text/html;charset=utf-8", ".html");
+  });
+  document.getElementById("downloadCarbonSvgBtn").addEventListener("click", () => {
+    downloadCarbon(carbonSvg, "image/svg+xml;charset=utf-8", ".svg");
+  });
+  document.getElementById("copyCarbonHtmlBtn").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([carbonHtml], { type: "text/html" }),
+          "text/plain": new Blob([carbonPlain], { type: "text/plain" }),
+        }),
+      ]);
+      showCarbonCopied("Rich text copied ✓");
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(carbonSelectable);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      if (document.execCommand("copy")) showCarbonCopied("Rich text copied ✓");
+      selection?.removeAllRanges();
+    }
   });
   document.getElementById("copyCarbonBtn").addEventListener("click", () => {
     carbonCanvas.toBlob(async (blob) => {
       if (!blob || !navigator.clipboard || typeof ClipboardItem === "undefined") return;
       try {
         await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-        const copied = document.getElementById("carbonCopied");
-        copied.hidden = false;
-        setTimeout(() => (copied.hidden = true), 1800);
+        showCarbonCopied();
       } catch {}
     }, "image/png");
   });

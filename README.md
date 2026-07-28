@@ -24,8 +24,9 @@ local diff or pull request
 The result is a portable local page with light and dark themes, diff controls, review progress, comments, Markdown export, and optional confirmed publication as a native GitHub review.
 
 Drag across a contiguous block of diff gutters to comment on the range, create
-a GitHub-compatible suggested change, or export the selected diff as a
-Carbon-like PNG.
+a GitHub-compatible suggested change, or export a syntax-colored before/after
+diff. The selectable preview can be copied as rich text or downloaded as HTML,
+SVG, or PNG for websites, presentations, and documentation.
 
 | Mode          | Review behavior                               |
 | ------------- | --------------------------------------------- |

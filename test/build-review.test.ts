@@ -44,7 +44,15 @@ test("generator produces a complete, mode-labelled review document", (t) => {
   assert.match(html, /function openCarbonExport\(selection\)/);
   assert.match(html, /if \(prefill && !saved\)\s*store\(\)/);
   assert.match(html, /codeCell\?\.classList\.contains\("line-add"\)/);
+  assert.match(html, /function buildExportRows\(selection\)/);
+  assert.match(html, /if \(hasBefore && hasAfter\)/);
+  assert.match(html, /function buildCarbonSvg\(file, rows\)/);
+  assert.match(html, /function syntaxSegments\(html\)/);
+  assert.match(html, /id="carbonSelectable"/);
   assert.match(html, /id="carbonCanvas"/);
+  assert.match(html, /Copy rich text/);
+  assert.match(html, /Download HTML/);
+  assert.match(html, /Download SVG/);
   assert.match(html, /Download PNG/);
   assert.match(html, /id="review-data" type="application\/json"/);
   assert.match(html, /src\/widget\.hpp/);
