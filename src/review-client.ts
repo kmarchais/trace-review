@@ -1369,11 +1369,16 @@ function eventElement(event: Event): UiElement | null {
   const carbonModal = document.getElementById("carbonModal");
   const carbonSelectable = document.getElementById("carbonSelectable");
   const carbonCanvas = document.getElementById("carbonCanvas") as unknown as HTMLCanvasElement;
-  type CarbonTheme = "aurora" | "sunset" | "forest" | "slate";
+  type CarbonTheme = "none" | "aurora" | "sunset" | "forest" | "slate";
   const carbonThemes: Record<
     CarbonTheme,
     { css: string; office: string; stops: [string, string, string] }
   > = {
+    none: {
+      css: "transparent",
+      office: "#0d1117",
+      stops: ["#0d1117", "#0d1117", "#0d1117"],
+    },
     aurora: {
       css: "linear-gradient(125deg,#7c3aed,#2563eb 52%,#0891b2)",
       office: "#3155c6",
@@ -1397,7 +1402,7 @@ function eventElement(event: Event): UiElement | null {
   };
   let carbonFilenameBase = "diff-selection";
   let carbonLayout: "split" | "compact" = "split";
-  let carbonTheme: CarbonTheme = "aurora";
+  let carbonTheme: CarbonTheme = "none";
   let carbonFile = "";
   let carbonRows: ExportPairRow[] = [];
   let carbonHtml = "";
@@ -1609,7 +1614,7 @@ function eventElement(event: Event): UiElement | null {
           rows.map((row) => `<tr>${previewSide(row.old)}${previewSide(row.next)}</tr>`).join("") +
           `</tbody></table>`;
     return (
-      `<div class="carbon-sheet" style="width:${selectableExportWidth(rows, layout)}px;background:${carbonThemes[carbonTheme].css}"><div class="carbon-window">` +
+      `<div class="carbon-sheet" style="width:${selectableExportWidth(rows, layout)}px;padding:${carbonTheme === "none" ? 0 : 24}px;background:${carbonThemes[carbonTheme].css}"><div class="carbon-window">` +
       `<div class="carbon-window-head"><span class="carbon-dots">` +
       `<span class="carbon-dot" style="background:#ff5f56"></span>` +
       `<span class="carbon-dot" style="background:#ffbd2e"></span>` +
@@ -1672,8 +1677,8 @@ function eventElement(event: Event): UiElement | null {
     return (
       `<td width="${width}" bgcolor="${background}" style="${borderStyle}width:${widthPoints}pt;height:${lineHeight}pt;padding:0 5pt;background:${background};` +
       `font-family:Consolas,'Courier New',monospace;font-size:${fontSize}pt;line-height:${lineHeight}pt;mso-line-height-rule:exactly;color:#e6edf3;white-space:nowrap">` +
-      `<nobr><span style="display:inline-block;width:28pt;color:#8b949e;text-align:right">${escAttr(side.line)}</span>` +
-      `<span style="display:inline-block;width:12pt;color:${markerColor}">${marker}</span>` +
+      `<nobr><span style="display:inline-block;width:32pt;color:#8b949e;text-align:right">${escAttr(side.line)}</span>` +
+      `<span style="display:inline-block;width:18pt;padding-left:4pt;color:${markerColor}">${marker}</span>` +
       `<span style="color:#e6edf3;mso-no-proof:yes;mso-spacerun:yes">${officeSyntax(side.html || escAttr(side.code))}</span></nobr></td>`
     );
   }
@@ -1701,9 +1706,17 @@ function eventElement(event: Event): UiElement | null {
     const fontSize = Math.max(5, Math.min(8.5, Math.floor((availableWidth / longest) * 4) / 4));
     const columnCount = layout === "compact" ? 1 : 2;
     const accent = carbonThemes[carbonTheme].office;
-    const frameCell = `<td width="20" bgcolor="${accent}" style="width:15pt;padding:0;background:${accent}">&nbsp;</td>`;
+    const hasBackground = carbonTheme !== "none";
+    const frameCell = hasBackground
+      ? `<td width="20" bgcolor="${accent}" style="width:15pt;padding:0;background:${accent}">&nbsp;</td>`
+      : "";
+    const tableColumnCount = columnCount + (hasBackground ? 2 : 0);
+    const frameRow = hasBackground
+      ? `<tr><td colspan="${tableColumnCount}" bgcolor="${accent}" style="height:14pt;padding:0;background:${accent}">&nbsp;</td></tr>`
+      : "";
     const before = rows.flatMap((row) => (row.old ? [row.old] : []));
     const after = rows.flatMap((row) => (row.next ? [row.next] : []));
+    const titleSpacer = "&nbsp;".repeat(Math.max(6, Math.floor((120 - file.length) / 2) - 5));
     const heading =
       layout === "compact"
         ? `<tr>${frameCell}<td width="960" bgcolor="#161b22" style="width:720pt;height:14pt;padding:0 6pt;background:#161b22;color:#8b949e;` +
@@ -1730,17 +1743,17 @@ function eventElement(event: Event): UiElement | null {
             return `<tr>${frameCell}${oldCell}${nextCell}${frameCell}</tr>`;
           }).join("");
     return (
-      `<table width="1000" border="0" cellspacing="0" cellpadding="0" bgcolor="${accent}" ` +
-      `style="width:750pt;border-collapse:collapse;table-layout:fixed;background:${accent}">` +
-      `<tr><td colspan="${columnCount + 2}" bgcolor="${accent}" style="height:14pt;padding:0;background:${accent}">&nbsp;</td></tr>` +
-      `<tr>${frameCell}<td colspan="${columnCount}" align="center" bgcolor="#0d1117" style="height:24pt;padding:0 8pt;background:#0d1117;` +
+      `<table width="${hasBackground ? 1000 : 960}" border="0" cellspacing="0" cellpadding="0" bgcolor="${accent}" ` +
+      `style="width:${hasBackground ? 750 : 720}pt;border-collapse:collapse;table-layout:fixed;background:${accent}">` +
+      frameRow +
+      `<tr>${frameCell}<td colspan="${columnCount}" align="left" bgcolor="#0d1117" style="height:24pt;padding:0 8pt;background:#0d1117;` +
       `font-family:Consolas,'Courier New',monospace;font-size:9pt;font-weight:bold;color:#c9d1d9">` +
-      `<span style="float:left;font-family:Arial,sans-serif;font-size:10pt;white-space:nowrap">` +
+      `<span style="font-family:Arial,sans-serif;font-size:10pt;white-space:nowrap">` +
       `<span style="color:#ff5f56">●</span>&nbsp;<span style="color:#ffbd2e">●</span>&nbsp;<span style="color:#27c93f">●</span></span>` +
-      `${escAttr(file)}</td>${frameCell}</tr>` +
+      `${titleSpacer}${escAttr(file)}</td>${frameCell}</tr>` +
       heading +
       body +
-      `<tr><td colspan="${columnCount + 2}" bgcolor="${accent}" style="height:14pt;padding:0;background:${accent}">&nbsp;</td></tr>` +
+      frameRow +
       `</table>`
     );
   }

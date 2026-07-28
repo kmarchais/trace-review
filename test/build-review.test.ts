@@ -64,8 +64,14 @@ test("generator produces a complete, mode-labelled review document", (t) => {
   assert.match(html, /Math\.max\(before\.length, after\.length\)/);
   assert.doesNotMatch(html, /function powerPointColumn/);
   assert.match(html, /data-carbon-theme="sunset"/);
+  assert.match(html, /data-carbon-theme="none" aria-pressed="true"/);
   assert.match(html, /const carbonThemes = \{/);
+  assert.match(html, /let carbonTheme = "none"/);
   assert.match(html, /carbonThemes\[carbonTheme\]\.office/);
+  assert.match(html, /const hasBackground = carbonTheme !== "none"/);
+  assert.match(html, /const titleSpacer = "&nbsp;"\.repeat/);
+  assert.match(html, /width:32pt/);
+  assert.match(html, /width:18pt;padding-left:4pt/);
   assert.match(html, /<span style="color:#ff5f56">●<\/span>/);
   assert.match(html, /bgcolor="#0d1117"/);
   assert.match(html, /<nobr>/);
