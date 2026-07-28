@@ -122,6 +122,13 @@ verify a concrete candidate finding.
 
 Write only `.review/review-result.json`:
 
+Write reviewer-facing prose in the same language as the user's request. When
+that language uses Unicode, preserve its Unicode spelling, including diacritics
+and apostrophes; never transliterate it to ASCII. In Markdown fields such as
+`summary`, `review.global`, finding `body`, and finding `rationale`, wrap every
+code identifier, symbol, command, and literal in backticks. Backticks belong in
+the JSON string so the deterministic renderer can distinguish code from prose.
+
 ```json
 {
   "summary": "The change hardens session lifecycle handling.",

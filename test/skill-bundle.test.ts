@@ -44,6 +44,14 @@ test("skill documents composable LM and pull-request shortcuts", () => {
   assert.match(skill, /Write only `\.review\/review-result\.json`/);
 });
 
+test("skill preserves the user's language and marks code in generated review prose", () => {
+  const skill = fs.readFileSync(path.join(root, "SKILL.source.md"), "utf8");
+
+  assert.match(skill, /same language as the user's request/i);
+  assert.match(skill, /preserve its Unicode spelling, including diacritics\s+and apostrophes/i);
+  assert.match(skill, /wrap every\s+code identifier, symbol, command, and literal in backticks/i);
+});
+
 test("minimal skill bundle is complete, runnable, and excludes repository-only files", (t) => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-bundle-test-"));
   t.after(() => fs.rmSync(outDir, { recursive: true, force: true }));

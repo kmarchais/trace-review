@@ -540,6 +540,15 @@
   .ft-tools button, .ft-close { background:none; border:1px solid var(--border); border-radius:5px; cursor:pointer; color:var(--muted); font-size:.72rem; font-family:var(--font-heading); padding:3px 8px; }
   .ft-tools button:hover, .ft-close:hover { border-color:var(--primary); color:var(--primary); }
   .ft-close { position:absolute; top:8px; right:10px; }
+  .ft-navigation { display:grid; gap:7px; padding:10px 12px; border-bottom:1px solid var(--border); background:var(--card); }
+  .ft-search { display:flex; align-items:center; gap:7px; }
+  .ft-search input { width:100%; min-width:0; border:1px solid var(--control-border); border-radius:var(--radius-md); padding:6px 9px; color:var(--text); background:var(--bg); font:500 .78rem var(--font-heading); }
+  .ft-results { flex:0 0 auto; color:var(--muted); font:500 .68rem var(--font-heading); white-space:nowrap; }
+  .ft-filters { display:flex; flex-wrap:wrap; gap:5px; }
+  .ft-filters button, .ft-filters select { min-width:0; border:1px solid var(--control-border); border-radius:5px; padding:4px 7px; color:var(--muted); background:var(--control-bg); cursor:pointer; font:500 .68rem var(--font-heading); }
+  .ft-filters button[aria-pressed="true"] { border-color:var(--primary); color:var(--primary); background:var(--ai-bg); }
+  .ft-filters [data-nav-clear] { margin-left:auto; }
+  .ft-empty { margin:16px 10px; color:var(--muted); font:italic .78rem var(--font-heading); }
   .ft-body { overflow:auto; padding:8px 8px 22px; flex:1; }
   .file-tree ul { list-style:none; margin:0; padding:0 0 0 13px; }
   .file-tree .ft-root { padding-left:2px; }
@@ -674,6 +683,35 @@ Summary fallbacks: 0</pre>
     <span class="ft-viewed"></span>
     <button type="button" class="ft-close" title="Close (Esc)">✕</button>
     <div class="ft-tools"><button type="button" data-ft="expand">Expand all</button><button type="button" data-ft="collapse">Collapse all</button></div>
+  </div>
+  <div class="ft-navigation">
+    <div class="ft-search">
+      <input type="search" data-nav-search aria-label="Search review files, diffs, and findings" placeholder="Search files, diffs, findings…" autocomplete="off">
+      <span class="ft-results" data-nav-results aria-live="polite"></span>
+    </div>
+    <div class="ft-filters" aria-label="File filters">
+      <button type="button" data-nav-toggle="unread" aria-pressed="false">Unread</button>
+      <button type="button" data-nav-toggle="openFindings" aria-pressed="false">Open findings</button>
+      <button type="button" data-nav-toggle="tests" aria-pressed="false">Tests</button>
+      <button type="button" data-nav-toggle="generated" aria-pressed="false">Generated</button>
+      <select data-nav-select="severity" aria-label="Finding severity">
+        <option value="">All severities</option>
+        <option value="concern">Concern</option>
+        <option value="suggestion">Suggestion</option>
+        <option value="question">Question</option>
+        <option value="nit">Nit</option>
+        <option value="praise">Praise</option>
+        <option value="comment">Comment</option>
+      </select>
+      <select data-nav-select="risk" aria-label="Group risk">
+        <option value="">All risks</option>
+        <option value="high">High risk</option>
+        <option value="medium">Medium risk</option>
+        <option value="low">Low risk</option>
+      </select>
+      <select data-nav-select="group" aria-label="Decision group"><option value="">All groups</option></select>
+      <button type="button" data-nav-clear>Clear</button>
+    </div>
   </div>
   <div class="ft-body"></div>
 </aside>
