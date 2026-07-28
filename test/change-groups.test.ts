@@ -211,7 +211,7 @@ test("builder consumes group files as reviewer-visible, read-only decisions", (t
   );
 
   const html = fs.readFileSync(outPath, "utf8");
-  assert.match(html, /Suggested reading order/);
+  assert.doesNotMatch(html, /Suggested reading order/);
   assert.doesNotMatch(html, /change-group-select/);
   assert.match(html, /Reviewer checks/);
   assert.doesNotMatch(html, /Grouping corrections/);
@@ -221,10 +221,8 @@ test("builder consumes group files as reviewer-visible, read-only decisions", (t
   assert.match(html, /paste a screenshot directly into this comment/i);
   assert.match(html, /attachmentMarkdown/);
   assert.match(html, /class="group-intent-card"/);
-  assert.match(html, /Read first/);
-  assert.match(html, /Dependent changes/);
-  assert.match(html, /Definition preview/);
-  assert.match(html, /export function parse\(value\) \{/);
+  assert.doesNotMatch(html, /Read first/);
+  assert.doesNotMatch(html, /Dependent changes/);
   const consumerStart = html.indexOf('class="group-title">Consumers');
   const consumerEnd = html.indexOf('class="group gk-', consumerStart + 1);
   assert.ok(consumerStart > -1, "consumer group should render");

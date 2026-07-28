@@ -273,6 +273,8 @@ test("grouped rendering shows a multi-hunk file once per semantic group", (t) =>
     html.indexOf('data-order-view="raw"'),
   );
   assert.equal([...grouped.matchAll(/data-file="src\/session\.js"/g)].length, 2);
+  assert.match(html, /Suggested reading order/);
+  assert.match(html, /Read first/);
   assert.match(grouped, /2 change units/);
   assert.match(grouped, /data-view-key="g1::src\/session\.js"/);
   assert.match(grouped, /data-view-key="g2::src\/session\.js"/);

@@ -207,7 +207,7 @@ interface NormalizedReview {
 }
 
 type RenderableGrouping = ChangeGrouping & {
-  provenance?: "lm";
+  provenance?: "lm" | "deterministic";
   groups: Array<
     ChangeGroup & {
       readAfter?: string[];
@@ -709,8 +709,9 @@ function langOf(p: string): string {
   const f = String(p).toLowerCase();
   const base = f.split("/").pop();
   if (base === "cmakelists.txt" || f.endsWith(".cmake")) return "cmake";
-  if (base === "makefile" || f.endsWith(".mk")) return "makefile";
-  if (base === "dockerfile") return "dockerfile";
+  if (base?.startsWith("makefile") || f.endsWith(".mk")) return "makefile";
+  if (base?.startsWith("dockerfile")) return "dockerfile";
+  if (base === "gemfile" || base === "rakefile") return "ruby";
   const ext = f.includes(".") ? f.split(".").pop() : "";
   const map: Readonly<Record<string, string>> = {
     cpp: "cpp",
@@ -729,7 +730,12 @@ function langOf(p: string): string {
     toml: "ini",
     ini: "ini",
     cfg: "ini",
+    conf: "ini",
+    properties: "ini",
     md: "markdown",
+    mdx: "markdown",
+    mdown: "markdown",
+    mmd: "markdown",
     markdown: "markdown",
     yml: "yaml",
     yaml: "yaml",
@@ -739,7 +745,11 @@ function langOf(p: string): string {
     cjs: "javascript",
     jsx: "javascript",
     ts: "typescript",
+    mts: "typescript",
+    cts: "typescript",
     tsx: "typescript",
+    jsonc: "json",
+    json5: "json",
     rs: "rust",
     go: "go",
     sh: "bash",
@@ -752,10 +762,15 @@ function langOf(p: string): string {
     less: "less",
     html: "xml",
     htm: "xml",
+    xhtml: "xml",
     xml: "xml",
     svg: "xml",
     vue: "xml",
+    svelte: "xml",
+    astro: "xml",
     sql: "sql",
+    graphql: "graphql",
+    gql: "graphql",
     rb: "ruby",
     php: "php",
     kt: "kotlin",
@@ -763,6 +778,15 @@ function langOf(p: string): string {
     lua: "lua",
     pl: "perl",
     r: "r",
+    m: "objectivec",
+    mm: "objectivec",
+    vb: "vbnet",
+    vbs: "vbnet",
+    wat: "wasm",
+    wasm: "wasm",
+    diff: "diff",
+    patch: "diff",
+    env: "bash",
     scala: "scala",
     dart: "dart",
   };
@@ -1079,7 +1103,7 @@ function renderPr(
         <div class="file-body"><div class="file-note-slot"></div><div class="diff-mount" data-fid="${fid}"></div></div>
       </div>`;
   };
-  const renderGroup = (g: RenderGroup, gblocks: FileBlock[]): string => {
+  const renderGroup = (g: RenderGroup, gblocks: FileBlock[], showRelationships = false): string => {
     const kind = g.kind || "other";
     const collapsedFiles = g.collapsed != null ? !!g.collapsed : false;
     const gadd = gblocks.reduce((s, b) => s + b.d.add, 0);
@@ -1087,11 +1111,13 @@ function renderPr(
     const readFirst = g.readFirst?.length ? g.readFirst : ["No prerequisite group"];
     const dependents = g.dependents?.length ? g.dependents : ["No dependent group detected"];
     const definitions = g.definitions?.length ? g.definitions : [];
-    const relationship = `
-      <div class="group-relationships">
-        <div><span>Read first</span><strong>${readFirst.map(esc).join(" · ")}</strong></div>
-        <div><span>Dependent changes</span><strong>${dependents.map(esc).join(" · ")}</strong></div>
-      </div>`;
+    const relationship = showRelationships
+      ? `
+        <div class="group-relationships">
+          <div><span>Read first</span><strong>${readFirst.map(esc).join(" · ")}</strong></div>
+          <div><span>Dependent changes</span><strong>${dependents.map(esc).join(" · ")}</strong></div>
+        </div>`
+      : "";
     const definitionPreview = definitions.length
       ? `<details class="definition-preview"><summary>Definition preview</summary>${definitions
           .map(
@@ -1142,6 +1168,7 @@ function renderPr(
 
   let filesHtml;
   if (changeGroups) {
+    const modelAuthoredGrouping = changeGroups.provenance === "lm";
     const parsedByPath = new Map(files.map((file) => [file.path, file]));
     const previewDefinitionFromGroup = (symbol: string, sourceGroupId: string): string => {
       const sourceGroup = changeGroups.groups.find((candidate) => candidate.id === sourceGroupId);
@@ -1163,8 +1190,9 @@ function renderPr(
       }
       return symbol;
     };
-    const order =
-      changeGroups.dependencyGraph?.suggestedOrder || changeGroups.groups.map((group) => group.id);
+    const order = modelAuthoredGrouping
+      ? changeGroups.dependencyGraph?.suggestedOrder || changeGroups.groups.map((group) => group.id)
+      : changeGroups.groups.map((group) => group.id);
     const orderIndex = new Map(order.map((id, index) => [id, index]));
     const orderedGroups = changeGroups.groups
       .slice()
@@ -1174,17 +1202,19 @@ function renderPr(
     const outgoing = new Map<string, string[]>();
     const incomingSymbols = new Map<string, Array<{ symbol: string; sourceGroupId: string }>>();
     for (const edge of changeGroups.dependencyGraph?.edges || []) {
-      const incomingGroups = incoming.get(edge.to) ?? [];
-      const outgoingGroups = outgoing.get(edge.from) ?? [];
-      const sourceTitle = titleById.get(edge.from) || edge.from;
-      const targetTitle = titleById.get(edge.to) || edge.to;
-      if (!incomingGroups.includes(sourceTitle)) {
-        incomingGroups.push(sourceTitle);
-        incoming.set(edge.to, incomingGroups);
-      }
-      if (!outgoingGroups.includes(targetTitle)) {
-        outgoingGroups.push(targetTitle);
-        outgoing.set(edge.from, outgoingGroups);
+      if (modelAuthoredGrouping) {
+        const incomingGroups = incoming.get(edge.to) ?? [];
+        const outgoingGroups = outgoing.get(edge.from) ?? [];
+        const sourceTitle = titleById.get(edge.from) || edge.from;
+        const targetTitle = titleById.get(edge.to) || edge.to;
+        if (!incomingGroups.includes(sourceTitle)) {
+          incomingGroups.push(sourceTitle);
+          incoming.set(edge.to, incomingGroups);
+        }
+        if (!outgoingGroups.includes(targetTitle)) {
+          outgoingGroups.push(targetTitle);
+          outgoing.set(edge.from, outgoingGroups);
+        }
       }
       if (edge.reason === "definition-usage" && edge.evidence) {
         const symbols = incomingSymbols.get(edge.to) ?? [];
@@ -1256,12 +1286,13 @@ function renderPr(
             definitions,
           },
           blocks,
+          modelAuthoredGrouping,
         ),
       );
     }
     filesHtml = `
       <div class="group-workspace" data-review-stage="validate">
-        <div class="reading-order"><strong>Suggested reading order:</strong> ${orderedGroups.map((group, index) => `${index + 1}. ${esc(group.title)}`).join(" → ")}</div>
+        ${modelAuthoredGrouping ? `<div class="reading-order"><strong>Suggested reading order:</strong> ${orderedGroups.map((group, index) => `${index + 1}. ${esc(group.title)}`).join(" → ")}</div>` : ""}
         <div class="order-views" data-order-view="grouped">${parts.join("\n")}</div>
         <div class="order-views" data-order-view="raw" hidden>${renderRawOrder()}</div>
       </div>`;

@@ -84,6 +84,49 @@ test("each diff file can open its bounded whole-file content", (t) => {
   assert.match(html, /File after these changes/);
 });
 
+test("module TypeScript and common extension aliases select syntax languages", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-languages-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  fs.writeFileSync(
+    path.join(tempDir, "change.patch"),
+    [
+      "diff --git a/tool.mts b/tool.mts",
+      "--- a/tool.mts",
+      "+++ b/tool.mts",
+      "@@ -1 +1 @@",
+      "-export const value: number = 1;",
+      "+export const value: number = 2;",
+      "diff --git a/schema.graphql b/schema.graphql",
+      "--- a/schema.graphql",
+      "+++ b/schema.graphql",
+      "@@ -1 +1 @@",
+      "-type Query { old: Int }",
+      "+type Query { value: Int }",
+      "",
+    ].join("\n"),
+  );
+  fs.writeFileSync(
+    path.join(tempDir, "spec.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      prs: [{ title: "Syntax aliases", diffFile: "change.patch" }],
+    }),
+  );
+
+  const result = build(path.join(tempDir, "spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  const dataSource = /<script id="review-data" type="application\/json">([\s\S]*?)<\/script>/.exec(
+    html,
+  )?.[1];
+  assert.ok(dataSource);
+  const data = JSON.parse(dataSource);
+  assert.equal(data["pr-1__0"].lang, "typescript");
+  assert.equal(data["pr-1__1"].lang, "graphql");
+});
+
 test("SVG whole-file content offers sanitized image and exact code views", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-svg-file-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));

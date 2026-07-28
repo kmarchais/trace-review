@@ -54,6 +54,26 @@ The installer selects the correct directory for the requested coding agent. As a
 
 ## Use
 
+From a source checkout, the quick command follows the common `git diff`
+revision forms:
+
+```bash
+bun trace-review                    # unstaged working-tree changes
+bun trace-review main               # main versus the working tree
+bun trace-review main feature       # two branches
+bun trace-review abc123 def456      # two commits
+bun trace-review main..feature      # two-dot range
+bun trace-review main...feature     # merge-base/three-dot range
+```
+
+Every form writes its supporting files to `.review/`, builds
+`.review/review.html`, and opens it. Add `--no-open` to generate the document
+without launching a browser. Quick mode accepts zero, one, or two revisions;
+Git flags such as `--cached` and pathspec filtering are not currently
+supported.
+
+The coding-agent workflow is also available:
+
 - `/trace-review` opens the workspace without automatic LM findings.
 - `/trace-review lm` or `/trace-review ai` adds focused LM findings.
 - `/trace-review pr 8` reviews pull request #8 in the current repository.

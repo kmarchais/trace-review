@@ -48,13 +48,15 @@ and enables the per-file whole-file viewer. Deleted entries contain their base
 version; binary, oversized, or unavailable entries carry an explanation
 instead of content. SVG entries offer a sanitized Image view alongside their
 exact Code view.
-Reviewer-facing skill output uses one finalized LM-generated `groupFile` (or
-embedded `changeGroups`) whose `provenance` is `"lm"`. Group files are resolved
-relative to the specification and revalidated against the patch when the
-review is built. `autoGroups: true` and the legacy file-level `groups` array
-remain low-level compatibility inputs for direct builder users; they are not
-the skill's review-generation workflow and may expose deterministic or
-hand-authored labels.
+Reviewer-facing skill output uses a finalized `groupFile` (or embedded
+`changeGroups`). Model-authored grouping has `provenance: "lm"` and may show a
+suggested reading order and dependency cues. Quick workspace grouping has
+`provenance: "deterministic"` and preserves classifier order without presenting
+it as a recommendation. Group files are resolved relative to the specification
+and revalidated against the patch when the review is built. `autoGroups: true`
+and the legacy file-level `groups` array remain low-level compatibility inputs
+for direct builder users; they are not the skill's review-generation workflow
+and may expose deterministic or hand-authored labels.
 PR ids and group ids must be unique.
 
 ## Optional GitHub publication context
