@@ -84,6 +84,12 @@ without launching a browser. Quick mode accepts zero, one, or two revisions;
 Git flags such as `--cached` and pathspec filtering are not currently
 supported.
 
+The **Files** drawer searches file paths, diff content, and findings. Its
+combinable filters narrow the navigation list to unread files, open findings,
+tests, generated files, severities, risks, or decision groups without changing
+review decisions. Search and filter state remains active when switching between
+grouped and Git order.
+
 The coding-agent workflow is also available:
 
 - `/trace-review` opens the workspace without automatic LM findings.

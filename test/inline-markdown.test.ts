@@ -13,6 +13,13 @@ test("finding Markdown renders every inline code span", () => {
   );
 });
 
+test("finding Markdown preserves French typography around inline code", () => {
+  assert.equal(
+    renderInlineMarkdown("L’échec de `iss >> engine` laisse le générateur dans un état indéfini."),
+    "L’échec de <code>iss &gt;&gt; engine</code> laisse le générateur dans un état indéfini.",
+  );
+});
+
 test("finding Markdown keeps formatting outside code spans", () => {
   assert.equal(
     renderInlineMarkdown("Use **care** with `**literal**`.\nThen *verify* it."),

@@ -325,6 +325,32 @@ test("LM-analysis fixture renders its global assessment and line finding", (t) =
   assert.match(html, /classList\.add\("hljs"\)/);
 });
 
+test("generated reviews preserve Unicode prose and inline-code Markdown", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-unicode-finding-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const fixture = JSON.parse(fs.readFileSync(path.join(fixtures, "lm-analysis-spec.json"), "utf8"));
+  fixture.prs[0].review.comments[0].body =
+    "L’échec de `iss >> engine` laisse le générateur dans un état indéfini.";
+  fixture.prs[0].review.comments[0].rationale =
+    "L’état textuel de `std::mt19937` diffère d’un moteur à l’autre.";
+  const specPath = path.join(tempDir, "spec.json");
+  const out = path.join(tempDir, "review.html");
+  fs.writeFileSync(specPath, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+  fs.copyFileSync(
+    path.join(fixtures, "comprehensive.patch"),
+    path.join(tempDir, "comprehensive.patch"),
+  );
+
+  const result = build(specPath, out);
+
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  assert.match(html, /L’échec de `iss >> engine` laisse le générateur dans un état indéfini\./);
+  assert.match(html, /L’état textuel de `std::mt19937` diffère d’un moteur à l’autre\./);
+  assert.match(html, /<meta charset="utf-8"/);
+  assert.match(html, /<code>\$\{escapeHtml\(normalizeCodeSpan\(match\[2\]\)\)\}<\/code>/);
+});
+
 test("LM findings are visible on the default Review changes stage", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-visible-findings-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
@@ -663,4 +689,23 @@ test("LM finding navigation remains available beside review progress", (t) => {
   assert.match(html, /Next finding/);
   assert.match(html, /data-aid=/);
   assert.match(html, /findingCursor/);
+});
+
+test("large reviews expose accessible search and combinable file filters", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-navigation-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const result = build(path.join(fixtures, "lm-analysis-spec.json"), out);
+
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  assert.match(html, /type="search"[^>]*aria-label="Search review files, diffs, and findings"/);
+  assert.match(html, /data-nav-toggle="unread"/);
+  assert.match(html, /data-nav-toggle="openFindings"/);
+  assert.match(html, /data-nav-toggle="tests"/);
+  assert.match(html, /data-nav-toggle="generated"/);
+  assert.match(html, /data-nav-select="severity"/);
+  assert.match(html, /data-nav-select="risk"/);
+  assert.match(html, /data-nav-select="group"/);
+  assert.match(html, /data-nav-results/);
 });

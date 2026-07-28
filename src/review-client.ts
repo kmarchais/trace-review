@@ -7,6 +7,13 @@ import {
   type ReviewDraftComment,
 } from "../scripts/lib/github-review.mjs";
 import { renderFindingMarkdown, renderInlineMarkdown } from "./inline-markdown.js";
+import {
+  filterNavigationItems,
+  findingsWithinNavigationLines,
+  firstNavigationLineMatch,
+  type NavigationItem,
+  type NavigationQuery,
+} from "./review-navigation.js";
 
 type UiElement = HTMLElement & { dataset: Record<string, string> };
 
@@ -182,14 +189,12 @@ interface AutomatedReview {
   comments: AutomatedFinding[];
 }
 
-interface TreeFile {
-  path: string;
+interface TreeFile extends NavigationItem {
   change: string;
   topic: string;
   name: string;
   add: number;
   del: number;
-  viewed: boolean;
 }
 
 interface TreeNode {
@@ -2438,15 +2443,78 @@ function eventElement(event: Event): UiElement | null {
   });
 
   // ---- file tree drawer (navigate a big diff by path) ----
+  const navigationQuery: NavigationQuery = {};
+  function navigationGroups(
+    sec: UiElement,
+    path: string,
+  ): {
+    groups: string[];
+    risks: string[];
+  } {
+    const groups = new Set<string>(),
+      risks = new Set<string>();
+    groupedOccurrences(sec, path).forEach((file) => {
+      const group = file.closest(".group");
+      const title = group?.querySelector(".group-title")?.textContent.trim();
+      const risk = group
+        ?.querySelector(".group-risk")
+        ?.textContent.replace(/\s+risk\s*$/i, "")
+        .trim();
+      if (title) groups.add(title);
+      if (risk) risks.add(risk);
+    });
+    return { groups: [...groups], risks: [...risks] };
+  }
+  function navigationLines(file: UiElement): Array<{ key: string; text: string }> {
+    const id = file.querySelector(".diff-mount")?.dataset.fid;
+    if (!id) return [];
+    return (DATA[id]?.hunks || [])
+      .flatMap((hunk) => hunk.rows || [])
+      .map((row) => ({
+        key: row.t === "d" ? "o" + row.o : String(row.n),
+        text: row.c,
+      }))
+      .filter((line) => line.key !== "undefined");
+  }
+  function isTestPath(path: string): boolean {
+    return /(^|\/)(test|tests|spec|specs)(\/|$)|\.(test|spec)\.[^/]+$/i.test(path);
+  }
+  function isGeneratedPath(path: string): boolean {
+    return (
+      /(^|\/)(dist|build|coverage|vendor|generated|gen)(\/|$)/i.test(path) ||
+      /\.(min\.(js|css)|generated\.[^.]+)$/i.test(path)
+    );
+  }
   function collectTreeFiles(sec: UiElement): TreeFile[] {
+    const pr = sec.dataset.pr || "";
     return visibleEvidenceFiles(sec).map((el) => {
       const p = el.dataset.file || "";
       const num = (sel: string): number => {
         const t = el.querySelector(".file-header " + sel);
         return t ? parseInt(t.textContent.replace(/[^0-9]/g, "")) || 0 : 0;
       };
+      const metadata = navigationGroups(sec, p);
+      const lines = navigationLines(el);
+      const findings = findingsWithinNavigationLines(
+        lines,
+        (REVIEW[pr]?.comments || []).filter((finding) => finding.file === p),
+      );
       return {
+        id: el.dataset.change || p,
         path: p,
+        content: lines.map((line) => line.text).join("\n"),
+        lines,
+        findingText: findings.flatMap((finding) => [finding.body, finding.rationale]).join("\n"),
+        findings: findings.map((finding) => ({
+          key: finding.key,
+          text: [finding.body, finding.rationale].join("\n"),
+        })),
+        hasOpenFinding: findings.some((finding) => !state.aiState[pr + " " + finding.aid]),
+        severities: [...new Set(findings.map((finding) => finding.severity))],
+        test: isTestPath(p),
+        generated: isGeneratedPath(p),
+        risks: metadata.risks,
+        groups: metadata.groups,
         change: el.dataset.change || "",
         topic: el.querySelector(".change-range")?.textContent || "",
         name: p.split("/").pop() ?? p,
@@ -2483,15 +2551,39 @@ function eventElement(event: Event): UiElement | null {
           name = name + "/" + only;
           child = child.dirs[only];
         }
-        html += `<li class="ft-dir"><div class="ft-row ft-dirrow"><span class="ft-tw">▾</span><span class="ft-name">${escAttr(name)}</span></div><ul class="ft-children">${renderTreeDir(child)}</ul></li>`;
+        html += `<li class="ft-dir"><div class="ft-row ft-dirrow" role="button" tabindex="0"><span class="ft-tw">▾</span><span class="ft-name">${escAttr(name)}</span></div><ul class="ft-children">${renderTreeDir(child)}</ul></li>`;
       });
     node.files
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name))
       .forEach((f) => {
-        html += `<li class="ft-file${f.viewed ? " viewed" : ""}" data-file="${escAttr(f.path)}"${f.change ? ` data-change="${escAttr(f.change)}"` : ""}><div class="ft-row"><span class="ft-name" title="${escAttr(f.path)}">${escAttr(f.name)}${f.topic ? `<small class="ft-topic">${escAttr(f.topic)}</small>` : ""}</span><span class="ft-stats"><span class="stat-add">+${f.add}</span> <span class="stat-del">-${f.del}</span></span></div></li>`;
+        html += `<li class="ft-file${f.viewed ? " viewed" : ""}" data-file="${escAttr(f.path)}"${f.change ? ` data-change="${escAttr(f.change)}"` : ""}><div class="ft-row" role="button" tabindex="0"><span class="ft-name" title="${escAttr(f.path)}">${escAttr(f.name)}${f.topic ? `<small class="ft-topic">${escAttr(f.topic)}</small>` : ""}</span><span class="ft-stats"><span class="stat-add">+${f.add}</span> <span class="stat-del">-${f.del}</span></span></div></li>`;
       });
     return html;
+  }
+  function navigationSelectOptions(
+    select: UiElement,
+    values: string[],
+    current: string | undefined,
+  ): void {
+    const label = select.dataset.navSelect === "group" ? "All groups" : "All";
+    select.innerHTML = `<option value="">${label}</option>${values
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => `<option value="${escAttr(value)}">${escAttr(value)}</option>`)
+      .join("")}`;
+    select.value = current || "";
+  }
+  function syncNavigationControls(files: TreeFile[]): void {
+    const w = document.getElementById("fileTree");
+    w.querySelectorAll("[data-nav-toggle]").forEach((button) => {
+      const key = button.dataset.navToggle as "unread" | "openFindings" | "tests" | "generated";
+      button.setAttribute("aria-pressed", String(Boolean(navigationQuery[key])));
+    });
+    navigationSelectOptions(
+      w.querySelector('[data-nav-select="group"]'),
+      [...new Set(files.flatMap((file) => file.groups))],
+      navigationQuery.group,
+    );
   }
   function refreshTree(): void {
     const w = document.getElementById("fileTree");
@@ -2499,12 +2591,18 @@ function eventElement(event: Event): UiElement | null {
     const sec = activeSection();
     if (!sec) return;
     const files = collectTreeFiles(sec);
+    const matches = filterNavigationItems(files, navigationQuery) as TreeFile[];
     const viewed = files.filter((f) => f.viewed).length;
     w.querySelector(".ft-count").textContent =
       files.length + " file" + (files.length === 1 ? "" : "s");
     w.querySelector(".ft-viewed").textContent = viewed + "/" + files.length + " viewed";
+    w.querySelector("[data-nav-results]").textContent =
+      matches.length + " of " + files.length + " shown";
+    syncNavigationControls(files);
     w.querySelector(".ft-body").innerHTML =
-      `<ul class="ft-root">${renderTreeDir(treeModel(files))}</ul>`;
+      matches.length > 0
+        ? `<ul class="ft-root">${renderTreeDir(treeModel(matches))}</ul>`
+        : '<p class="ft-empty">No files match the current search and filters.</p>';
   }
   function toggleTree(): void {
     const w = document.getElementById("fileTree");
@@ -2515,27 +2613,100 @@ function eventElement(event: Event): UiElement | null {
   }
   document.querySelectorAll(".dbh-tree").forEach((b) => b.addEventListener("click", toggleTree));
   document.querySelector("#fileTree .ft-close").addEventListener("click", toggleTree);
-  document.querySelector("#fileTree .ft-body").addEventListener("click", (e) => {
-    const dir = eventElement(e)?.closest(".ft-dirrow");
+  function navigateTreeFile(fr: UiElement): void {
+    const sec = activeSection();
+    if (!sec) return;
+    const el = visibleEvidenceFiles(sec).find((file) =>
+      fr.dataset.change
+        ? file.dataset.change === fr.dataset.change
+        : file.dataset.file === fr.dataset.file,
+    );
+    if (!el) return;
+    const group = el.closest(".group");
+    if (group) group.classList.remove("collapsed");
+    el.classList.remove("collapsed");
+    const item = collectTreeFiles(sec).find(
+      (candidate) =>
+        candidate.path === el.dataset.file &&
+        (!fr.dataset.change || candidate.change === fr.dataset.change),
+    );
+    const key = item ? firstNavigationLineMatch(item, navigationQuery.text) : undefined;
+    const line = key
+      ? el.querySelector('.gutter[data-key="' + cssEsc(key) + '"]')?.closest("tr")
+      : null;
+    if (line) line.scrollIntoView({ block: "center", behavior: "smooth" });
+    else scrollFileToTop(el);
+  }
+  const treeBody = document.querySelector("#fileTree .ft-body");
+  treeBody.addEventListener("click", (e) => {
+    const target = eventElement(e);
+    const dir = target?.closest(".ft-dirrow");
     if (dir) {
       dir.parentElement?.classList.toggle("collapsed");
       return;
     }
-    const fr = eventElement(e)?.closest(".ft-file");
-    if (!fr) return;
-    const sec = activeSection();
-    if (!sec) return;
-    const el = visibleEvidenceFiles(sec).find((f) =>
-      fr.dataset.change
-        ? f.dataset.change === fr.dataset.change
-        : f.dataset.file === fr.dataset.file,
-    );
-    if (el) {
-      const g = el.closest(".group");
-      if (g) g.classList.remove("collapsed");
-      el.classList.remove("collapsed");
-      scrollFileToTop(el);
+    const file = target?.closest(".ft-file");
+    if (file) navigateTreeFile(file);
+  });
+  treeBody.addEventListener("keydown", (e) => {
+    if (!(e instanceof KeyboardEvent) || (e.key !== "Enter" && e.key !== " ")) return;
+    const target = eventElement(e);
+    const dir = target?.closest(".ft-dirrow");
+    if (dir) {
+      e.preventDefault();
+      dir.parentElement?.classList.toggle("collapsed");
+      return;
     }
+    const file = target?.closest(".ft-file");
+    if (file) {
+      e.preventDefault();
+      navigateTreeFile(file);
+    }
+  });
+  const navigationSearch = document.querySelector("#fileTree [data-nav-search]");
+  navigationSearch.addEventListener("input", () => {
+    navigationQuery.text = navigationSearch.value;
+    refreshTree();
+  });
+  navigationSearch.addEventListener("keydown", (e) => {
+    if (!(e instanceof KeyboardEvent) || (e.key !== "Enter" && e.key !== "ArrowDown")) return;
+    const first = document.querySelector("#fileTree .ft-file .ft-row");
+    if (!first) return;
+    e.preventDefault();
+    if (e.key === "Enter") first.click();
+    else first.focus();
+  });
+  document.querySelectorAll("#fileTree [data-nav-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.navToggle as "unread" | "openFindings" | "tests" | "generated";
+      navigationQuery[key] = !navigationQuery[key];
+      refreshTree();
+    });
+  });
+  document.querySelectorAll("#fileTree [data-nav-select]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const value = select.value || undefined;
+      if (select.dataset.navSelect === "severity") navigationQuery.severity = value;
+      if (select.dataset.navSelect === "risk") navigationQuery.risk = value;
+      if (select.dataset.navSelect === "group") navigationQuery.group = value;
+      refreshTree();
+    });
+  });
+  document.querySelector("#fileTree [data-nav-clear]").addEventListener("click", () => {
+    navigationQuery.text = "";
+    navigationQuery.unread = false;
+    navigationQuery.openFindings = false;
+    navigationQuery.tests = false;
+    navigationQuery.generated = false;
+    navigationQuery.severity = undefined;
+    navigationQuery.risk = undefined;
+    navigationQuery.group = undefined;
+    navigationSearch.value = "";
+    document.querySelectorAll("#fileTree [data-nav-select]").forEach((select) => {
+      select.value = "";
+    });
+    refreshTree();
+    navigationSearch.focus();
   });
   document.querySelectorAll("#fileTree [data-ft]").forEach((b) =>
     b.addEventListener("click", () => {
