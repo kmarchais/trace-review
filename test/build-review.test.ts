@@ -232,6 +232,9 @@ test("LM-analysis fixture renders its global assessment and line finding", (t) =
   assert.match(html, /Math\.round\(c\.confidence\s*\*\s*100\).*% confidence/);
   assert.match(html, /The return value is exposed by a public header/);
   assert.match(html, /class="findings-panel"/);
+  assert.match(html, /function highlightMarkdownCode\(root\)/);
+  assert.match(html, /highlightMarkdownCode\(td\)/);
+  assert.match(html, /classList\.add\("hljs"\)/);
 });
 
 test("LM findings are visible on the default Review changes stage", (t) => {
