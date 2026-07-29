@@ -297,6 +297,65 @@ function eventElement(event: Event): UiElement | null {
       code.classList.add("hljs");
     });
   }
+  function applyWordDiffMarkup(highlightedHtml: string, wordDiffHtml: string): string {
+    if (!wordDiffHtml.includes('class="wd"')) return highlightedHtml;
+    const diffTemplate = document.createElement("template") as HTMLTemplateElement;
+    diffTemplate.innerHTML = wordDiffHtml;
+    const changedRanges: Array<{ start: number; end: number }> = [];
+    let diffOffset = 0;
+    const diffWalker = document.createTreeWalker(diffTemplate.content, NodeFilter.SHOW_TEXT);
+    let diffNode: Node | null;
+    while ((diffNode = diffWalker.nextNode())) {
+      const length = diffNode.textContent?.length || 0;
+      if ((diffNode.parentElement as Element | null)?.closest(".wd")) {
+        const previous = changedRanges[changedRanges.length - 1];
+        if (previous?.end === diffOffset) previous.end += length;
+        else changedRanges.push({ start: diffOffset, end: diffOffset + length });
+      }
+      diffOffset += length;
+    }
+    if (!changedRanges.length) return highlightedHtml;
+
+    const syntaxTemplate = document.createElement("template") as HTMLTemplateElement;
+    syntaxTemplate.innerHTML = highlightedHtml;
+    const syntaxWalker = document.createTreeWalker(syntaxTemplate.content, NodeFilter.SHOW_TEXT);
+    const syntaxNodes: Array<{ node: Text; start: number; end: number }> = [];
+    let syntaxOffset = 0;
+    let syntaxNode: Node | null;
+    while ((syntaxNode = syntaxWalker.nextNode())) {
+      const length = syntaxNode.textContent?.length || 0;
+      syntaxNodes.push({
+        node: syntaxNode as Text,
+        start: syntaxOffset,
+        end: syntaxOffset + length,
+      });
+      syntaxOffset += length;
+    }
+    if (syntaxOffset !== diffOffset) return highlightedHtml;
+
+    for (const item of syntaxNodes) {
+      const text = item.node.data;
+      const overlaps = changedRanges.filter(
+        (range) => range.start < item.end && range.end > item.start,
+      );
+      if (!overlaps.length) continue;
+      const fragment = document.createDocumentFragment();
+      let cursor = 0;
+      for (const range of overlaps) {
+        const start = Math.max(range.start, item.start) - item.start;
+        const end = Math.min(range.end, item.end) - item.start;
+        if (start > cursor) fragment.append(text.slice(cursor, start));
+        const changed = document.createElement("span");
+        changed.className = "wd";
+        changed.textContent = text.slice(start, end);
+        fragment.append(changed);
+        cursor = end;
+      }
+      if (cursor < text.length) fragment.append(text.slice(cursor));
+      item.node.replaceWith(fragment);
+    }
+    return syntaxTemplate.innerHTML;
+  }
   // annotate each row in a hunk with its highlighted HTML (r._hl)
   function annotateHl(h: ClientHunk, lang: string): void {
     const newHl = hlLines(
@@ -322,6 +381,7 @@ function eventElement(event: Event): UiElement | null {
         r._hl = newHl[ni++];
         oi++;
       }
+      if (r.t !== "c") r._hl = applyWordDiffMarkup(r._hl, r.h);
     }
   }
   const save = (): void => {

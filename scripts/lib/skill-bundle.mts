@@ -9,6 +9,7 @@ export const SKILL_BUNDLE_SOURCE_FILES = Object.freeze([
   "SKILL.md",
   "REVIEW-SPEC.md",
   "docs/LIMITATIONS.md",
+  "docs/ADAPTIVE-DETECTORS.md",
   "docs/REAL-PR-METRICS.md",
   "docs/REPOSITORY-CONFIGURATION.md",
   "examples/diagram.svg",
@@ -36,6 +37,7 @@ export const SKILL_BUNDLE_RUNTIME_FILES = Object.freeze([
   "scripts/lib/lm-groups.mjs",
   "scripts/lib/pr-context.mjs",
   "scripts/lib/preflight.mjs",
+  "scripts/lib/repeated-changes.mjs",
   "scripts/lib/review-spec.mjs",
   "templates/review.template.html",
 ]);

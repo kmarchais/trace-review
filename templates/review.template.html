@@ -22,7 +22,7 @@
     --bg:var(--surface-canvas); --panel:var(--surface-subtle); --card:var(--surface-raised); --text:var(--text-default); --muted:var(--text-muted);
     --border:#d0d7de; --border-muted:#d8dee4; --header:#f6f8fa; --header-text:#1f2328;
     --control-bg:#f6f8fa; --control-hover:#f3f4f6; --control-border:#d0d7de; --accent-emphasis:#0969da; --fg-on-emphasis:#ffffff;
-    --add-bg:#dafbe1; --add-word:#aceebb; --add-ln:#ccffd8; --del-bg:#ffebe9; --del-word:#ffcecb; --del-ln:#ffd7d5;
+    --add-bg:#dafbe1; --add-word:#8ddb9b; --add-word-edge:#1a7f37; --add-ln:#ccffd8; --del-bg:#ffebe9; --del-word:#ffb8b3; --del-word-edge:#cf222e; --del-ln:#ffd7d5;
     --ctx:#1f2328; --ln:#ffffff; --ln-text:#6e7781; --hunk-bg:#ddf4ff; --hunk-text:#0969da;
     --annot:#f6f8fa; --ai-bg:#ddf4ff; --user-bg:#fff8c5;
     --hl-comment:#6e7781; --hl-kw:#cf222e; --hl-str:#0a3069; --hl-num:#0550ae; --hl-fn:#8250df; --hl-type:#953800; --hl-attr:#0550ae;
@@ -36,8 +36,8 @@
       --bg:#0d1117; --panel:#161b22; --card:#0d1117; --text:#f0f6fc; --muted:#9198a1;
       --border:#30363d; --border-muted:#21262d; --header:#010409; --header-text:#f0f6fc;
       --control-bg:#21262d; --control-hover:#30363d; --control-border:#3d444d; --accent-emphasis:#1f6feb; --fg-on-emphasis:#ffffff;
-      --add-bg:rgba(46,160,67,.15); --add-word:rgba(46,160,67,.4); --add-ln:rgba(46,160,67,.3);
-      --del-bg:rgba(248,81,73,.1); --del-word:rgba(248,81,73,.4); --del-ln:rgba(248,81,73,.3);
+      --add-bg:rgba(46,160,67,.15); --add-word:rgba(46,160,67,.55); --add-word-edge:#56d364; --add-ln:rgba(46,160,67,.3);
+      --del-bg:rgba(248,81,73,.1); --del-word:rgba(248,81,73,.55); --del-word-edge:#ff7b72; --del-ln:rgba(248,81,73,.3);
       --ctx:#f0f6fc; --ln:#0d1117; --ln-text:#9198a1; --hunk-bg:rgba(56,139,253,.1); --hunk-text:#9198a1;
       --annot:#161b22; --ai-bg:rgba(56,139,253,.1); --user-bg:rgba(187,128,9,.15);
       --hl-comment:#8b949e; --hl-kw:#ff7b72; --hl-str:#a5d6ff; --hl-num:#79c0ff; --hl-fn:#d2a8ff; --hl-type:#ffa657; --hl-attr:#79c0ff;
@@ -51,8 +51,8 @@
     --bg:#0d1117; --panel:#161b22; --card:#0d1117; --text:#f0f6fc; --muted:#9198a1;
     --border:#30363d; --border-muted:#21262d; --header:#010409; --header-text:#f0f6fc;
     --control-bg:#21262d; --control-hover:#30363d; --control-border:#3d444d; --accent-emphasis:#1f6feb; --fg-on-emphasis:#ffffff;
-    --add-bg:rgba(46,160,67,.15); --add-word:rgba(46,160,67,.4); --add-ln:rgba(46,160,67,.3);
-    --del-bg:rgba(248,81,73,.1); --del-word:rgba(248,81,73,.4); --del-ln:rgba(248,81,73,.3);
+    --add-bg:rgba(46,160,67,.15); --add-word:rgba(46,160,67,.55); --add-word-edge:#56d364; --add-ln:rgba(46,160,67,.3);
+    --del-bg:rgba(248,81,73,.1); --del-word:rgba(248,81,73,.55); --del-word-edge:#ff7b72; --del-ln:rgba(248,81,73,.3);
     --ctx:#f0f6fc; --ln:#0d1117; --ln-text:#9198a1; --hunk-bg:rgba(56,139,253,.1); --hunk-text:#9198a1;
     --annot:#161b22; --ai-bg:rgba(56,139,253,.1); --user-bg:rgba(187,128,9,.15);
     --hl-comment:#8b949e; --hl-kw:#ff7b72; --hl-str:#a5d6ff; --hl-num:#79c0ff; --hl-fn:#d2a8ff; --hl-type:#ffa657; --hl-attr:#79c0ff;
@@ -403,8 +403,9 @@
   .code { white-space:pre-wrap; word-break:break-word; color:var(--ctx); }
   .marker { display:inline-block; width:1ch; margin-right:.4ch; color:var(--muted); }
   .line-add .marker { color:var(--green); } .line-del .marker { color:var(--red); }
-  .line-add { background:var(--add-bg); } .line-add .wd { background:var(--add-word); border-radius:2px; }
-  .line-del { background:var(--del-bg); } .line-del .wd { background:var(--del-word); border-radius:2px; }
+  .line-add { background:var(--add-bg); } .line-add .wd { background:var(--add-word); box-shadow:inset 0 -2px var(--add-word-edge); }
+  .line-del { background:var(--del-bg); } .line-del .wd { background:var(--del-word); box-shadow:inset 0 -2px var(--del-word-edge); }
+  .wd { border-radius:2px; font-weight:700; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
   .line-add > .ln,.line-add > .gutter { background:var(--add-ln); }
   .line-del > .ln,.line-del > .gutter { background:var(--del-ln); }
   .code.empty { background:repeating-linear-gradient(45deg,transparent,transparent 6px,var(--panel) 6px,var(--panel) 12px); }

@@ -5,12 +5,15 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
+import { createHash } from "node:crypto";
 import { errorMessage, parseJson } from "./lib/cli.mjs";
+import { detectChangeGroups } from "./lib/change-groups.mjs";
+import { parseDetectorRuleSet } from "./lib/repeated-changes.mjs";
 
 type ReviewMode = "workspace" | "lm-analysis" | "deep-audit";
 
 interface Args {
-  command?: "quick" | "prepare" | "finish";
+  command?: "quick" | "prepare" | "refine" | "finish";
   repo: string;
   pr: string;
   mode: ReviewMode;
@@ -19,6 +22,7 @@ interface Args {
   dir?: string;
   input?: string;
   result?: string;
+  rules?: string;
   out?: string;
   explicit: boolean;
   open: boolean;
@@ -67,6 +71,11 @@ interface WorkflowInput {
     html: string;
     metrics: string;
   };
+  adaptiveDetection?: {
+    rules: string;
+    ruleHash: string;
+    ruleCount: number;
+  };
 }
 
 interface CombinedResult {
@@ -93,6 +102,9 @@ function usage(message?: string): never {
     [--mode workspace|lm-analysis|deep-audit] [--base <ref>] [--dir <path>]
     [--explicit]
 
+  node trace-review.mjs refine --input <analysis-input.json>
+    --rules <detector-rules.json>
+
   node trace-review.mjs finish --input <analysis-input.json>
     --result <review-result.json> [--out <review.html>] [--open]`);
   process.exit(message ? 1 : 0);
@@ -106,7 +118,10 @@ function normalizeMode(value: string): ReviewMode {
 
 function parseArgs(argv: readonly string[]): Args {
   const first = argv[0];
-  const command = first === "quick" || first === "prepare" || first === "finish" ? first : "quick";
+  const command =
+    first === "quick" || first === "prepare" || first === "refine" || first === "finish"
+      ? first
+      : "quick";
   const args: Args = {
     command,
     repo: process.cwd(),
@@ -116,7 +131,8 @@ function parseArgs(argv: readonly string[]): Args {
     explicit: false,
     open: command === "quick",
   };
-  const optionStart = first === "quick" || first === "prepare" || first === "finish" ? 1 : 0;
+  const optionStart =
+    first === "quick" || first === "prepare" || first === "refine" || first === "finish" ? 1 : 0;
   for (let index = optionStart; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--repo") args.repo = argv[++index];
@@ -126,6 +142,7 @@ function parseArgs(argv: readonly string[]): Args {
     else if (arg === "--dir") args.dir = argv[++index];
     else if (arg === "--input") args.input = argv[++index];
     else if (arg === "--result") args.result = argv[++index];
+    else if (arg === "--rules") args.rules = argv[++index];
     else if (arg === "--out") args.out = argv[++index];
     else if (arg === "--explicit") args.explicit = true;
     else if (arg === "--open") args.open = true;
@@ -248,7 +265,7 @@ function prepare(args: Args, announceNext = true): void {
       "readAfter",
     ],
     guidance:
-      "Assign every candidate change ID exactly once. Use change-specific titles grounded in titleEvidence; never reuse classifier labels.",
+      "Preserve detector-authored repeated-change units as dedicated mechanical groups. Assign every candidate change ID exactly once. Use change-specific titles grounded in titleEvidence; never reuse classifier labels.",
   };
   input.resultContract = {
     path: relative(inputPath, resultPath),
@@ -385,6 +402,56 @@ function quick(args: Args): void {
   });
 }
 
+function refine(args: Args): void {
+  if (!args.input) usage("refine requires --input");
+  if (!args.rules) usage("refine requires --rules");
+  const inputPath = path.resolve(args.input);
+  const rulesPath = path.resolve(args.rules);
+  const input = parseJson(fs.readFileSync(inputPath, "utf8")) as WorkflowInput;
+  const baseDir = path.dirname(inputPath);
+  const resolveArtifact = (artifact: keyof WorkflowInput["workflow"]): string =>
+    path.resolve(baseDir, input.workflow[artifact]);
+  const ruleSource = fs.readFileSync(rulesPath, "utf8");
+  const ruleSet = parseDetectorRuleSet(parseJson(ruleSource));
+  const patch = fs.readFileSync(resolveArtifact("patch"), "utf8");
+  const contextPath = resolveArtifact("context");
+  const context = parseJson(fs.readFileSync(contextPath, "utf8")) as {
+    preflight?: Parameters<typeof detectChangeGroups>[1];
+    changeGroups?: unknown;
+  };
+  const changeGroups = detectChangeGroups(patch, context.preflight, {
+    detectorRules: ruleSet.rules,
+  });
+  context.changeGroups = changeGroups;
+  writeJson(contextPath, context);
+  writeJson(resolveArtifact("candidates"), changeGroups);
+  input.facts.changeGroups = changeGroups;
+  input.adaptiveDetection = {
+    rules: relative(inputPath, rulesPath),
+    ruleHash: createHash("sha256").update(ruleSource).digest("hex"),
+    ruleCount: ruleSet.rules.length,
+  };
+  input.groupingContract.guidance =
+    "Preserve detector-authored repeated-change units as dedicated mechanical groups. Assign every candidate change ID exactly once and use change-specific titles grounded in titleEvidence.";
+  writeJson(inputPath, input);
+
+  const metricsPath = resolveArtifact("metrics");
+  let metrics: Record<string, unknown> = {};
+  try {
+    metrics = parseJson(fs.readFileSync(metricsPath, "utf8")) as Record<string, unknown>;
+  } catch {}
+  writeJson(metricsPath, {
+    ...metrics,
+    expectedAgentActions: 7,
+    adaptiveDetection: {
+      ruleCount: ruleSet.rules.length,
+      ruleHash: input.adaptiveDetection.ruleHash,
+    },
+  });
+  console.log(`Refined candidates with ${ruleSet.rules.length} adaptive detector rule(s)`);
+  console.log(`Updated ${inputPath}`);
+}
+
 function finish(args: Args): void {
   if (!args.input) usage("finish requires --input");
   if (!args.result) usage("finish requires --result");
@@ -507,7 +574,7 @@ function finish(args: Args): void {
   writeJson(resolveArtifact("metrics"), {
     ...preparedMetrics,
     ...buildMetrics,
-    expectedAgentActions: 5,
+    expectedAgentActions: input.adaptiveDetection ? 7 : 5,
     finish: {
       durationMs: Math.round((performance.now() - started) * 10) / 10,
       internalCommands,
@@ -522,6 +589,7 @@ if (args.help || !args.command) usage();
 try {
   if (args.command === "quick") quick(args);
   else if (args.command === "prepare") prepare(args);
+  else if (args.command === "refine") refine(args);
   else finish(args);
 } catch (error: unknown) {
   console.error(`Error: ${errorMessage(error)}`);

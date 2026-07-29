@@ -1,5 +1,11 @@
 import path from "node:path";
 import { decodeGitPath, parseDiffPaths } from "./preflight.mjs";
+import {
+  discoverRepeatedChanges,
+  type DetectorRule,
+  type EditAtom,
+  type RepeatedChangePattern,
+} from "./repeated-changes.mjs";
 import type { PatchAnalysis, PreflightFile } from "./preflight.mjs";
 
 export interface LineRange {
@@ -16,6 +22,8 @@ export interface PatchChange {
   header: string;
   oldRange: LineRange | null;
   newRange: LineRange | null;
+  hunks: number[];
+  rows: string[];
   added: string[];
   deleted: string[];
   binary: boolean;
@@ -34,6 +42,8 @@ export interface GroupedChange {
   hunk: number | null;
   oldRange: LineRange | null;
   newRange: LineRange | null;
+  hunks: number[];
+  rows: string[];
   label: string;
   topic: string;
   definitions: string[];
@@ -79,8 +89,15 @@ export interface ChangeGrouping {
   schemaVersion: 1;
   groups: ChangeGroup[];
   dependencyGraph: DependencyGraph;
-  inventory: Array<Pick<PatchChange, "id" | "file" | "hunk" | "oldRange" | "newRange">>;
+  inventory: Array<
+    Pick<PatchChange, "id" | "file" | "hunk" | "hunks" | "rows" | "oldRange" | "newRange">
+  >;
   validation: GroupingValidation;
+}
+
+export interface ChangeGroupingOptions {
+  minimumRepeatedFiles?: number;
+  detectorRules?: DetectorRule[];
 }
 
 type PreflightLike = Pick<PatchAnalysis, "files"> | { files?: PreflightFile[] };
@@ -115,8 +132,8 @@ function parseRange(start: string, count: string | undefined): LineRange {
   };
 }
 
-function changeKey(change: Pick<PatchChange, "file" | "hunk">): string {
-  return `${change.file}\u0000${change.hunk ?? "meta"}`;
+function changeKey(change: Pick<PatchChange, "id">): string {
+  return change.id;
 }
 
 export function parsePatchChanges(text: string, preflight: PreflightLike = {}): PatchChange[] {
@@ -133,6 +150,8 @@ export function parsePatchChanges(text: string, preflight: PreflightLike = {}): 
   let hunkIndex = -1;
   let binary = false;
   let renamed = false;
+  let oldLine = 0;
+  let newLine = 0;
 
   const pushHunk = () => {
     if (!hunk) return;
@@ -151,6 +170,8 @@ export function parsePatchChanges(text: string, preflight: PreflightLike = {}): 
       header: binary ? "Binary change" : renamed ? "Rename metadata" : "Metadata-only change",
       oldRange: null,
       newRange: null,
+      hunks: [],
+      rows: [],
       added: [],
       deleted: [],
       binary: binary || Boolean(facts?.binary),
@@ -199,6 +220,8 @@ export function parsePatchChanges(text: string, preflight: PreflightLike = {}): 
         header: match[5].trim(),
         oldRange: parseRange(match[1], match[2]),
         newRange: parseRange(match[3], match[4]),
+        hunks: [hunkIndex],
+        rows: [],
         added: [],
         deleted: [],
         binary: false,
@@ -206,11 +229,21 @@ export function parsePatchChanges(text: string, preflight: PreflightLike = {}): 
         fileType: facts?.type ?? "other",
         renamed,
       };
+      oldLine = Number(match[1]);
+      newLine = Number(match[3]);
       continue;
     }
     if (!hunk) continue;
-    if (line.startsWith("+") && !line.startsWith("+++")) hunk.added.push(line.slice(1));
-    else if (line.startsWith("-") && !line.startsWith("---")) hunk.deleted.push(line.slice(1));
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      hunk.added.push(line.slice(1));
+      hunk.rows.push(`${file}#h${hunkIndex}:a${newLine++}`);
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      hunk.deleted.push(line.slice(1));
+      hunk.rows.push(`${file}#h${hunkIndex}:d${oldLine++}`);
+    } else if (line.startsWith(" ")) {
+      oldLine++;
+      newLine++;
+    }
   }
   pushMetadata();
   return changes;
@@ -236,14 +269,6 @@ function changedLines(change: PatchChange): string[] {
 function isImportOnly(change: PatchChange): boolean {
   const lines = changedLines(change);
   return lines.length > 0 && lines.every((line) => IMPORT_RE.test(line));
-}
-
-function includeSignatures(change: PatchChange): string[] {
-  return [
-    ...new Set(
-      change.added.map((line) => line.trim()).filter((line) => /^#\s*include\b/.test(line)),
-    ),
-  ];
 }
 
 function rangeLabel(change: PatchChange): string {
@@ -295,6 +320,8 @@ function makeGroup(
       id: change.id,
       file: change.file,
       hunk: change.hunk,
+      hunks: change.hunks,
+      rows: change.rows,
       oldRange: change.oldRange,
       newRange: change.newRange,
       label: rangeLabel(change),
@@ -422,7 +449,7 @@ function buildDependencyGraph(
 
 export function validateGrouping(
   grouping: Pick<ChangeGrouping, "groups">,
-  inventory: Array<Pick<PatchChange, "file" | "hunk">> = [],
+  inventory: Array<Pick<PatchChange, "id">> = [],
 ): GroupingValidation {
   const diagnostics: GroupingDiagnostic[] = [];
   const expected = new Set(inventory.map(changeKey));
@@ -481,8 +508,113 @@ export function validateGrouping(
   return { valid: diagnostics.length === 0, diagnostics };
 }
 
-export function detectChangeGroups(text: string, preflight: PreflightLike = {}): ChangeGrouping {
-  const inventory = parsePatchChanges(text, preflight);
+function rangeForAtoms(atoms: readonly EditAtom[], side: "add" | "delete"): LineRange | null {
+  const lines = atoms.filter((atom) => atom.side === side).map((atom) => atom.line);
+  if (!lines.length) return null;
+  return {
+    start: Math.min(...lines),
+    end: Math.max(...lines),
+    count: lines.length,
+  };
+}
+
+function changeFromAtoms(
+  id: string,
+  atoms: readonly EditAtom[],
+  sources: readonly PatchChange[],
+  topic: string,
+): PatchChange {
+  const source = sources[0];
+  const hunks = [...new Set(atoms.map((atom) => atom.hunk))].sort((a, b) => a - b);
+  return {
+    id,
+    file: source.file,
+    oldFile: source.oldFile,
+    hunk: hunks.length === 1 ? hunks[0] : null,
+    hunks,
+    rows: atoms.map((atom) => atom.id),
+    header: hunks.length === 1 ? source.header : topic,
+    oldRange: rangeForAtoms(atoms, "delete"),
+    newRange: rangeForAtoms(atoms, "add"),
+    added: atoms.filter((atom) => atom.side === "add").map((atom) => atom.text),
+    deleted: atoms.filter((atom) => atom.side === "delete").map((atom) => atom.text),
+    binary: source.binary,
+    generated: source.generated,
+    fileType: source.fileType,
+    renamed: source.renamed,
+  };
+}
+
+function splitRepeatedChanges(
+  text: string,
+  hunks: readonly PatchChange[],
+  options: ChangeGroupingOptions,
+): {
+  inventory: PatchChange[];
+  repeated: Array<{ pattern: RepeatedChangePattern; changes: PatchChange[] }>;
+} {
+  const discovery = discoverRepeatedChanges(text, {
+    minimumFiles: options.minimumRepeatedFiles,
+    rules: options.detectorRules,
+  });
+  const atomById = new Map(discovery.atoms.map((atom) => [atom.id, atom]));
+  const sourceByRow = new Map<string, PatchChange>();
+  for (const change of hunks) {
+    for (const row of change.rows) sourceByRow.set(row, change);
+  }
+  const repeated: Array<{ pattern: RepeatedChangePattern; changes: PatchChange[] }> = [];
+  for (const pattern of discovery.patterns) {
+    const changes: PatchChange[] = [];
+    for (const occurrence of pattern.occurrences) {
+      const atoms = occurrence.atomIds
+        .map((id) => atomById.get(id))
+        .filter((atom): atom is EditAtom => atom !== undefined);
+      const sources = occurrence.atomIds
+        .map((id) => sourceByRow.get(id))
+        .filter((change): change is PatchChange => change !== undefined);
+      if (atoms.length && sources.length) {
+        changes.push(
+          changeFromAtoms(`${occurrence.file}#${pattern.id}`, atoms, sources, pattern.title),
+        );
+      }
+    }
+    if (changes.length) repeated.push({ pattern, changes });
+  }
+
+  const inventory = repeated.flatMap((entry) => entry.changes);
+  for (const change of hunks) {
+    if (!change.rows.length) {
+      inventory.push(change);
+      continue;
+    }
+    const remainingAtoms = change.rows
+      .filter((row) => discovery.assignments[row] === undefined)
+      .map((row) => atomById.get(row))
+      .filter((atom): atom is EditAtom => atom !== undefined);
+    if (!remainingAtoms.length) continue;
+    inventory.push(
+      changeFromAtoms(
+        remainingAtoms.length === change.rows.length ? change.id : `${change.id}:residual`,
+        remainingAtoms,
+        [change],
+        change.header,
+      ),
+    );
+  }
+  return { inventory, repeated };
+}
+
+export function detectChangeGroups(
+  text: string,
+  preflight: PreflightLike = {},
+  options: ChangeGroupingOptions = {},
+): ChangeGrouping {
+  const parsedHunks = parsePatchChanges(text, preflight);
+  const { inventory, repeated: repeatedPatterns } = splitRepeatedChanges(
+    text,
+    parsedHunks,
+    options,
+  );
   const remaining = new Map(inventory.map((change) => [change.id, change]));
   const groups: ChangeGroup[] = [];
   let serial = 0;
@@ -507,33 +639,21 @@ export function detectChangeGroups(text: string, preflight: PreflightLike = {}):
     );
   };
 
-  const repeated = new Map<string, PatchChange[]>();
-  for (const change of inventory) {
-    // A repeated include only makes the whole hunk mechanical when every
-    // changed line is import-like. Mixed hunks stay substantive and visible.
-    if (!isImportOnly(change)) continue;
-    for (const signature of includeSignatures(change)) {
-      const matches = repeated.get(signature) ?? [];
-      matches.push(change);
-      repeated.set(signature, matches);
-    }
-  }
-  for (const [signature, candidates] of repeated) {
-    const unique = candidates.filter((change) => remaining.has(change.id));
-    if (unique.length < 2) continue;
+  for (const { pattern, changes } of repeatedPatterns) {
+    const unique = changes.filter((change) => remaining.has(change.id));
     unique.forEach((change) => remaining.delete(change.id));
     add(
-      `Repeat ${signature}`,
+      pattern.title,
       "mechanical",
-      "Apply the same dependency include wherever the changed code needs it.",
+      "Review one repeated edit pattern across every matching file.",
       "low",
-      0.98,
+      pattern.confidence,
       [
-        "Confirm every changed unit needs the include.",
-        "Check that no include introduces an ordering or platform dependency.",
+        "Confirm the inferred pattern describes every occurrence.",
+        "Inspect any unmatched rows in the same files separately.",
       ],
       unique,
-      [`The exact added line '${signature}' repeats in ${unique.length} change units.`],
+      [`${pattern.kind} pattern '${pattern.signature}' repeats across ${pattern.support} files.`],
     );
   }
 
@@ -665,6 +785,8 @@ export function detectChangeGroups(text: string, preflight: PreflightLike = {}):
       id: change.id,
       file: change.file,
       hunk: change.hunk,
+      hunks: change.hunks,
+      rows: change.rows,
       oldRange: change.oldRange,
       newRange: change.newRange,
     })),

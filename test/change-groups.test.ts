@@ -76,9 +76,14 @@ test("detects hunk-level groups with rationale, dependencies, and full coverage"
   assert.equal(grouping.validation.valid, true);
   assert.equal(grouping.groups.flatMap((group) => group.changes).length, grouping.inventory.length);
   const includes = grouping.groups.find((group) => group.title.startsWith("Repeat #include"));
-  assert.equal(includes.changes.length, 2);
-  assert.ok(!includes.changes.some((change) => change.file === "src/mixed.cpp"));
-  assert.equal(includes.confidence, 0.98);
+  assert.equal(includes.changes.length, 3);
+  assert.ok(includes.changes.some((change) => change.file === "src/mixed.cpp"));
+  assert.ok(
+    includes.changes
+      .find((change) => change.file === "src/mixed.cpp")
+      ?.rows.every((row) => row.includes(":a")),
+  );
+  assert.equal(includes.confidence, 1);
   assert.ok(includes.evidence.length);
   assert.ok(includes.reviewerChecks.length);
   assert.ok(grouping.groups.some((group) => group.title === "Definitions"));
@@ -89,6 +94,36 @@ test("detects hunk-level groups with rationale, dependencies, and full coverage"
     grouping.dependencyGraph.suggestedOrder.at(-1),
     grouping.groups.find((group) => group.title === "Associated tests").id,
   );
+});
+
+test("extracts repeated rows from mixed hunks without duplicating them in substantive groups", () => {
+  const mixedRepeatedPatch = ["a", "b", "c"]
+    .map(
+      (name, index) => `diff --git a/src/${name}.cpp b/src/${name}.cpp
+--- a/src/${name}.cpp
++++ b/src/${name}.cpp
+@@ -1 +1,3 @@
+ int ${name};
++enableNewCache();
++int value = ${index};
+`,
+    )
+    .join("");
+
+  const grouping = detectChangeGroups(mixedRepeatedPatch, analyzePatch(mixedRepeatedPatch));
+  const repeated = grouping.groups.find((group) => group.title.includes("enableNewCache"));
+
+  assert.ok(repeated);
+  assert.equal(repeated.kind, "mechanical");
+  assert.equal(repeated.changes.length, 3);
+  assert.ok(repeated.changes.every((change) => change.rows?.length === 1));
+  const repeatedRowIds = new Set(repeated.changes.flatMap((change) => change.rows || []));
+  const otherRowIds = grouping.groups
+    .filter((group) => group !== repeated)
+    .flatMap((group) => group.changes)
+    .flatMap((change) => change.rows || []);
+  assert.ok(otherRowIds.every((rowId) => !repeatedRowIds.has(rowId)));
+  assert.equal(grouping.validation.valid, true);
 });
 
 test("rejects overlapping and missing assignments instead of hiding them", () => {
@@ -211,6 +246,34 @@ test("builder consumes group files as reviewer-visible, read-only decisions", (t
   );
 
   const html = fs.readFileSync(outPath, "utf8");
+  const embeddedData =
+    /<script id="review-data" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
+  assert.ok(embeddedData);
+  const renderedFiles = Object.entries(
+    JSON.parse(embeddedData[1]) as Record<
+      string,
+      { path: string; hunks: Array<{ rows: Array<{ c: string }> }> }
+    >,
+  )
+    .filter(([key]) => key.includes("__cg"))
+    .map(([, file]) => file);
+  const mixedViews = renderedFiles.filter((file) => file.path === "src/mixed.cpp");
+  const includeView = mixedViews.find((file) =>
+    file.hunks.some((hunk) => hunk.rows.some((row) => row.c.includes('#include "trace.h"'))),
+  );
+  const behaviorView = mixedViews.find((file) =>
+    file.hunks.some((hunk) => hunk.rows.some((row) => row.c.includes("int behavior = 42"))),
+  );
+  assert.ok(includeView);
+  assert.ok(behaviorView);
+  assert.ok(
+    !includeView.hunks.some((hunk) => hunk.rows.some((row) => row.c.includes("int behavior = 42"))),
+  );
+  assert.ok(
+    !behaviorView.hunks.some((hunk) =>
+      hunk.rows.some((row) => row.c.includes('#include "trace.h"')),
+    ),
+  );
   assert.doesNotMatch(html, /Suggested reading order/);
   assert.doesNotMatch(html, /change-group-select/);
   assert.match(html, /Reviewer checks/);

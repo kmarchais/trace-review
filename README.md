@@ -17,6 +17,7 @@ The language model does not generate the HTML document. It creates structured re
 ```text
 local diff or pull request
   → prepare collects facts and the diff
+  → automatic repeated-change discovery; optional adaptive refinement
   → the LM writes one structured result
   → finish validates it and builds review.html from the template
 ```
@@ -100,7 +101,10 @@ The coding-agent workflow is also available:
 - Or ask your coding agent to review a branch or pull request with Trace Review.
 - For a GitHub-backed review, use **Share review → GitHub review** to preview native threads and summary fallbacks before publishing.
 
-See the authored [skill instructions](SKILL.source.md), the [review specification](REVIEW-SPEC.md), and the [operational boundaries](docs/LIMITATIONS.md).
+See the authored [skill instructions](SKILL.source.md), the
+[adaptive detector format](docs/ADAPTIVE-DETECTORS.md), the
+[review specification](REVIEW-SPEC.md), and the
+[operational boundaries](docs/LIMITATIONS.md).
 
 ## Develop
 

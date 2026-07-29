@@ -96,6 +96,52 @@ test("LM grouping uses change-specific names and keeps same-group hunks together
   assert.equal(grouping.validation.valid, true);
 });
 
+test("LM grouping keeps deterministic repeated patterns dedicated and unsplit", () => {
+  const repeatedPatch = ["a", "b", "c"]
+    .map(
+      (name, index) => `diff --git a/src/${name}.cpp b/src/${name}.cpp
+--- a/src/${name}.cpp
++++ b/src/${name}.cpp
+@@ -1 +1,3 @@
+ int ${name};
++enableNewCache();
++int value = ${index};
+`,
+    )
+    .join("");
+  const facts = detectChangeGroups(repeatedPatch, analyzePatch(repeatedPatch));
+  const repeatedIds = facts.groups
+    .find((group) => group.title.includes("enableNewCache"))
+    .changes.map((change) => change.id);
+  const residualIds = facts.inventory
+    .map((change) => change.id)
+    .filter((id) => !repeatedIds.includes(id));
+  const mixed = {
+    groups: [
+      {
+        title: "Cache and value updates",
+        intent: "Review all changes together.",
+        risk: "low",
+        confidence: 0.9,
+        evidence: ["All rows change together."],
+        reviewerChecks: ["Inspect the changes."],
+        changeIds: [...repeatedIds, ...residualIds],
+        titleEvidence: {
+          changeIds: [repeatedIds[0]],
+          rationale: "The repeated cache row grounds the title.",
+        },
+      },
+    ],
+  };
+
+  const validation = validateLmGroupingResult(mixed, facts);
+
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.diagnostics.some((diagnostic) => diagnostic.code === "mixed-repeated-pattern"),
+  );
+});
+
 test("LM grouping allows one file to participate in distinct semantic groups", () => {
   const facts = candidates();
   const [firstSource, secondSource, thirdSource] = facts.inventory.filter(

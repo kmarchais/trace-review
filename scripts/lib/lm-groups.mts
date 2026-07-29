@@ -87,6 +87,11 @@ export function validateLmGroupingResult(
   const assigned = new Map<string, string>();
   const titles = new Map<string, LmGroupingCandidateGroup>();
   const groups = Array.isArray(result?.groups) ? result.groups : [];
+  const repeatedAssignments = new Map<string, Set<string>>();
+  const repeatedPattern = (changeId: string): string | null => {
+    const suffix = changeId.slice(changeId.lastIndexOf("#") + 1);
+    return /^(?:rp|rule)-[A-Za-z0-9_-]+$/.test(suffix) ? suffix : null;
+  };
 
   if (!groups.length) {
     diagnostics.push({
@@ -185,6 +190,24 @@ export function validateLmGroupingResult(
       });
       continue;
     }
+    const repeatedPatterns = new Set(
+      changeIds.map(repeatedPattern).filter((pattern): pattern is string => pattern !== null),
+    );
+    const includesResidual = changeIds.some((changeId) => repeatedPattern(changeId) === null);
+    if (repeatedPatterns.size > 1 || (repeatedPatterns.size === 1 && includesResidual)) {
+      diagnostics.push({
+        level: "error",
+        code: "mixed-repeated-pattern",
+        group: groupLabel,
+        message:
+          "A deterministic repeated-change pattern must remain in its own dedicated mechanical group.",
+      });
+    }
+    for (const pattern of repeatedPatterns) {
+      const owners = repeatedAssignments.get(pattern) ?? new Set<string>();
+      owners.add(groupLabel);
+      repeatedAssignments.set(pattern, owners);
+    }
 
     for (const changeId of changeIds) {
       const change = expected.get(changeId);
@@ -210,6 +233,17 @@ export function validateLmGroupingResult(
       } else {
         assigned.set(changeId, groupLabel);
       }
+    }
+  }
+  for (const [pattern, owners] of repeatedAssignments) {
+    if (owners.size > 1) {
+      diagnostics.push({
+        level: "error",
+        code: "split-repeated-pattern",
+        change: pattern,
+        groups: [...owners],
+        message: `Repeated-change pattern '${pattern}' is split across semantic groups.`,
+      });
     }
   }
 

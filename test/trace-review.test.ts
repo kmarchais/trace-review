@@ -99,6 +99,112 @@ test("prepare and finish provide one bounded orchestration path", (t) => {
   assert.equal(metrics.finish.internalCommands, 3);
 });
 
+test("refine applies adaptive detector rules before semantic grouping", (t) => {
+  const repository = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-refine-"));
+  t.after(() => fs.rmSync(repository, { recursive: true, force: true }));
+
+  run("git", ["init", "-b", "main"], repository);
+  run("git", ["config", "user.email", "test@example.com"], repository);
+  run("git", ["config", "user.name", "Trace Review Test"], repository);
+  for (const name of ["a", "b", "c"]) {
+    fs.writeFileSync(
+      path.join(repository, `${name}.h`),
+      `#ifndef ${name.toUpperCase()}_H\n#define ${name.toUpperCase()}_H\nfloat value;\n#endif // ${name.toUpperCase()}_H\n`,
+    );
+  }
+  run("git", ["add", "a.h", "b.h", "c.h"], repository);
+  run("git", ["commit", "-m", "Initial"], repository);
+  for (const name of ["a", "b", "c"]) {
+    fs.writeFileSync(path.join(repository, `${name}.h`), "#pragma once\nScalar value;\n");
+  }
+
+  run(
+    process.execPath,
+    [cli, "prepare", "--repo", repository, "--pr", "none", "--base", "HEAD", "--mode", "lm"],
+    repository,
+  );
+  const reviewDir = path.join(repository, ".review");
+  const inputPath = path.join(reviewDir, "analysis-input.json");
+  const rulesPath = path.join(reviewDir, "detector-rules.json");
+  fs.writeFileSync(
+    rulesPath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      rules: [
+        {
+          id: "header-guards",
+          title: "Replace header guards",
+          minimumFiles: 3,
+          operations: [
+            { side: "add", pattern: "# pragma once", location: "start" },
+            { side: "delete", pattern: "# ifndef $guard", location: "start" },
+            { side: "delete", pattern: "# define $guard", location: "start" },
+            { side: "delete", pattern: "# endif // $guard", location: "end" },
+          ],
+        },
+      ],
+    })}\n`,
+  );
+
+  run(process.execPath, [cli, "refine", "--input", inputPath, "--rules", rulesPath], repository);
+
+  const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
+  const adaptiveGroup = input.facts.changeGroups.groups.find(
+    (group: { title: string }) => group.title === "Replace header guards",
+  );
+  const metrics = JSON.parse(fs.readFileSync(path.join(reviewDir, "run-metrics.json"), "utf8"));
+  assert.ok(adaptiveGroup);
+  assert.equal(adaptiveGroup.changes.length, 3);
+  assert.ok(adaptiveGroup.changes.every((change: { rows: string[] }) => change.rows.length === 4));
+  assert.equal(input.adaptiveDetection.ruleCount, 1);
+  assert.equal(metrics.expectedAgentActions, 7);
+
+  const resultPath = path.join(reviewDir, "review-result.json");
+  fs.writeFileSync(
+    resultPath,
+    `${JSON.stringify({
+      summary: "Updates repeated header patterns and scalar declarations.",
+      groups: input.facts.changeGroups.groups.map(
+        (
+          group: {
+            title: string;
+            kind: string;
+            risk: string;
+            confidence: number;
+            changes: Array<{ id: string }>;
+          },
+          index: number,
+        ) => ({
+          title: group.title,
+          kind: group.kind,
+          intent: `Review repeated decision ${index + 1}.`,
+          risk: group.risk,
+          confidence: group.confidence,
+          evidence: [`The deterministic detector found ${group.changes.length} occurrences.`],
+          reviewerChecks: ["Confirm every occurrence matches the inferred transformation."],
+          titleEvidence: {
+            changeIds: [group.changes[0].id],
+            rationale: "The cited occurrence grounds the repeated-change title.",
+          },
+          changeIds: group.changes.map((change) => change.id),
+          readAfter: [],
+        }),
+      ),
+      review: {
+        verdict: "comment",
+        global: "The repeated transformations remain isolated.",
+        findings: [],
+      },
+    })}\n`,
+  );
+  run(process.execPath, [cli, "finish", "--input", inputPath, "--result", resultPath], repository);
+  const finishedMetrics = JSON.parse(
+    fs.readFileSync(path.join(reviewDir, "run-metrics.json"), "utf8"),
+  );
+  assert.ok(fs.statSync(path.join(reviewDir, "review.html")).size > 0);
+  assert.equal(finishedMetrics.expectedAgentActions, 7);
+});
+
 test("the command defaults to a quick workspace review", (t) => {
   const repository = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-quick-"));
   t.after(() => fs.rmSync(repository, { recursive: true, force: true }));
