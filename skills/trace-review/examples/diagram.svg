@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 90" role="img" aria-labelledby="title">
+  <title id="title">Example review flow</title>
+  <rect x="10" y="22" width="110" height="44" rx="8" fill="#DAEFF8" stroke="#357290"/>
+  <text x="65" y="49" text-anchor="middle" fill="#357290">Collect facts</text>
+  <path d="M125 44h62" stroke="#357290" marker-end="url(#arrow)"/>
+  <rect x="192" y="22" width="118" height="44" rx="8" fill="#FDF3E7" stroke="#E78F1F"/>
+  <text x="251" y="49" text-anchor="middle" fill="#8A5310">Review changes</text>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0l10 5-10 5z" fill="#357290"/></marker></defs>
+</svg>
