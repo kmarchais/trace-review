@@ -165,7 +165,8 @@ interface StoredFileComment {
 interface ReviewState {
   general: Record<string, string>;
   lines: Record<string, StoredLineComment>;
-  aiState: Record<string, "accepted" | "dismissed">;
+  aiState: Record<string, string>;
+  aiReply: Record<string, boolean>;
   files: Record<string, StoredFileComment>;
   viewed: Record<string, boolean>;
   grouping: Record<string, "grouped" | "raw">;
@@ -181,6 +182,8 @@ interface AutomatedFinding {
   body: string;
   confidence: number;
   rationale: string;
+  options?: string[];
+  suggestedChange?: string;
 }
 
 interface AutomatedReview {
@@ -237,6 +240,7 @@ function eventElement(event: Event): UiElement | null {
     general: {},
     lines: {},
     aiState: {},
+    aiReply: {},
     files: {},
     viewed: {},
     grouping: {},
@@ -249,6 +253,7 @@ function eventElement(event: Event): UiElement | null {
   state.general = state.general || {};
   state.lines = state.lines || {};
   state.aiState = state.aiState || {};
+  state.aiReply = state.aiReply || {};
   state.files = state.files || {};
   state.viewed = state.viewed || {};
   state.grouping = state.grouping || {};
@@ -894,6 +899,14 @@ function eventElement(event: Event): UiElement | null {
   });
 
   // ---- LM review (inline rows + findings list) ----
+  function findingOptions(finding: AutomatedFinding): string[] {
+    return finding.options?.length
+      ? finding.options
+      : ["Address this finding", "Keep current approach"];
+  }
+  function findingReviewed(id: string): boolean {
+    return Boolean(state.aiState[id] || state.aiReply[id]);
+  }
   function insertAiRow(g: UiElement, c: AutomatedFinding, pr: string): void {
     const tr = g.closest("tr");
     const mount = g.closest(".diff-mount");
@@ -904,39 +917,52 @@ function eventElement(event: Event): UiElement | null {
     row.dataset.aid = aiId;
     const td = document.createElement("td");
     td.colSpan = tr.children.length;
+    const options = findingOptions(c);
     td.innerHTML = `<div class="ai-box">
       <div class="ai-box-head"><span class="who">✦ ${escAttr(REVIEWER)}</span><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span></div>
       <div class="ai-box-body">${renderFindingMarkdown(c.body)}</div>
       <div class="ai-rationale"><strong>Why:</strong> ${renderInlineMarkdown(c.rationale)}</div>
-      <div class="ai-box-actions"><button data-a="accept">✓ Accept</button><button data-a="dismiss">✕ Dismiss</button><button data-a="reply">Reply</button><span class="ai-state"></span></div>
+      ${c.suggestedChange ? `<div class="ai-suggested-change"><strong>Proposed change</strong><pre><code>${escAttr(c.suggestedChange)}</code></pre></div>` : ""}
+      <div class="ai-box-actions">${options.map((option, index) => `<button data-option="${index}">${escAttr(option)}</button>`).join("")}<button data-a="reply">Reply</button><span class="ai-state"></span></div>
     </div>`;
     highlightMarkdownCode(td);
     row.appendChild(td);
     tr.after(row);
-    const acc = td.querySelector('[data-a="accept"]'),
-      dis = td.querySelector('[data-a="dismiss"]'),
+    const optionButtons = [...td.querySelectorAll("[data-option]")],
       rep = td.querySelector('[data-a="reply"]'),
       st = td.querySelector(".ai-state");
     const refresh = () => {
       const s = state.aiState[aiId] || "";
-      row.classList.toggle("dismissed", s === "dismissed");
-      acc.classList.toggle("on-accept", s === "accepted");
-      dis.classList.toggle("on-dismiss", s === "dismissed");
-      st.textContent = s ? s : "";
+      const replying = Boolean(state.aiReply[aiId]);
+      optionButtons.forEach((button, index) =>
+        button.classList.toggle("on-option", s === options[index]),
+      );
+      rep.classList.toggle("on-reply", replying);
+      st.textContent = [s, replying ? "reply" : ""].filter(Boolean).join(" + ");
     };
-    const set = (s: "accepted" | "dismissed"): void => {
-      if (state.aiState[aiId] === s) delete state.aiState[aiId];
-      else state.aiState[aiId] = s;
+    const changed = (): void => {
       save();
       refresh();
       renderFindingList();
       updateProgress();
+      refreshTree();
     };
-    acc.addEventListener("click", () => set("accepted"));
-    dis.addEventListener("click", () => set("dismissed"));
+    optionButtons.forEach((button, index) =>
+      button.addEventListener("click", () => {
+        const option = options[index];
+        if (state.aiState[aiId] === option) delete state.aiState[aiId];
+        else state.aiState[aiId] = option;
+        changed();
+      }),
+    );
     rep.addEventListener("click", () => {
-      const ta = createCommentRow(g, "");
-      if (ta) ta.focus();
+      if (state.aiReply[aiId]) delete state.aiReply[aiId];
+      else state.aiReply[aiId] = true;
+      changed();
+      if (state.aiReply[aiId]) {
+        const ta = createCommentRow(g, "");
+        if (ta) ta.focus();
+      }
     });
     refresh();
   }
@@ -961,8 +987,10 @@ function eventElement(event: Event): UiElement | null {
       list.innerHTML = rev.comments
         .map((c) => {
           const s = state.aiState[pr + " " + c.aid] || "";
-          const statusHtml = s ? `<span class="fi-status ${s}">${s}</span>` : "";
-          return `<button class="finding-item sv-${escAttr(c.severity)}${s ? " done" : ""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}" data-aid="${escAttr(c.aid)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span><span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span>${statusHtml}</span><span class="finding-text">${renderInlineMarkdown(c.body)}</span></button>`;
+          const replying = Boolean(state.aiReply[pr + " " + c.aid]);
+          const status = [s, replying ? "reply" : ""].filter(Boolean).join(" + ");
+          const statusHtml = status ? `<span class="fi-status">${escAttr(status)}</span>` : "";
+          return `<button class="finding-item sv-${escAttr(c.severity)}${status ? " done" : ""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}" data-aid="${escAttr(c.aid)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span><span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span>${statusHtml}</span><span class="finding-text">${renderInlineMarkdown(c.body)}</span></button>`;
         })
         .join("");
     });
@@ -1110,7 +1138,7 @@ function eventElement(event: Event): UiElement | null {
         if (!rv) continue;
         for (const c of rv.comments) {
           ftotal++;
-          if (state.aiState[p + " " + c.aid]) fdone++;
+          if (findingReviewed(p + " " + c.aid)) fdone++;
         }
       }
       if (ftotal) html += ring(fdone, ftotal, "Reviewed");
@@ -2569,7 +2597,7 @@ function eventElement(event: Event): UiElement | null {
           key: finding.key,
           text: [finding.body, finding.rationale].join("\n"),
         })),
-        hasOpenFinding: findings.some((finding) => !state.aiState[pr + " " + finding.aid]),
+        hasOpenFinding: findings.some((finding) => !findingReviewed(pr + " " + finding.aid)),
         severities: [...new Set(findings.map((finding) => finding.severity))],
         test: isTestPath(p),
         generated: isGeneratedPath(p),
@@ -2853,7 +2881,10 @@ function eventElement(event: Event): UiElement | null {
       if (rev && rev.comments.length) {
         block += "\n**On the " + REVIEWER + " review:**\n";
         for (const c of rev.comments) {
-          const s = state.aiState[pr + " " + c.aid] || "open";
+          const id = pr + " " + c.aid;
+          const s =
+            [state.aiState[id], state.aiReply[id] ? "reply" : ""].filter(Boolean).join(" + ") ||
+            "open";
           block +=
             "- [" +
             s +
@@ -2955,7 +2986,10 @@ function eventElement(event: Event): UiElement | null {
     if (review?.comments.length) {
       summary += `\n**On the ${REVIEWER} review:**\n`;
       for (const comment of review.comments) {
-        const status = state.aiState[pr + " " + comment.aid] || "open";
+        const id = pr + " " + comment.aid;
+        const status =
+          [state.aiState[id], state.aiReply[id] ? "reply" : ""].filter(Boolean).join(" + ") ||
+          "open";
         summary +=
           `- [${status}] ${comment.file} L${comment.line} — ` +
           comment.body.replace(/\n+/g, " ").trim() +
@@ -2996,6 +3030,21 @@ function eventElement(event: Event): UiElement | null {
       exportText.focus();
       exportText.select();
     }
+  });
+  document.getElementById("clearReviewBtn").addEventListener("click", () => {
+    const confirmed = window.confirm(
+      "Clear this review?\n\n" +
+        "This removes all comments, pasted images, viewed state, finding decisions, " +
+        "and grouping choices stored for this review in this browser. This cannot be undone.",
+    );
+    if (!confirmed) return;
+    try {
+      localStorage.removeItem(STORE_KEY);
+    } catch (error) {
+      window.alert("The review could not be cleared because browser storage is unavailable.");
+      return;
+    }
+    window.location.reload();
   });
   document.getElementById("exportBtn").addEventListener("click", () => {
     exportText.value = buildMarkdown();

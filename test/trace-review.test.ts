@@ -89,7 +89,7 @@ test("prepare and finish provide one bounded orchestration path", (t) => {
 
   run(process.execPath, [cli, "finish", "--input", inputPath, "--result", resultPath], repository);
 
-  assert.ok(fs.statSync(path.join(reviewDir, "review.html")).size > 0);
+  assert.ok(fs.statSync(path.join(reviewDir, "review-lm-analysis-main.html")).size > 0);
   const spec = JSON.parse(fs.readFileSync(path.join(reviewDir, "spec.json"), "utf8"));
   const metrics = JSON.parse(fs.readFileSync(path.join(reviewDir, "run-metrics.json"), "utf8"));
   assert.equal(spec.mode, "lm-analysis");
@@ -223,50 +223,61 @@ test("the command defaults to a quick workspace review", (t) => {
   const reviewResult = JSON.parse(
     fs.readFileSync(path.join(reviewDir, "review-result.json"), "utf8"),
   );
-  assert.match(result.stdout, /Built .*review\.html/);
-  assert.ok(fs.statSync(path.join(reviewDir, "review.html")).size > 0);
+  assert.match(result.stdout, /Existing review files: none/);
+  assert.match(result.stdout, /Built .*review-working-tree-changes\.html/);
+  assert.ok(fs.statSync(path.join(reviewDir, "review-working-tree-changes.html")).size > 0);
   assert.match(reviewResult.summary, /1 changed file/);
   assert.ok(reviewResult.groups.length > 0);
   assert.equal(reviewResult.review, undefined);
   const grouping = JSON.parse(fs.readFileSync(path.join(reviewDir, "groups.json"), "utf8"));
   assert.equal(grouping.provenance, "deterministic");
   assert.doesNotMatch(
-    fs.readFileSync(path.join(reviewDir, "review.html"), "utf8"),
+    fs.readFileSync(path.join(reviewDir, "review-working-tree-changes.html"), "utf8"),
     /Suggested reading order/,
   );
 });
 
-test("quick review accepts two Git revisions and reads files from the ending revision", (t) => {
-  const repository = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-revisions-"));
-  t.after(() => fs.rmSync(repository, { recursive: true, force: true }));
+test(
+  "quick review accepts two Git revisions and reads files from the ending revision",
+  { timeout: 10_000 },
+  (t) => {
+    const repository = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-revisions-"));
+    t.after(() => fs.rmSync(repository, { recursive: true, force: true }));
 
-  run("git", ["init", "-b", "main"], repository);
-  run("git", ["config", "user.email", "test@example.com"], repository);
-  run("git", ["config", "user.name", "Trace Review Test"], repository);
-  fs.writeFileSync(path.join(repository, "app.js"), "export const value = 1;\n");
-  run("git", ["add", "app.js"], repository);
-  run("git", ["commit", "-m", "Initial"], repository);
-  run("git", ["switch", "-c", "feature"], repository);
-  fs.writeFileSync(path.join(repository, "app.js"), "export const value = 2;\n");
-  run("git", ["add", "app.js"], repository);
-  run("git", ["commit", "-m", "Feature"], repository);
-  run("git", ["switch", "main"], repository);
+    run("git", ["init", "-b", "main"], repository);
+    run("git", ["config", "user.email", "test@example.com"], repository);
+    run("git", ["config", "user.name", "Trace Review Test"], repository);
+    fs.writeFileSync(path.join(repository, "app.js"), "export const value = 1;\n");
+    run("git", ["add", "app.js"], repository);
+    run("git", ["commit", "-m", "Initial"], repository);
+    run("git", ["switch", "-c", "feature"], repository);
+    fs.writeFileSync(path.join(repository, "app.js"), "export const value = 2;\n");
+    run("git", ["add", "app.js"], repository);
+    run("git", ["commit", "-m", "Feature"], repository);
+    run("git", ["switch", "main"], repository);
 
-  run(process.execPath, [cli, "main", "feature", "--repo", repository, "--no-open"], repository);
+    run(process.execPath, [cli, "main", "feature", "--repo", repository, "--no-open"], repository);
 
-  const reviewDir = path.join(repository, ".review");
-  const context = JSON.parse(fs.readFileSync(path.join(reviewDir, "context.json"), "utf8"));
-  const fileContents = JSON.parse(
-    fs.readFileSync(path.join(reviewDir, "context.files.json"), "utf8"),
-  );
-  assert.deepEqual(context.git.diffArgs, ["main", "feature"]);
-  assert.equal(context.git.diffLabel, "main ↔ feature");
-  assert.match(fs.readFileSync(path.join(reviewDir, "context.patch"), "utf8"), /value = 2/);
-  assert.equal(fileContents.files[0].content, "export const value = 2;\n");
-  assert.ok(fs.statSync(path.join(reviewDir, "review.html")).size > 0);
+    const reviewDir = path.join(repository, ".review");
+    const context = JSON.parse(fs.readFileSync(path.join(reviewDir, "context.json"), "utf8"));
+    const fileContents = JSON.parse(
+      fs.readFileSync(path.join(reviewDir, "context.files.json"), "utf8"),
+    );
+    assert.deepEqual(context.git.diffArgs, ["main", "feature"]);
+    assert.equal(context.git.diffLabel, "main ↔ feature");
+    assert.match(fs.readFileSync(path.join(reviewDir, "context.patch"), "utf8"), /value = 2/);
+    assert.equal(fileContents.files[0].content, "export const value = 2;\n");
+    assert.ok(fs.statSync(path.join(reviewDir, "review-main-feature.html")).size > 0);
 
-  run(process.execPath, [cli, "main...feature", "--repo", repository, "--no-open"], repository);
-  const rangeContext = JSON.parse(fs.readFileSync(path.join(reviewDir, "context.json"), "utf8"));
-  assert.deepEqual(rangeContext.git.diffArgs, ["main...feature"]);
-  assert.equal(rangeContext.git.diffLabel, "main...feature");
-});
+    const second = run(
+      process.execPath,
+      [cli, "main...feature", "--repo", repository, "--no-open"],
+      repository,
+    );
+    const rangeContext = JSON.parse(fs.readFileSync(path.join(reviewDir, "context.json"), "utf8"));
+    assert.deepEqual(rangeContext.git.diffArgs, ["main...feature"]);
+    assert.equal(rangeContext.git.diffLabel, "main...feature");
+    assert.match(second.stdout, /Existing review files: review-main-feature\.html/);
+    assert.ok(fs.statSync(path.join(reviewDir, "review-main-feature-2.html")).size > 0);
+  },
+);

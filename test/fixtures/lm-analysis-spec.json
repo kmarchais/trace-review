@@ -19,7 +19,9 @@
             "severity": "question",
             "body": "Should the returned name be part of the public compatibility contract?",
             "confidence": 0.8,
-            "rationale": "The return value is exposed by a public header but no compatibility expectation is documented."
+            "rationale": "The return value is exposed by a public header but no compatibility expectation is documented.",
+            "options": ["Document the compatibility contract", "Keep it implementation-defined"],
+            "suggestedChange": "// Document the returned name's compatibility guarantee."
           }
         ]
       }

@@ -263,6 +263,20 @@ test("generated review exposes one-click clipboard export in the header", (t) =>
   );
 });
 
+test("generated review can clear all review-specific browser state", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-clear-state-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  const result = build(path.join(fixtures, "workspace-spec.json"), out);
+
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  assert.match(html, /id="clearReviewBtn"[^>]*>Clear review<\/button>/);
+  assert.match(html, /Clear this review\?/);
+  assert.match(html, /localStorage\.removeItem\(STORE_KEY\)/);
+  assert.match(html, /window\.location\.reload\(\)/);
+});
+
 test("GitHub-enabled reviews expose a native-versus-fallback publication preview", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-github-export-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
@@ -338,6 +352,12 @@ test("LM-analysis fixture renders its global assessment and line finding", (t) =
   assert.match(html, /Should the returned name be part of the public compatibility contract/);
   assert.match(html, /Math\.round\(c\.confidence\s*\*\s*100\).*% confidence/);
   assert.match(html, /The return value is exposed by a public header/);
+  assert.match(html, /Document the compatibility contract/);
+  assert.match(html, /Keep it implementation-defined/);
+  assert.match(html, /Proposed change/);
+  assert.match(html, /state\.aiReply\[aiId\]/);
+  assert.doesNotMatch(html, />✓ Accept</);
+  assert.doesNotMatch(html, />✕ Dismiss</);
   assert.match(html, /class="findings-panel"/);
   assert.match(html, /function highlightMarkdownCode\(root\)/);
   assert.match(html, /highlightMarkdownCode\(td\)/);

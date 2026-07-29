@@ -487,7 +487,16 @@ export function validateReviewSpec(spec: unknown, options: ValidationOptions = {
             }
             rejectUnknown(
               comment,
-              new Set(["file", "line", "severity", "body", "confidence", "rationale"]),
+              new Set([
+                "file",
+                "line",
+                "severity",
+                "body",
+                "confidence",
+                "rationale",
+                "options",
+                "suggestedChange",
+              ]),
               commentPath,
             );
             requireString(comment.file, `${commentPath}.file`);
@@ -508,6 +517,31 @@ export function validateReviewSpec(spec: unknown, options: ValidationOptions = {
               enumValue(comment.severity, SEVERITIES, `${commentPath}.severity`);
             requireString(comment.body, `${commentPath}.body`);
             requireString(comment.rationale, `${commentPath}.rationale`);
+            if (comment.options !== undefined) {
+              if (!Array.isArray(comment.options)) {
+                add(
+                  "expected-array",
+                  `${commentPath}.options`,
+                  `${commentPath}.options must be an array.`,
+                );
+              } else {
+                comment.options.forEach((option, optionIndex) =>
+                  requireString(option, `${commentPath}.options[${optionIndex}]`),
+                );
+                if (
+                  comment.options.length < 2 ||
+                  comment.options.length > 4 ||
+                  new Set(comment.options).size !== comment.options.length
+                ) {
+                  add(
+                    "invalid-finding-options",
+                    `${commentPath}.options`,
+                    `${commentPath}.options must contain 2-4 distinct choices.`,
+                  );
+                }
+              }
+            }
+            optionalString(comment.suggestedChange, `${commentPath}.suggestedChange`);
             if (
               typeof comment.confidence !== "number" ||
               comment.confidence < 0 ||

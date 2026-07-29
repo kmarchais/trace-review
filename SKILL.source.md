@@ -94,8 +94,12 @@ bun <skill-dir>/scripts/trace-review.mjs main...feature
 ```
 
 The command creates the deterministic workspace result and supporting files in
-`.review/`, builds `.review/review.html`, and opens it. Pass `--no-open` to
-build without launching a browser. Quick mode accepts zero, one, or two
+`.review/`, lists existing HTML review files, builds a descriptively named file
+such as `.review/review-main-feature.html`, and opens it. The output name is
+derived from the reviewed PR or revision range. If that name already exists,
+the command uses a numeric suffix instead of overwriting it; output selection
+is atomic across parallel sessions. Pass `--no-open` to build without launching
+a browser. Quick mode accepts zero, one, or two
 revisions; Git flags such as `--cached` and pathspec filtering are not
 currently supported. From a source checkout, replace the executable prefix
 with the package shortcut `bun trace-review`.
@@ -194,9 +198,11 @@ node <skill-dir>/scripts/trace-review.mjs finish \
 ```
 
 `finish` validates the result, finalizes groups and findings, creates the spec,
-builds the HTML, and writes `.review/run-metrics.json`. The default `.review/`
-directory is added to the repository's local Git exclude file, so generated
-review artifacts do not enter commits.
+lists existing HTML reviews, builds the HTML under a target-based unique name,
+and writes `.review/run-metrics.json`. An explicit `--out` name is also given a
+numeric suffix when it already exists. The default `.review/` directory is
+added to the repository's local Git exclude file, so generated review artifacts
+do not enter commits.
 
 Treat validation failures as hard stops and correct the one result file. The
 lower-level scripts are diagnostic interfaces only; use them when the
@@ -230,10 +236,24 @@ variant or reasoning effort, or add provider-specific attribution to the spec.
   "verdict": "approve | comment | request-changes",
   "global": "markdown — overall assessment",
   "comments": [
-    { "file": "auth.js", "line": 3, "severity": "concern", "body": "markdown", "confidence": 0.94, "rationale": "brief, verifiable evidence" }
+    {
+      "file": "auth.js",
+      "line": 3,
+      "severity": "concern",
+      "body": "One precise sentence describing the issue.",
+      "confidence": 0.94,
+      "rationale": "One brief sentence with verifiable evidence.",
+      "options": ["Add the missing guard", "Keep the current contract"],
+      "suggestedChange": "if (!session) return null;"
+    }
   ]
 }
 ```
+
+Keep each finding terse and specific. Provide two to four short response options
+tailored to the actual decision; do not emit generic Accept/Dismiss choices.
+Include `suggestedChange` only when the evidence supports a concrete code
+replacement. The reviewer may select one option and Reply independently.
 
 - `line` = the **new-file** line number as shown in the diff. For a comment on a
   **removed** line, use `"o"` + the old line number (e.g. `"o7"`).
@@ -440,6 +460,10 @@ Viewer controls:
 - **Theme** button (header) — the doc **follows the OS light/dark setting by
   default**; the button cycles a session-only override (system → light → dark),
   not persisted, so a fresh open honours the system setting again.
+- **Clear review** (header) — after confirmation, remove all comments, pasted
+  images, viewed state, finding decisions, and grouping choices stored for this
+  review in the browser, then reload the page in a clean state. Keep global
+  display preferences such as diff mode and column width.
 
 ## Gotchas
 

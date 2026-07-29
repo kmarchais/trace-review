@@ -19,10 +19,13 @@ local diff or pull request
   → prepare collects facts and the diff
   → automatic repeated-change discovery; optional adaptive refinement
   → the LM writes one structured result
-  → finish validates it and builds review.html from the template
+  → finish validates it and builds a uniquely named review HTML from the template
 ```
 
-The result is a portable local page with light and dark themes, diff controls, review progress, comments, Markdown export, and optional confirmed publication as a native GitHub review.
+The result is a portable local page with light and dark themes, diff controls,
+review progress, comments, concise findings with tailored response options,
+Markdown export, a confirmed **Clear review** action, and optional confirmed
+publication as a native GitHub review.
 
 Drag across a contiguous block of diff gutters to comment on the range, create
 a GitHub-compatible suggested change, or export a syntax-colored before/after
@@ -79,11 +82,13 @@ bun trace-review main..feature      # two-dot range
 bun trace-review main...feature     # merge-base/three-dot range
 ```
 
-Every form writes its supporting files to `.review/`, builds
-`.review/review.html`, and opens it. Add `--no-open` to generate the document
-without launching a browser. Quick mode accepts zero, one, or two revisions;
-Git flags such as `--cached` and pathspec filtering are not currently
-supported.
+Every form writes its supporting files to `.review/`, lists existing HTML
+reviews, builds a target-based name such as
+`.review/review-main-feature.html`, and opens it. Existing files are never
+overwritten; a numeric suffix is selected atomically when needed. Add
+`--no-open` to generate the document without launching a browser. Quick mode
+accepts zero, one, or two revisions; Git flags such as `--cached` and pathspec
+filtering are not currently supported.
 
 The **Files** drawer searches file paths, diff content, and findings. Its
 combinable filters narrow the navigation list to unread files, open findings,
