@@ -100,6 +100,7 @@ test("focused LM analysis receives compact facts and candidate groups, not raw d
     "body",
     "confidence",
     "rationale",
+    "options",
   ]);
   assert.equal("raw" in input.diff, false);
   assert.equal(JSON.stringify(input).includes("diff --git"), false);
@@ -214,7 +215,8 @@ test("LM findings reject fields outside the review-spec contract", () => {
           body: "Malformed records can still pass.",
           confidence: 0.9,
           rationale: "The validation branch is skipped.",
-          suggestion: "Add validation.",
+          options: ["Add validation", "Keep current behavior"],
+          extra: "not allowed",
         },
       ],
     },
@@ -234,6 +236,7 @@ test("focused analysis rejects findings beyond its fact-derived budget", () => {
     body: "Malformed records can still pass.",
     confidence: 0.9,
     rationale: "The new branch returns before validating the record shape.",
+    options: ["Add record validation", "Keep permissive parsing"],
   };
   const validation = validateAnalysisResult(
     {
@@ -261,6 +264,7 @@ test("finding anchors must resolve to an actual changed hunk range", () => {
         body: "This anchor is outside the change.",
         confidence: 0.9,
         rationale: "The line does not exist in any changed hunk.",
+        options: ["Move the anchor", "Remove the finding"],
       },
     ],
   };
@@ -371,6 +375,7 @@ test("a validated analysis result converts directly to a review-spec review", ()
         body: "Malformed records can still pass.",
         confidence: 0.9,
         rationale: "The new branch returns before validating the record shape.",
+        options: ["Add record validation", "Keep permissive parsing"],
       },
     ],
   };

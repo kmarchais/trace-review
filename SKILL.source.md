@@ -212,10 +212,24 @@ variant or reasoning effort, or add provider-specific attribution to the spec.
   "verdict": "approve | comment | request-changes",
   "global": "markdown — overall assessment",
   "comments": [
-    { "file": "auth.js", "line": 3, "severity": "concern", "body": "markdown", "confidence": 0.94, "rationale": "brief, verifiable evidence" }
+    {
+      "file": "auth.js",
+      "line": 3,
+      "severity": "concern",
+      "body": "One precise sentence describing the issue.",
+      "confidence": 0.94,
+      "rationale": "One brief sentence with verifiable evidence.",
+      "options": ["Add the missing guard", "Keep the current contract"],
+      "suggestedChange": "if (!session) return null;"
+    }
   ]
 }
 ```
+
+Keep each finding terse and specific. Provide two to four short response options
+tailored to the actual decision; do not emit generic Accept/Dismiss choices.
+Include `suggestedChange` only when the evidence supports a concrete code
+replacement. The reviewer may select one option and Reply independently.
 
 - `line` = the **new-file** line number as shown in the diff. For a comment on a
   **removed** line, use `"o"` + the old line number (e.g. `"o7"`).

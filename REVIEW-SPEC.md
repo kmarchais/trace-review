@@ -93,7 +93,9 @@ require one per PR:
       "severity": "concern",
       "body": "The null path reaches this dereference.",
       "confidence": 0.94,
-      "rationale": "The preceding branch permits null and this line dereferences it."
+      "rationale": "The preceding branch permits null and this line dereferences it.",
+      "options": ["Add a null guard", "Keep the current precondition"],
+      "suggestedChange": "if (!session) return null;"
     }
   ]
 }
@@ -102,7 +104,10 @@ require one per PR:
 Removed-line anchors use `o` plus the old line number, such as `"o7"`.
 Severity is `nit`, `suggestion`, `concern`, `question`, `praise`, or `comment`.
 Every finding requires numeric `confidence` between 0 and 1 and a concise,
-verifiable `rationale`. Focused analysis also enforces the fact-derived budget
+verifiable `rationale`. Focused analysis also requires two to four short,
+finding-specific response `options`; `suggestedChange` is optional and contains
+a concrete replacement when one is justified. Reviewers may select one option
+and Reply independently. Focused analysis also enforces the fact-derived budget
 written by the `prepare-lm-analysis` CLI.
 
 ## Validation

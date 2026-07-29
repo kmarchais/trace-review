@@ -76,6 +76,8 @@ export interface AnalysisFinding {
   body: string;
   confidence: number;
   rationale: string;
+  options: string[];
+  suggestedChange?: string;
 }
 
 export interface AnalysisResult {
@@ -97,8 +99,9 @@ const REQUIRED_FINDING_FIELDS = Object.freeze([
   "body",
   "confidence",
   "rationale",
+  "options",
 ]);
-const FINDING_FIELDS = new Set(REQUIRED_FINDING_FIELDS);
+const FINDING_FIELDS = new Set([...REQUIRED_FINDING_FIELDS, "suggestedChange"]);
 const FINDING_SEVERITIES = new Set([
   "nit",
   "suggestion",
@@ -243,7 +246,8 @@ export function prepareAnalysisInput(
     findingContract: {
       maxFindings: findingBudget(context),
       required: [...REQUIRED_FINDING_FIELDS],
-      guidance: "Emit only actionable, verifiable findings. An empty findings array is valid.",
+      guidance:
+        "Emit only actionable, verifiable findings. Keep body and rationale to one precise sentence each. Provide 2-4 short, finding-specific response options. Include suggestedChange only when a concrete replacement is justified. An empty findings array is valid.",
     },
   };
 }
@@ -358,6 +362,8 @@ export function validateAnalysisResult(
     }
     if (typeof finding?.body !== "string" || !finding.body.trim()) {
       add("missing-finding-field", `${root}.body`, "A finding must explain the actionable issue.");
+    } else if (finding.body.length > 280) {
+      add("finding-too-long", `${root}.body`, "Keep the finding body to 280 characters or fewer.");
     }
     if (
       typeof finding?.confidence !== "number" ||
@@ -375,6 +381,38 @@ export function validateAnalysisResult(
         "missing-rationale",
         `${root}.rationale`,
         "A finding must include a brief, verifiable rationale.",
+      );
+    } else if (finding.rationale.length > 180) {
+      add(
+        "finding-too-long",
+        `${root}.rationale`,
+        "Keep the rationale to 180 characters or fewer.",
+      );
+    }
+    if (
+      !Array.isArray(finding?.options) ||
+      finding.options.length < 2 ||
+      finding.options.length > 4 ||
+      finding.options.some(
+        (option) => typeof option !== "string" || !option.trim() || option.length > 64,
+      ) ||
+      new Set(finding.options.map((option) => option.trim().toLowerCase())).size !==
+        finding.options.length
+    ) {
+      add(
+        "invalid-finding-options",
+        `${root}.options`,
+        "Provide 2-4 distinct, non-empty response options of at most 64 characters each.",
+      );
+    }
+    if (
+      finding?.suggestedChange !== undefined &&
+      (typeof finding.suggestedChange !== "string" || !finding.suggestedChange.trim())
+    ) {
+      add(
+        "invalid-suggested-change",
+        `${root}.suggestedChange`,
+        "A suggested change must be a non-empty code replacement.",
       );
     }
   });

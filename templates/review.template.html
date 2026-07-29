@@ -222,7 +222,6 @@
 
   /* inline AI comment row (in the diff) — a bordered, tinted card, never code */
   .ai-box { margin:8px 14px 12px 46px; border:1px solid var(--primary); border-left-width:4px; background:var(--ai-bg); border-radius:6px; padding:10px 12px; box-shadow:0 1px 3px rgba(0,0,0,.12); }
-  .ai-comment.dismissed .ai-box { opacity:.5; }
   .ai-box-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
   .ai-box-head .who { font-family:var(--font-heading); font-weight:600; font-size:.72rem; color:#fff; background:var(--primary); padding:1px 8px; border-radius:10px; }
   .ai-box-body { font-size:.88rem; line-height:1.5; word-break:break-word; }
@@ -230,11 +229,13 @@
   .ai-box-body pre.md-code { margin:8px 0; border:1px solid var(--border); border-radius:4px; background:var(--bg); padding:8px 10px; overflow:auto; white-space:pre; word-break:normal; font:.78rem/1.5 var(--mono); }
   .ai-box-body pre.md-code code { background:none; padding:0; border-radius:0; font:inherit; }
   .ai-rationale { margin-top:7px; padding-top:7px; border-top:1px solid var(--border); color:var(--muted); font-size:.78rem; line-height:1.4; }
+  .ai-suggested-change { margin-top:8px; font-size:.76rem; color:var(--muted); }
+  .ai-suggested-change pre { margin:4px 0 0; padding:8px 10px; overflow:auto; border:1px solid var(--border); border-radius:4px; background:var(--bg); color:var(--text); font:.78rem/1.45 var(--mono); }
   .ai-confidence { margin-left:auto; font-family:var(--font-heading); font-size:.68rem; color:var(--muted); white-space:nowrap; }
-  .ai-box-actions { margin-top:7px; display:flex; gap:6px; align-items:center; }
+  .ai-box-actions { margin-top:7px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
   .ai-box-actions button { font-family:var(--font-heading); font-size:.74rem; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:5px; padding:3px 9px; cursor:pointer; }
-  .ai-box-actions button.on-accept { border-color:var(--green); color:var(--green); }
-  .ai-box-actions button.on-dismiss { border-color:var(--muted); color:var(--muted); }
+  .ai-box-actions button.on-option { border-color:var(--green); color:var(--green); background:var(--success-bg); }
+  .ai-box-actions button.on-reply { border-color:var(--secondary); color:var(--secondary); background:var(--ai-bg); }
   .ai-box-actions .ai-state { margin-left:auto; font-size:.72rem; color:var(--muted); font-family:var(--font-heading); }
 
   .callout { border-left:4px solid var(--primary); background:var(--panel); border-radius:0 6px 6px 0; padding:10px 14px; }

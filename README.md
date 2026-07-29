@@ -22,8 +22,9 @@ local diff or pull request
 ```
 
 The result is a portable local page with light and dark themes, diff controls,
-review progress, comments, Markdown export, a confirmed **Clear review** action,
-and optional confirmed publication as a native GitHub review.
+review progress, comments, concise findings with tailored response options,
+Markdown export, a confirmed **Clear review** action, and optional confirmed
+publication as a native GitHub review.
 
 Drag across a contiguous block of diff gutters to comment on the range, create
 a GitHub-compatible suggested change, or export a syntax-colored before/after

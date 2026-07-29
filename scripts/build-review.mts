@@ -70,6 +70,8 @@ interface ReviewComment {
   body: string;
   confidence: number;
   rationale: string;
+  options?: string[];
+  suggestedChange?: string;
 }
 
 interface Review {
@@ -972,7 +974,7 @@ function renderBlocks(pr: ReviewTarget): string {
 }
 
 // ---------- Claude's automatic review (optional) ----------
-// `pr.review = { verdict?, global?, comments: [{ file, line, severity, body, confidence, rationale }] }`.
+// `pr.review = { verdict?, global?, comments: [{ file, line, severity, body, confidence, rationale, options, suggestedChange? }] }`.
 // `line` is the new-file line number; prefix with `o` for a removed line (e.g. "o7").
 function normalizeReview(pr: ReviewTarget): NormalizedReview | null {
   const r = pr.review;
@@ -995,6 +997,8 @@ function normalizeReview(pr: ReviewTarget): NormalizedReview | null {
       body: c.body || "",
       confidence: c.confidence,
       rationale: c.rationale || "",
+      options: c.options || [],
+      ...(c.suggestedChange ? { suggestedChange: c.suggestedChange } : {}),
       aid: "a" + n++,
     };
   });

@@ -179,7 +179,15 @@
         "severity": { "enum": ["nit", "suggestion", "concern", "question", "praise", "comment"] },
         "body": { "type": "string", "minLength": 1 },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "rationale": { "type": "string", "minLength": 1 }
+        "rationale": { "type": "string", "minLength": 1 },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        },
+        "suggestedChange": { "type": "string", "minLength": 1 }
       }
     }
   },
