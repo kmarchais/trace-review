@@ -51,6 +51,7 @@ test("generator produces a complete, mode-labelled review document", (t) => {
   assert.match(html, /function applyWordDiffMarkup\(highlightedHtml, wordDiffHtml\)/);
   assert.match(html, /r\._hl = applyWordDiffMarkup\(r\._hl, r\.h\)/);
   assert.match(html, /\.wd \{ border-radius:2px; font-weight:700/);
+  assert.doesNotMatch(html, /\.line-(?:add|del) \.wd \{[^}]*box-shadow/);
   assert.match(html, /function compactExportRows\(rows\)/);
   assert.match(html, /data-carbon-layout="compact"/);
   assert.match(html, /Image layout/);
@@ -191,6 +192,50 @@ test("module TypeScript and common extension aliases select syntax languages", (
   assert.match(data["pr-1__1"].hunks[0].rows[1].h, /class="wd"/);
 });
 
+test("word diff pairs a deleted code line with the related added line instead of an inserted comment", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-word-pairing-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const out = path.join(tempDir, "review.html");
+  fs.writeFileSync(
+    path.join(tempDir, "change.patch"),
+    [
+      "diff --git a/spheres.cpp b/spheres.cpp",
+      "--- a/spheres.cpp",
+      "+++ b/spheres.cpp",
+      "@@ -607 +607,4 @@",
+      "-this->NbSphere == spheresToRemove;",
+      "+// Only erasedCount spheres actually left the arrays:",
+      "+spheresToRecycle.clamp(0, erasedCount);",
+      "+// recyclableCount < spheresToRemove, so NbSphere must not",
+      "+this->NbSphere -= erasedCount;",
+      "",
+    ].join("\n"),
+  );
+  fs.writeFileSync(
+    path.join(tempDir, "spec.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      prs: [{ title: "Pair related replacement", diffFile: "change.patch" }],
+    }),
+  );
+
+  const result = build(path.join(tempDir, "spec.json"), out);
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  const dataSource = /<script id="review-data" type="application\/json">([\s\S]*?)<\/script>/.exec(
+    html,
+  )?.[1];
+  assert.ok(dataSource);
+  const rows = JSON.parse(dataSource)["pr-1__0"].hunks[0].rows;
+
+  assert.match(rows[0].h, /class="wd"/, "the deleted line should show its changed tokens");
+  assert.doesNotMatch(rows[1].h, /class="wd"/, "an inserted comment is not the replacement");
+  assert.doesNotMatch(rows[2].h, /class="wd"/, "an unrelated inserted statement stays unpaired");
+  assert.doesNotMatch(rows[3].h, /class="wd"/, "another inserted comment stays unpaired");
+  assert.match(rows[4].h, /class="wd"/, "the related added code line should be paired");
+});
+
 test("SVG whole-file content offers sanitized image and exact code views", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-svg-file-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
@@ -261,6 +306,34 @@ test("generated review exposes one-click clipboard export in the header", (t) =>
     html,
     /getElementById\("copyCommentsBtn"\)\.addEventListener\("click",\s*async\s*\(\)\s*=>\s*\{[\s\S]*?buildMarkdown\(\)/,
   );
+});
+
+test("generated review defaults its subtitle to the local date and time", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-generated-time-"));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const specPath = path.join(tempDir, "spec.json");
+  const out = path.join(tempDir, "review.html");
+  fs.writeFileSync(
+    specPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      mode: "workspace",
+      title: "Timestamped review",
+      prs: [
+        {
+          id: "local",
+          title: "Local changes",
+          diff: "diff --git a/a.js b/a.js\n--- a/a.js\n+++ b/a.js\n@@ -1 +1 @@\n-const a = 1;\n+const a = 2;\n",
+        },
+      ],
+    }),
+  );
+
+  const result = build(specPath, out);
+
+  assert.equal(result.status, 0, result.stderr);
+  const html = fs.readFileSync(out, "utf8");
+  assert.match(html, /class="subtitle">\d{4}-\d{2}-\d{2} \d{2}:\d{2} · 1 PR · workspace/);
 });
 
 test("generated review can clear all review-specific browser state", (t) => {

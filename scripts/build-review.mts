@@ -287,6 +287,14 @@ const slug = (s: unknown): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "review";
 
+function generationTimestamp(date = new Date()): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
+
 const fingerprint = (value: unknown): string =>
   createHash("sha256").update(String(value)).digest("hex").slice(0, 20);
 
@@ -582,7 +590,74 @@ const WORD_DIFF_MAX_TOKENS = 240;
 const WORD_DIFF_MAX_CELLS = 24_000;
 const WORD_DIFF_MAX_LINE_LENGTH = 4_000;
 const WORD_DIFF_MAX_PAIRS_PER_RUN = 120;
+const WORD_DIFF_MIN_LINE_SIMILARITY = 0.35;
 const wordDiffStats = { applied: 0, skipped: 0 };
+
+function isCommentLine(text: string): boolean {
+  return /^(?:\/\/|\/\*|\*|#|--)/.test(text.trimStart());
+}
+
+function lineSimilarity(oldText: string, newText: string): number {
+  if (isCommentLine(oldText) !== isCommentLine(newText)) return 0;
+  const oldTokens = tokenize(oldText).filter((token) => !/^\s+$/.test(token));
+  const newTokens = tokenize(newText).filter((token) => !/^\s+$/.test(token));
+  if (!oldTokens.length || !newTokens.length) return 0;
+
+  const remaining = new Map<string, number>();
+  for (const token of newTokens) remaining.set(token, (remaining.get(token) || 0) + 1);
+  let shared = 0;
+  for (const token of oldTokens) {
+    const count = remaining.get(token) || 0;
+    if (!count) continue;
+    shared++;
+    remaining.set(token, count - 1);
+  }
+  return (2 * shared) / (oldTokens.length + newTokens.length);
+}
+
+function pairWordDiffRows(
+  dels: readonly DiffRow[],
+  adds: readonly DiffRow[],
+): Array<readonly [DiffRow, DiffRow]> {
+  if (dels.length === 1 && adds.length === 1) return [[dels[0], adds[0]]];
+
+  const candidateDels = dels.slice(0, WORD_DIFF_MAX_PAIRS_PER_RUN);
+  const candidateAdds = adds.slice(0, WORD_DIFF_MAX_PAIRS_PER_RUN);
+  const scores = candidateDels.map((del) =>
+    candidateAdds.map((add) => lineSimilarity(del.text, add.text)),
+  );
+  const dp = Array.from(
+    { length: candidateDels.length + 1 },
+    () => new Float64Array(candidateAdds.length + 1),
+  );
+
+  for (let d = candidateDels.length - 1; d >= 0; d--) {
+    for (let a = candidateAdds.length - 1; a >= 0; a--) {
+      const similarity = scores[d][a];
+      const paired =
+        similarity >= WORD_DIFF_MIN_LINE_SIMILARITY ? similarity + dp[d + 1][a + 1] : 0;
+      dp[d][a] = Math.max(paired, dp[d + 1][a], dp[d][a + 1]);
+    }
+  }
+
+  const pairs: Array<readonly [DiffRow, DiffRow]> = [];
+  let d = 0;
+  let a = 0;
+  while (d < candidateDels.length && a < candidateAdds.length) {
+    const similarity = scores[d][a];
+    const paired = similarity >= WORD_DIFF_MIN_LINE_SIMILARITY ? similarity + dp[d + 1][a + 1] : 0;
+    if (paired > dp[d + 1][a] && paired > dp[d][a + 1]) {
+      pairs.push([candidateDels[d], candidateAdds[a]]);
+      d++;
+      a++;
+    } else if (dp[d + 1][a] >= dp[d][a + 1]) {
+      d++;
+    } else {
+      a++;
+    }
+  }
+  return pairs;
+}
 
 // ---------- unified diff parser ----------
 function parseDiff(text: string): ParsedDiffFile[] {
@@ -680,14 +755,13 @@ function annotateWordDiffs(rows: DiffRow[]): void {
     while (a < rows.length && rows[a].type === "add") a++;
     const dels = rows.slice(i, d),
       adds = rows.slice(d, a);
-    const pairs = Math.min(dels.length, adds.length);
-    for (let k = 0; k < pairs; k++) {
-      const oldText = dels[k].text;
-      const newText = adds[k].text;
+    const pairs = pairWordDiffRows(dels, adds);
+    for (const [del, add] of pairs) {
+      const oldText = del.text;
+      const newText = add.text;
       const oldTokens = tokenize(oldText);
       const newTokens = tokenize(newText);
       if (
-        k >= WORD_DIFF_MAX_PAIRS_PER_RUN ||
         oldText.length > WORD_DIFF_MAX_LINE_LENGTH ||
         newText.length > WORD_DIFF_MAX_LINE_LENGTH ||
         oldTokens.length > WORD_DIFF_MAX_TOKENS ||
@@ -697,9 +771,9 @@ function annotateWordDiffs(rows: DiffRow[]): void {
         wordDiffStats.skipped++;
         continue;
       }
-      const { oldHtml, newHtml } = wordDiff(dels[k].text, adds[k].text);
-      dels[k].html = oldHtml;
-      adds[k].html = newHtml;
+      const { oldHtml, newHtml } = wordDiff(oldText, newText);
+      del.html = oldHtml;
+      add.html = newHtml;
       wordDiffStats.applied++;
     }
     i = a - 1;
@@ -1505,7 +1579,7 @@ function main(): void {
   const prs = spec.prs || [];
   const title = spec.title || "Code Review";
   const reviewId = spec.reviewId || slug(title);
-  const generated = spec.generated || new Date().toISOString().slice(0, 10);
+  const generated = spec.generated || generationTimestamp();
   const mode = spec.mode;
   const single = prs.length <= 1;
 
