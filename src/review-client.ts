@@ -2937,6 +2937,21 @@ function eventElement(event: Event): UiElement | null {
       exportText.select();
     }
   });
+  document.getElementById("clearReviewBtn").addEventListener("click", () => {
+    const confirmed = window.confirm(
+      "Clear this review?\n\n" +
+        "This removes all comments, pasted images, viewed state, finding decisions, " +
+        "and grouping choices stored for this review in this browser. This cannot be undone.",
+    );
+    if (!confirmed) return;
+    try {
+      localStorage.removeItem(STORE_KEY);
+    } catch (error) {
+      window.alert("The review could not be cleared because browser storage is unavailable.");
+      return;
+    }
+    window.location.reload();
+  });
   document.getElementById("exportBtn").addEventListener("click", () => {
     exportText.value = buildMarkdown();
     document.getElementById("githubReviewTab").hidden = !GITHUB[activeSection()?.dataset.pr || ""];

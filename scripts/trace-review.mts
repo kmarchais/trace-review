@@ -159,6 +159,60 @@ function relative(fromFile: string, target: string): string {
   return path.relative(path.dirname(fromFile), target).replaceAll("\\", "/");
 }
 
+function reviewFileName(input: Pick<WorkflowInput, "mode" | "target">): string {
+  const target = input.target.number
+    ? `pr-${input.target.number}-${input.target.title}`
+    : input.target.title || input.target.branch || "local-changes";
+  const slug =
+    target
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80)
+      .replace(/-+$/g, "") || "local-changes";
+  const mode = input.mode === "workspace" ? "" : `${input.mode}-`;
+  return `review-${mode}${slug}.html`;
+}
+
+function existingReviewFiles(directory: string): string[] {
+  try {
+    return fs
+      .readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".html"))
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right));
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function reserveUniqueReviewPath(preferredPath: string): {
+  path: string;
+  existing: string[];
+} {
+  const directory = path.dirname(preferredPath);
+  const extension = path.extname(preferredPath) || ".html";
+  const stem = path.basename(preferredPath, path.extname(preferredPath));
+  fs.mkdirSync(directory, { recursive: true });
+  const existing = existingReviewFiles(directory);
+  for (let suffix = 1; ; suffix++) {
+    const candidate = path.join(
+      directory,
+      suffix === 1 ? `${stem}${extension}` : `${stem}-${suffix}${extension}`,
+    );
+    try {
+      const descriptor = fs.openSync(candidate, "wx");
+      fs.closeSync(descriptor);
+      return { path: candidate, existing };
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+}
+
 function ensureReviewExcluded(repositoryRoot: string, outputDir: string): void {
   if (path.resolve(outputDir) !== path.join(path.resolve(repositoryRoot), ".review")) return;
   const result = spawnSync("git", ["rev-parse", "--git-path", "info/exclude"], {
@@ -193,7 +247,6 @@ function prepare(args: Args, announceNext = true): void {
   const groupsPath = path.join(outputDir, "groups.json");
   const reviewPath = path.join(outputDir, "review.json");
   const specPath = path.join(outputDir, "spec.json");
-  const htmlPath = path.join(outputDir, "review.html");
   const metricsPath = path.join(outputDir, "run-metrics.json");
 
   const collectArgs = [
@@ -266,7 +319,10 @@ function prepare(args: Args, announceNext = true): void {
     groups: relative(inputPath, groupsPath),
     review: relative(inputPath, reviewPath),
     spec: relative(inputPath, specPath),
-    html: relative(inputPath, htmlPath),
+    html: relative(
+      inputPath,
+      path.join(outputDir, reviewFileName(input as unknown as WorkflowInput)),
+    ),
     metrics: relative(inputPath, metricsPath),
   };
   if (args.mode === "workspace") delete input.findingContract;
@@ -478,7 +534,15 @@ function finish(args: Args): void {
     ],
   };
   writeJson(resolveArtifact("spec"), spec);
-  const htmlPath = path.resolve(args.out || resolveArtifact("html"));
+  const preferredHtmlPath = path.resolve(args.out || path.join(baseDir, reviewFileName(input)));
+  const reservation = reserveUniqueReviewPath(preferredHtmlPath);
+  const htmlPath = reservation.path;
+  console.log(
+    reservation.existing.length
+      ? `Existing review files: ${reservation.existing.join(", ")}`
+      : "Existing review files: none",
+  );
+  console.log(`Reserved review output: ${htmlPath}`);
   let preparedMetrics: Record<string, unknown> = {};
   try {
     preparedMetrics = parseJson(fs.readFileSync(resolveArtifact("metrics"), "utf8")) as Record<
@@ -486,19 +550,26 @@ function finish(args: Args): void {
       unknown
     >;
   } catch {}
-  runScript(
-    "build-review",
-    [
-      "--spec",
-      resolveArtifact("spec"),
-      "--out",
-      htmlPath,
-      "--metrics-out",
-      resolveArtifact("metrics"),
-      ...(args.open ? ["--open"] : []),
-    ],
-    baseDir,
-  );
+  try {
+    runScript(
+      "build-review",
+      [
+        "--spec",
+        resolveArtifact("spec"),
+        "--out",
+        htmlPath,
+        "--metrics-out",
+        resolveArtifact("metrics"),
+        ...(args.open ? ["--open"] : []),
+      ],
+      baseDir,
+    );
+  } catch (error: unknown) {
+    try {
+      if (fs.statSync(htmlPath).size === 0) fs.unlinkSync(htmlPath);
+    } catch {}
+    throw error;
+  }
 
   const buildMetrics = parseJson(fs.readFileSync(resolveArtifact("metrics"), "utf8")) as Record<
     string,

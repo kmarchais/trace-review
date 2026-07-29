@@ -83,6 +83,8 @@
   .btn-primary { background:var(--success-emphasis); border-color:color-mix(in srgb,var(--success-emphasis) 82%,#000); color:var(--fg-on-emphasis); }
   .btn-primary:hover { background:color-mix(in srgb,var(--success-emphasis) 88%,#000); }
   .btn-header { background:var(--control-bg); color:var(--header-text); }
+  .btn-danger { color:var(--red); border-color:color-mix(in srgb,var(--red) 55%,var(--control-border)); }
+  .btn-danger:hover { color:var(--fg-on-emphasis); background:var(--red); border-color:var(--red); }
   .icon-btn { display:grid; place-items:center; background:var(--control-bg); color:var(--header-text); border:1px solid var(--control-border); border-radius:6px; width:32px; height:32px; cursor:pointer; font-size:.9rem; }
   .icon-btn:hover { background:var(--control-hover); }
   .seg { display:inline-flex; border:1px solid var(--control-border); border-radius:6px; overflow:hidden; }
@@ -591,6 +593,7 @@
   <div class="header-actions">
     <span class="badge" id="commentCount">0 comments</span>
     <button class="icon-btn" id="themeBtn" title="Theme: system">◐</button>
+    <button class="btn btn-header btn-danger" id="clearReviewBtn">Clear review</button>
     <button class="btn btn-header" id="copyCommentsBtn">Copy comments</button>
     <button class="btn btn-primary" id="exportBtn">Share review</button>
   </div>
