@@ -721,6 +721,8 @@ function langOf(p: string): string {
     hh: "cpp",
     hxx: "cpp",
     h: "cpp",
+    inl: "cpp",
+    tpp: "cpp",
     c: "c",
     cu: "cpp",
     cuh: "cpp",
@@ -1017,7 +1019,32 @@ function resolveChangeGroups(pr: ReviewTarget, text: string): RenderableGrouping
       `Unsupported change-group schema '${grouping.schemaVersion}' for '${pr.title || pr.id}'.`,
     );
   }
-  const inventory = parsePatchChanges(text, analyzePatch(text));
+  const parsedInventory = parsePatchChanges(text, analyzePatch(text));
+  const declaredInventory = Array.isArray(grouping.inventory) ? grouping.inventory : [];
+  const declaredIds = new Set(declaredInventory.map((change) => change.id));
+  const groupedIds = (grouping.groups || []).flatMap((group) =>
+    (group.changes || []).map((change) => change.id),
+  );
+  const patchRows = new Set(parsedInventory.flatMap((change) => change.rows || []));
+  const parsedIds = new Set(parsedInventory.map((change) => change.id));
+  const declaredRows = declaredInventory.flatMap((change) => change.rows || []);
+  const fragmentInventoryMatchesPatch =
+    declaredRows.length > 0 &&
+    declaredRows.length === new Set(declaredRows).size &&
+    declaredRows.length === patchRows.size &&
+    declaredRows.every((row) => patchRows.has(row)) &&
+    declaredInventory.every((change) =>
+      (change.rows || []).every((row) => row.startsWith(`${change.file}#`)),
+    ) &&
+    declaredInventory
+      .filter((change) => !(change.rows || []).length)
+      .every((change) => parsedIds.has(change.id));
+  const inventory =
+    groupedIds.length > 0 &&
+    groupedIds.every((id) => declaredIds.has(id)) &&
+    fragmentInventoryMatchesPatch
+      ? declaredInventory
+      : parsedInventory;
   const structuralValidation = validateGrouping(grouping, inventory);
   const semanticValidation =
     grouping.provenance === "lm"
@@ -1176,10 +1203,17 @@ function renderPr(
         const parsed = parsedByPath.get(change.file);
         if (!parsed) continue;
         const d = buildFileData(parsed);
-        const hunks =
-          typeof change.hunk === "number"
-            ? [d.hunks[change.hunk]].filter((hunk): hunk is ClientHunk => hunk !== undefined)
-            : d.hunks;
+        const selectedIndexes =
+          change.hunks?.length > 0
+            ? change.hunks
+            : typeof change.hunk === "number"
+              ? [change.hunk]
+              : [];
+        const hunks = selectedIndexes.length
+          ? selectedIndexes
+              .map((hunk) => d.hunks[hunk])
+              .filter((hunk): hunk is ClientHunk => hunk !== undefined)
+          : d.hunks;
         const row = hunks
           .flatMap((hunk) => hunk.rows || [])
           .find(
@@ -1240,14 +1274,32 @@ function renderPr(
         const parsed = parsedByPath.get(file);
         if (!parsed) continue;
         const d = buildFileData(parsed);
+        const selectedRows = new Set(fileChanges.flatMap((change) => change.rows || []));
         const selectedHunks = [
           ...new Set(
-            fileChanges
-              .map((change) => change.hunk)
-              .filter((hunk): hunk is number => typeof hunk === "number"),
+            fileChanges.flatMap((change) =>
+              change.hunks?.length
+                ? change.hunks
+                : typeof change.hunk === "number"
+                  ? [change.hunk]
+                  : [],
+            ),
           ),
         ];
-        if (selectedHunks.length) {
+        if (selectedRows.size) {
+          d.hunks = d.hunks.flatMap((hunk, hunkIndex) => {
+            const rows = hunk.rows.filter((row) => {
+              if (row.t === "c") return true;
+              const line = row.t === "a" ? row.n : row.o;
+              const side = row.t === "a" ? "a" : "d";
+              return line !== undefined && selectedRows.has(`${file}#h${hunkIndex}:${side}${line}`);
+            });
+            return rows.some((row) => row.t !== "c") ? [{ ...hunk, rows }] : [];
+          });
+          const rows = d.hunks.flatMap((hunk) => hunk.rows);
+          d.add = rows.filter((row) => row.t === "a").length;
+          d.del = rows.filter((row) => row.t === "d").length;
+        } else if (selectedHunks.length) {
           d.hunks = selectedHunks
             .map((hunk) => d.hunks[hunk])
             .filter((hunk): hunk is ClientHunk => hunk !== undefined);

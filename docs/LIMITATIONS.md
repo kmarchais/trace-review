@@ -8,6 +8,11 @@
 - Syntax-aware presentation is language-aware highlighting, not compilation or
   semantic program analysis. A review does not replace project builds, tests,
   linters, security tooling, or domain expertise.
+- Repeated-change discovery proves textual or token-structural similarity, not
+  semantic equivalence. Adaptive rules can encode an inferred shared purpose,
+  but reviewers should inspect their evidence and unmatched rows. New and
+  deleted files are excluded from automatic extraction so their contents stay
+  coherent.
 - Automatic GitHub context needs an installed, authenticated `gh`. Automatic
   mode falls back visibly to a local diff; explicit PR selection fails instead
   of silently reviewing different content.

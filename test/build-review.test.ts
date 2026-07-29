@@ -48,6 +48,9 @@ test("generator produces a complete, mode-labelled review document", (t) => {
   assert.match(html, /if \(hasBefore && hasAfter\)/);
   assert.match(html, /function buildCarbonSvg\(file, rows, layout\)/);
   assert.match(html, /function syntaxSegments\(html\)/);
+  assert.match(html, /function applyWordDiffMarkup\(highlightedHtml, wordDiffHtml\)/);
+  assert.match(html, /r\._hl = applyWordDiffMarkup\(r\._hl, r\.h\)/);
+  assert.match(html, /\.wd \{ border-radius:2px; font-weight:700/);
   assert.match(html, /function compactExportRows\(rows\)/);
   assert.match(html, /data-carbon-layout="compact"/);
   assert.match(html, /Image layout/);
@@ -142,6 +145,18 @@ test("module TypeScript and common extension aliases select syntax languages", (
       "@@ -1 +1 @@",
       "-export const value: number = 1;",
       "+export const value: number = 2;",
+      "diff --git a/detail.inl b/detail.inl",
+      "--- a/detail.inl",
+      "+++ b/detail.inl",
+      "@@ -1 +1 @@",
+      "-inline int value() { return 1; }",
+      "+inline int value() { return 2; }",
+      "diff --git a/vector.tpp b/vector.tpp",
+      "--- a/vector.tpp",
+      "+++ b/vector.tpp",
+      "@@ -1 +1 @@",
+      "-template<class T> int size() { return 1; }",
+      "+template<class T> int size() { return 2; }",
       "diff --git a/schema.graphql b/schema.graphql",
       "--- a/schema.graphql",
       "+++ b/schema.graphql",
@@ -169,7 +184,11 @@ test("module TypeScript and common extension aliases select syntax languages", (
   assert.ok(dataSource);
   const data = JSON.parse(dataSource);
   assert.equal(data["pr-1__0"].lang, "typescript");
-  assert.equal(data["pr-1__1"].lang, "graphql");
+  assert.equal(data["pr-1__1"].lang, "cpp");
+  assert.equal(data["pr-1__2"].lang, "cpp");
+  assert.equal(data["pr-1__3"].lang, "graphql");
+  assert.match(data["pr-1__1"].hunks[0].rows[0].h, /class="wd"/);
+  assert.match(data["pr-1__1"].hunks[0].rows[1].h, /class="wd"/);
 });
 
 test("SVG whole-file content offers sanitized image and exact code views", (t) => {

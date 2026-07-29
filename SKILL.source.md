@@ -66,7 +66,9 @@ recommended policy block and the deterministic conventions schema v1 detects.
 
 ## Workflow (the agent path)
 
-The full workflow has two commands and one model-authored result. The
+The standard workflow has two commands and one model-authored result, with an
+optional deterministic refinement command when a repeated transformation needs
+an adaptive detector rule. The
 orchestrator owns collection, validation, spec generation, metrics, and HTML
 building; the language model never generates HTML. A deterministic quick path
 is available when no model-authored grouping or findings are needed.
@@ -117,6 +119,28 @@ Read `.review/analysis-input.json`, then read `.review/context.patch` once.
 The input contains compact repository and PR facts, candidate change units,
 contracts, and paths to bounded whole-file content. Read a full file only to
 verify a concrete candidate finding.
+
+### Optional adaptive detector refinement
+
+The deterministic pass automatically extracts exact repeated lines,
+parameterized token patterns, and compatible repeated replacements from mixed
+hunks. If the patch contains a repeated transformation whose shared purpose is
+clear but whose rows remain in separate candidate groups, write a bounded
+declarative rule to `.review/detector-rules.json`, then run:
+
+```bash
+node <skill-dir>/scripts/trace-review.mjs refine \
+  --input .review/analysis-input.json \
+  --rules .review/detector-rules.json
+```
+
+Read the updated `analysis-input.json` before writing the result. Do not
+generate or execute arbitrary JavaScript, shell, or repository scripts for
+classification. Detector rules match token patterns, named placeholders,
+same-file bindings, additions/deletions, and coarse file locations through the
+validated format in
+[docs/ADAPTIVE-DETECTORS.md](docs/ADAPTIVE-DETECTORS.md). Skip refinement when
+the deterministic candidates already isolate the repeated transformation.
 
 ### 2. Write one result
 
@@ -233,7 +257,9 @@ a reviewer should be able to act on every finding you leave.
 ### Change groups
 
 Prefer a finalized LM-generated `groupFile` (or embed it as `changeGroups`).
-Generated groups work at hunk granularity and display their rationale. In
+Generated groups work at changed-row fragment granularity and display their rationale. Repeated
+rows are projected out of mixed hunks so they appear only in their pattern
+group, while raw Git order retains the complete patch. In
 LM-analysis and deep-audit modes they also show dependencies and a suggested
 reading order. Deterministic quick workspace reviews preserve classifier order
 without presenting it as a recommendation. Within each group, a file appears
