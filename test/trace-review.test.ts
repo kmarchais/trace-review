@@ -201,7 +201,7 @@ test("refine applies adaptive detector rules before semantic grouping", (t) => {
   const finishedMetrics = JSON.parse(
     fs.readFileSync(path.join(reviewDir, "run-metrics.json"), "utf8"),
   );
-  assert.ok(fs.statSync(path.join(reviewDir, "review.html")).size > 0);
+  assert.ok(fs.statSync(path.join(reviewDir, "review-lm-analysis-main.html")).size > 0);
   assert.equal(finishedMetrics.expectedAgentActions, 7);
 });
 
