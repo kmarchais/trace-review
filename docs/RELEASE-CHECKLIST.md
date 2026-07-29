@@ -8,7 +8,7 @@ and a person completes the interface checks below.
 Run from the repository root:
 
 ```bash
-bun run check:release-tag -- v0.3.0
+bun run check:release-tag -- v0.3.1
 bun run check
 bun run bundle:skill
 bun run validate:example
@@ -67,9 +67,9 @@ Before publishing the release, the workflow installs the generated tag through
 both supported installers:
 
 ```bash
-gh skill install kmarchais/trace-review trace-review@v0.3.0 --dir <temporary-directory>
+gh skill install kmarchais/trace-review trace-review@v0.3.1 --dir <temporary-directory>
 npx skills add \
-  https://github.com/kmarchais/trace-review/tree/v0.3.0/skills/trace-review \
+  https://github.com/kmarchais/trace-review/tree/v0.3.1/skills/trace-review \
   --agent codex --yes
 ```
 

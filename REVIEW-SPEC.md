@@ -3,6 +3,10 @@
 Every generated review is driven by a validated JSON specification. Version 1
 uses two required top-level fields:
 
+When `generated` is omitted, the header shows the local generation date and
+time as `YYYY-MM-DD HH:mm`. An explicit `generated` string is displayed
+unchanged.
+
 - `schemaVersion`: always `1`.
 - `mode`: one of `workspace`, `lm-analysis`, or `deep-audit`.
 

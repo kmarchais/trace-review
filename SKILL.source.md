@@ -378,7 +378,7 @@ accepted findings and their own comments; leave dismissed ones alone.
 | `mode` | top | Required. `workspace`, `lm-analysis`, or `deep-audit`. |
 | `title` | top | Document title (default `Code Review`). |
 | `reviewId` | top | localStorage key for comments (default: slug of title). Keep stable. |
-| `generated` | top | Free-text date/context line (default: today). |
+| `generated` | top | Free-text date/context line (default: local generation date and time). |
 | `prs[].title` | per PR | Tab label + summary heading. |
 | `prs[].url` | per PR | Optional link to the PR/branch, shown in the summary head. |
 | `prs[].github` | per PR | Optional native-publication target: `{ repository, pullRequest, headSha }`. Include only from validated GitHub context. |
