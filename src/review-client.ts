@@ -7,6 +7,7 @@ import {
   type ReviewDraftComment,
 } from "../scripts/lib/github-review.mjs";
 import { renderFindingMarkdown, renderInlineMarkdown } from "./inline-markdown.js";
+import { partitionRowsAtLineGaps } from "./diff-gaps.js";
 import {
   filterNavigationItems,
   findingsWithinNavigationLines,
@@ -514,18 +515,23 @@ function eventElement(event: Event): UiElement | null {
       for (const h of fd.hunks) {
         annotateHl(h, fd.lang);
         b += `<tr class="line line-hunk"><td class="ln"></td><td class="ln"></td><td class="gutter empty"></td><td class="code">@@ ${escAttr(h.header)}</td></tr>`;
-        for (const r of h.rows) {
-          const cls = r.t === "a" ? "line-add" : r.t === "d" ? "line-del" : "line-ctx";
-          const marker = r.t === "a" ? "+" : r.t === "d" ? "-" : " ";
-          const key = r.t === "d" ? "o" + r.o : String(r.n);
-          const lineno = r.t === "d" ? r.o : r.n;
-          b +=
-            `<tr class="line ${cls}">` +
-            `<td class="ln ln-old">${r.t !== "a" && r.o != null ? r.o : ""}</td>` +
-            `<td class="ln ln-new">${r.t !== "d" && r.n != null ? r.n : ""}</td>` +
-            gutter(fd.path, key, lineno, r.c, r.f, r.cf, fd.fingerprint) +
-            `<td class="code"><span class="marker">${marker}</span>${r._hl}</td>` +
-            `</tr>`;
+        for (const [segmentIndex, rows] of partitionRowsAtLineGaps(h.rows).entries()) {
+          if (segmentIndex > 0) {
+            b += `<tr class="line line-gap"><td class="ln"></td><td class="ln"></td><td class="gutter empty"></td><td class="code"><em>Intervening lines omitted — shown in another group</em></td></tr>`;
+          }
+          for (const r of rows) {
+            const cls = r.t === "a" ? "line-add" : r.t === "d" ? "line-del" : "line-ctx";
+            const marker = r.t === "a" ? "+" : r.t === "d" ? "-" : " ";
+            const key = r.t === "d" ? "o" + r.o : String(r.n);
+            const lineno = r.t === "d" ? r.o : r.n;
+            b +=
+              `<tr class="line ${cls}">` +
+              `<td class="ln ln-old">${r.t !== "a" && r.o != null ? r.o : ""}</td>` +
+              `<td class="ln ln-new">${r.t !== "d" && r.n != null ? r.n : ""}</td>` +
+              gutter(fd.path, key, lineno, r.c, r.f, r.cf, fd.fingerprint) +
+              `<td class="code"><span class="marker">${marker}</span>${r._hl}</td>` +
+              `</tr>`;
+          }
         }
       }
     return `<table class="diff unified"><colgroup><col class="c-ln"><col class="c-ln"><col class="c-gut"><col></colgroup><tbody>${b}</tbody></table>`;
@@ -559,34 +565,40 @@ function eventElement(event: Event): UiElement | null {
       for (const h of fd.hunks) {
         annotateHl(h, fd.lang);
         b += `<tr class="line line-hunk"><td class="ln"></td><td class="code" colspan="5">@@ ${escAttr(h.header)}</td></tr>`;
-        for (const p of splitPairs(h)) {
-          b += `<tr class="line">`;
-          // left (old side)
-          if (p.ctx && p.l && p.r) {
-            b += `<td class="ln ln-old">${p.l.o != null ? p.l.o : ""}</td><td class="gutter empty"></td><td class="code line-ctx">${p.l._hl}</td>`;
-          } else if (p.l) {
-            b +=
-              `<td class="ln ln-old">${p.l.o != null ? p.l.o : ""}</td>` +
-              gutter(fd.path, "o" + p.l.o, p.l.o, p.l.c, p.l.f, p.l.cf, fd.fingerprint) +
-              `<td class="code line-del">${p.l._hl}</td>`;
-          } else {
-            b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
+        const segments = partitionRowsAtLineGaps(h.rows);
+        for (const [segmentIndex, rows] of segments.entries()) {
+          if (segmentIndex > 0) {
+            b += `<tr class="line line-gap"><td class="ln"></td><td class="code" colspan="5"><em>Intervening lines omitted — shown in another group</em></td></tr>`;
           }
-          // right (new side)
-          if (p.ctx && p.l && p.r) {
-            b +=
-              `<td class="ln ln-new">${p.r.n != null ? p.r.n : ""}</td>` +
-              gutter(fd.path, String(p.r.n), p.r.n, p.r.c, p.r.f, p.r.cf, fd.fingerprint) +
-              `<td class="code line-ctx">${p.r._hl}</td>`;
-          } else if (p.r) {
-            b +=
-              `<td class="ln ln-new">${p.r.n != null ? p.r.n : ""}</td>` +
-              gutter(fd.path, String(p.r.n), p.r.n, p.r.c, p.r.f, p.r.cf, fd.fingerprint) +
-              `<td class="code line-add">${p.r._hl}</td>`;
-          } else {
-            b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
+          for (const p of splitPairs({ ...h, rows })) {
+            b += `<tr class="line">`;
+            // left (old side)
+            if (p.ctx && p.l && p.r) {
+              b += `<td class="ln ln-old">${p.l.o != null ? p.l.o : ""}</td><td class="gutter empty"></td><td class="code line-ctx">${p.l._hl}</td>`;
+            } else if (p.l) {
+              b +=
+                `<td class="ln ln-old">${p.l.o != null ? p.l.o : ""}</td>` +
+                gutter(fd.path, "o" + p.l.o, p.l.o, p.l.c, p.l.f, p.l.cf, fd.fingerprint) +
+                `<td class="code line-del">${p.l._hl}</td>`;
+            } else {
+              b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
+            }
+            // right (new side)
+            if (p.ctx && p.l && p.r) {
+              b +=
+                `<td class="ln ln-new">${p.r.n != null ? p.r.n : ""}</td>` +
+                gutter(fd.path, String(p.r.n), p.r.n, p.r.c, p.r.f, p.r.cf, fd.fingerprint) +
+                `<td class="code line-ctx">${p.r._hl}</td>`;
+            } else if (p.r) {
+              b +=
+                `<td class="ln ln-new">${p.r.n != null ? p.r.n : ""}</td>` +
+                gutter(fd.path, String(p.r.n), p.r.n, p.r.c, p.r.f, p.r.cf, fd.fingerprint) +
+                `<td class="code line-add">${p.r._hl}</td>`;
+            } else {
+              b += `<td class="ln"></td><td class="gutter empty"></td><td class="code empty"></td>`;
+            }
+            b += `</tr>`;
           }
-          b += `</tr>`;
         }
       }
     return `<table class="diff split"><colgroup><col class="c-ln"><col class="c-gut"><col><col class="c-ln"><col class="c-gut"><col></colgroup><tbody>${b}</tbody></table>`;
@@ -621,7 +633,11 @@ function eventElement(event: Event): UiElement | null {
     const candidates = new Map<string, string>();
     const candidateFingerprints = new Map<string, string>();
     let candidateRow: Element | null = tr;
-    while (candidateRow && !candidateRow.classList.contains("line-hunk")) {
+    while (
+      candidateRow &&
+      !candidateRow.classList.contains("line-hunk") &&
+      !candidateRow.classList.contains("line-gap")
+    ) {
       candidateRow
         .querySelectorAll('.gutter[data-file="' + cssEsc(file) + '"][data-key]')
         .forEach((candidate) => {
@@ -1301,8 +1317,18 @@ function eventElement(event: Event): UiElement | null {
     const anchorIndex = rows.indexOf(anchorRow);
     let first = anchorIndex;
     let last = anchorIndex + 1;
-    while (first > 0 && !rows[first - 1].classList.contains("line-hunk")) first--;
-    while (last < rows.length && !rows[last].classList.contains("line-hunk")) last++;
+    while (
+      first > 0 &&
+      !rows[first - 1].classList.contains("line-hunk") &&
+      !rows[first - 1].classList.contains("line-gap")
+    )
+      first--;
+    while (
+      last < rows.length &&
+      !rows[last].classList.contains("line-hunk") &&
+      !rows[last].classList.contains("line-gap")
+    )
+      last++;
     const oldSide = (anchor.dataset.key || "").startsWith("o");
     return rows
       .slice(first, last)
@@ -1528,7 +1554,10 @@ function eventElement(event: Event): UiElement | null {
     const table = selection.start.closest("table.diff");
     if (table.classList.contains("split")) return selection.tableRows;
     const rows = [...table.querySelectorAll("tr.line")].filter(
-      (row) => !row.classList.contains("line-hunk") && !row.classList.contains("line-info"),
+      (row) =>
+        !row.classList.contains("line-hunk") &&
+        !row.classList.contains("line-info") &&
+        !row.classList.contains("line-gap"),
     );
     const included = new Set(selection.tableRows);
     for (const selected of selection.tableRows) {
