@@ -38,6 +38,7 @@ export const SKILL_BUNDLE_RUNTIME_FILES = Object.freeze([
   "scripts/lib/change-groups.mjs",
   "scripts/lib/diagnostics.mjs",
   "scripts/lib/diff-parse.mjs",
+  "scripts/lib/github-publisher.mjs",
   "scripts/lib/github-review.mjs",
   "scripts/lib/json-schema.mjs",
   "scripts/lib/llm.mjs",
@@ -50,6 +51,9 @@ export const SKILL_BUNDLE_RUNTIME_FILES = Object.freeze([
   "scripts/lib/repeated-changes.mjs",
   "scripts/lib/review-result.mjs",
   "scripts/lib/review-spec.mjs",
+  "scripts/lib/review-state.mjs",
+  "scripts/lib/serve.mjs",
+  "scripts/lib/serve-ask.mjs",
   "templates/review.template.html",
 ]);
 

@@ -2,14 +2,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
+import { createGhPublisher } from "./lib/github-publisher.mjs";
 import {
   GithubReviewPublicationError,
   parseGithubReviewPlan,
   publishGithubReview,
-  type GithubPublicationContext,
-  type GithubReviewRequest,
 } from "./lib/github-review.mjs";
 import { requiredValue } from "./lib/cli.mjs";
 
@@ -31,55 +29,7 @@ function parseArgs(argv: readonly string[]): Args {
   return args;
 }
 
-function gh(args: readonly string[], input?: string): string {
-  const result = spawnSync("gh", args, {
-    encoding: "utf8",
-    input,
-    windowsHide: true,
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error((result.stderr || result.stdout || `gh exited ${result.status}`).trim());
-  }
-  return result.stdout.trim();
-}
-
-const publisher = {
-  async isAuthenticated(): Promise<boolean> {
-    const result = spawnSync("gh", ["auth", "status", "--hostname", "github.com"], {
-      encoding: "utf8",
-      windowsHide: true,
-    });
-    return !result.error && result.status === 0;
-  },
-  async currentHead(target: GithubPublicationContext): Promise<string> {
-    return gh([
-      "api",
-      `repos/${target.repository}/pulls/${target.pullRequest}`,
-      "--jq",
-      ".head.sha",
-    ]);
-  },
-  async createReview(
-    target: GithubPublicationContext,
-    request: GithubReviewRequest,
-  ): Promise<{ url?: string }> {
-    const url = gh(
-      [
-        "api",
-        "--method",
-        "POST",
-        `repos/${target.repository}/pulls/${target.pullRequest}/reviews`,
-        "--input",
-        "-",
-        "--jq",
-        ".html_url",
-      ],
-      JSON.stringify(request),
-    );
-    return url ? { url } : {};
-  },
-};
+const publisher = createGhPublisher();
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));

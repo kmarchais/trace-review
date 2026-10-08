@@ -463,6 +463,46 @@
   .range-toolbar button { border:1px solid var(--control-border); border-radius:var(--radius-sm); padding:5px 8px;
     color:var(--text); background:var(--control-bg); cursor:pointer; font:500 .72rem var(--font-heading); }
   .range-toolbar button:hover { background:var(--control-hover); }
+  .range-ask { display:flex; gap:5px; padding-left:5px; border-left:1px solid var(--border); }
+  .range-ask[hidden] { display:none; }
+
+  /* served mode: live badge, status banner, ask threads, publish confirmation */
+  .serve-badge { color:var(--semantic-success); border-color:color-mix(in srgb,var(--semantic-success) 45%,var(--control-border)); }
+  .serve-badge.error { color:var(--danger-text); border-color:var(--badge-danger); }
+  .serve-status { position:fixed; left:50%; top:calc(var(--h-app,57px) + 10px); transform:translateX(-50%); z-index:90; max-width:min(640px,calc(100vw - 24px));
+    display:flex; align-items:center; gap:10px; padding:8px 12px; color:var(--text); background:var(--card);
+    border:1px solid var(--semantic-info); border-left-width:4px; border-radius:var(--radius-md); box-shadow:var(--shadow-md); font-size:.82rem; }
+  .serve-status.error { border-color:var(--badge-danger); }
+  .serve-status[hidden] { display:none; }
+  .serve-status button { margin-left:auto; }
+  .ask-btn { font-family:var(--font-heading); font-size:.74rem; border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:5px; padding:3px 9px; cursor:pointer; }
+  .ask-btn:hover { border-color:var(--secondary); }
+  .ask-btn[aria-disabled="true"] { opacity:.55; cursor:not-allowed; }
+  .ask-btn.ask-primary { border-color:var(--secondary); background:var(--ai-bg); }
+  .range-toolbar .ask-btn { padding:5px 8px; font-size:.72rem; }
+  .ai-box-actions .ask-btn:first-of-type { margin-left:6px; }
+  .ask-box { margin:8px 14px 12px 46px; border:1px solid var(--secondary); border-left-width:4px; background:var(--card); border-radius:6px; padding:10px 12px; display:grid; gap:8px; }
+  .ask-head { display:flex; align-items:center; gap:8px; }
+  .ask-head .who { font-family:var(--font-heading); font-weight:600; font-size:.72rem; color:var(--badge-fg); background:var(--badge-info); padding:1px 8px; border-radius:10px; }
+  .ask-loc { color:var(--muted); font:500 .74rem var(--font-heading); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ask-head .ask-btn { margin-left:auto; color:var(--danger-text); }
+  .ask-msg { display:grid; gap:4px; padding:7px 9px; border-radius:5px; background:var(--panel); font-size:.86rem; }
+  .ask-msg.ask-answer { background:var(--ai-bg); }
+  .ask-msg.ask-error { border-left:3px solid var(--badge-danger); }
+  .ask-msg.ask-pending { color:var(--muted); font-style:italic; }
+  .ask-role { font:600 .7rem var(--font-heading); color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
+  .ask-text { white-space:pre-wrap; word-break:break-word; }
+  .ask-meta { font:500 .7rem var(--font-heading); color:var(--muted); }
+  .ask-suggestion { margin:2px 0; border:1px solid var(--border); border-radius:4px; background:var(--bg); padding:8px 10px; overflow:auto; white-space:pre; font:.78rem/1.5 var(--mono); }
+  .ask-msg > .ask-btn { justify-self:start; }
+  .ask-input textarea { min-height:38px; }
+  .ask-actions { display:flex; gap:6px; margin-top:6px; }
+  .serve-publish { display:flex; align-items:center; gap:8px; margin:10px 0 0; font-size:.82rem; }
+  .serve-publish[hidden] { display:none; }
+  .serve-publish select { font:inherit; color:var(--text); background:var(--control-bg); border:1px solid var(--control-border); border-radius:6px; padding:4px 8px; }
+  #publishPreview { max-height:52vh; overflow:auto; white-space:pre-wrap; font:.78rem/1.5 var(--mono); padding:10px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--panel); }
+  .publish-result { margin:10px 0 0; font-size:.86rem; }
+  .publish-result.error { color:var(--danger-text); }
   .orphan-panel { margin-top:12px; border:1px solid var(--orange); border-radius:8px; background:color-mix(in srgb,var(--orange) 9%,var(--card)); }
   .orphan-panel[hidden] { display:none; }
   .orphan-panel summary { cursor:pointer; padding:9px 11px; color:var(--orange); font-family:var(--font-heading); font-weight:700; }
@@ -661,6 +701,7 @@
   </div>
   <div class="header-actions">
     <span class="badge" id="commentCount">0 comments</span>
+    <span class="badge serve-badge" id="serveBadge" role="status" hidden>Saved to disk</span>
     <button type="button" class="icon-btn" id="themeBtn" title="Theme: system" aria-label="Theme: system. Switch theme">◐</button>
     <button type="button" class="btn btn-header" id="copyCommentsBtn">Copy comments</button>
     <button type="button" class="btn btn-primary" id="exportBtn">Share review</button>
@@ -710,6 +751,13 @@
       <pre id="githubReviewPreview">Native threads: 0
 Summary fallbacks: 0</pre>
       <p class="publish-command">node &lt;skill-dir&gt;/scripts/publish-github-review.mjs --plan &lt;downloaded-plan.json&gt;</p>
+      <label class="serve-publish" id="servePublishControls" hidden>Verdict
+        <select id="publishEvent">
+          <option value="COMMENT">Comment</option>
+          <option value="APPROVE">Approve</option>
+          <option value="REQUEST_CHANGES">Request changes</option>
+        </select>
+      </label>
     </div>
     <div class="modal-foot" id="markdownReviewActions">
       <span class="copied" id="copiedMsg" hidden>Copied ✓</span>
@@ -718,6 +766,22 @@ Summary fallbacks: 0</pre>
     </div>
     <div class="modal-foot" id="githubReviewActions" hidden>
       <button class="btn btn-primary" id="downloadGithubPlanBtn">Download publication plan</button>
+      <button class="btn btn-primary" id="publishGithubBtn" hidden>Publish to GitHub…</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="publishModal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="publishModalTitle">
+    <div class="modal-head"><h3 id="publishModalTitle">Confirm GitHub review</h3><button type="button" class="icon-btn" id="closePublishModal" aria-label="Close publish confirmation">✕</button></div>
+    <div class="modal-body">
+      <p class="hint">This is exactly what will be posted. The server checks gh authentication and the pull-request head first.</p>
+      <pre id="publishPreview"></pre>
+      <p class="publish-result" id="publishResult" role="status" hidden></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelPublishBtn">Cancel</button>
+      <button class="btn btn-primary" id="confirmPublishBtn">Publish to GitHub</button>
     </div>
   </div>
 </div>
@@ -760,6 +824,11 @@ Summary fallbacks: 0</pre>
     <div class="modal-body"><dl class="shortcut-list" id="shortcutList"></dl>
       <p class="hint" style="margin-top:14px">Shortcuts are ignored while typing in a comment or search field. Shift-click a second gutter to select a line range.</p></div>
   </div>
+</div>
+
+<div class="serve-status" id="serveStatus" role="status" hidden>
+  <span data-serve-status-text></span>
+  <button type="button" class="btn" id="dismissServeStatus">Dismiss</button>
 </div>
 
 <div class="save-warning" id="saveWarning" role="status" hidden>
@@ -813,10 +882,11 @@ Summary fallbacks: 0</pre>
   <button type="button" data-range-comment>Comment</button>
   <button type="button" data-range-suggest>Suggest change</button>
   <button type="button" data-range-image>Export</button>
+  <span class="range-ask" data-range-ask-group hidden></span>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cmake.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cmake.min.js" integrity="sha384-iqJTnKrAPlpoueHQticEO1SgUDmD+Lv1EGplrE41YfNgnnVCt6pLeVjutOnr/Ddi" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script id="review-data" type="application/json">{{DATA}}</script>
 <script id="ai-review-data" type="application/json">{{AIREVIEW}}</script>
 <script id="github-review-data" type="application/json">{{GITHUB_REVIEW}}</script>

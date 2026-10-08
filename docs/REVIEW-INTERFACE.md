@@ -85,6 +85,36 @@ The export lists each finding as `[accepted]`, `[dismissed]`, or `[open]`,
 then the reviewer's own overall, per-file, and per-line comments. Act on
 accepted findings and the reviewer's comments; leave dismissed ones alone.
 
+## Serve mode
+
+`trace-review serve [<target>]` (or `--serve`) builds the review, then serves
+it from `127.0.0.1` on a random port (`--port` picks one; `--host` accepts only
+`127.0.0.1`, `localhost`, or `::1`) and opens `http://127.0.0.1:<port>/#token=…`.
+The page reads the token from the fragment, keeps it in this tab's session
+storage, and sends it in a header on every API call. The server rejects any
+other `Host`, any mutating request from another `Origin`, and bodies that are
+not JSON.
+
+- State lives in `.review/state/<reviewId>.json` with a revision number. The
+  page sends the revision it started from; the server answers `409` on a
+  conflict and the page merges its own edits over the newer copy. Images are
+  files under `.review/state/<reviewId>/attachments/`.
+- The server keeps `.review/state/<reviewId>.feedback.md` equal to the
+  Markdown export and serves it as JSON at `GET /api/feedback`. The agent reads
+  the same content with `trace-review.mjs feedback --latest` (add `--json` for
+  structured items, or pass a review ID).
+- Writing `.review/lm/result.json` re-runs `finish`; writing `.review/spec.json`
+  rebuilds the page. The browser then reloads, and comments follow their
+  fingerprints. A failed rebuild shows its error on the page.
+- **Ask**, **Explain**, and **Propose fix** appear on a selected range and on
+  each finding. The server sends the file path, numbered rows, finding, and
+  question to the `--llm` CLI with the same read-only restrictions as the
+  review run. Answers are saved as a thread under the lines; a fix answer
+  offers **Add as suggested change**. The buttons stay disabled when no CLI is
+  available.
+- With GitHub context, the GitHub tab adds a verdict choice and **Publish to
+  GitHub…**, which shows the exact preview before the server publishes.
+
 ## Page layout
 
 The page opens on **Review changes** with the diff, findings, comments, and
@@ -119,8 +149,9 @@ collapsible; **Focus** hides surrounding chrome. Viewer controls:
 
 ## Gotchas
 
-- Comments persist in the reviewer's browser (localStorage), not in the HTML
-  file, and survive rebuilds only while `reviewId` is unchanged.
+- From `file://`, comments persist in the reviewer's browser (localStorage),
+  not in the HTML file, and survive rebuilds only while `reviewId` is
+  unchanged. Serve mode stores them on disk instead.
 - After a rebuild, line comments follow a contextual fingerprint; ambiguous
   ones move to an **Orphaned comments** tray.
 - Markdown links accept only HTTP(S), `mailto:`, or fragments; inline SVG is

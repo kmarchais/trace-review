@@ -3,9 +3,21 @@ import {
   prepareGithubReview,
   rangeStartMatchesAnchor,
   type GithubPublicationContext,
+  type GithubReviewEvent,
   type GithubReviewPlan,
   type ReviewDraftComment,
 } from "../scripts/lib/github-review.mjs";
+import {
+  ReviewServerClient,
+  SCROLL_STORAGE_KEY,
+  StateSyncer,
+  UNSAVED_STORAGE_KEY,
+  isStaleReview,
+  mergeReviewStates,
+  readServeToken,
+  type ReviewStateRecord,
+  type ServerSession,
+} from "./review-sync.js";
 import { renderFindingMarkdown, renderInlineMarkdown } from "./inline-markdown.js";
 import {
   SHORTCUTS,
@@ -113,7 +125,38 @@ interface ExportPairRow {
 interface Attachment {
   name: string;
   type: string;
-  data: string;
+  /** Inline data URL (browser storage). */
+  data?: string;
+  /** Uploaded image file name (served mode). */
+  file?: string;
+}
+
+type AskAction = "ask" | "explain" | "fix";
+
+interface ThreadMessage {
+  role: "user" | "assistant" | "error";
+  action: AskAction;
+  text: string;
+  suggestion?: string | null;
+  provider?: string;
+  durationMs?: number;
+  costUsd?: number;
+  at: string;
+}
+
+interface StoredThread {
+  pr: string;
+  file: string;
+  key: string;
+  startKey: string;
+  lineno: string;
+  startLineno: string;
+  side: "old" | "new";
+  fingerprint?: string;
+  contentFingerprint?: string;
+  findingAid?: string;
+  rows: Array<{ line: string; kind: "add" | "del" | "ctx"; code: string }>;
+  messages: ThreadMessage[];
 }
 
 interface StoredLineComment {
@@ -155,6 +198,7 @@ interface ReviewState {
   viewed: Record<string, boolean>;
   grouping: Record<string, "grouped" | "raw">;
   attachments: Record<string, Attachment[]>;
+  threads: Record<string, StoredThread>;
 }
 
 interface AutomatedFinding {
@@ -207,7 +251,15 @@ function eventElement(event: Event): UiElement | null {
   return event.target instanceof HTMLElement ? (event.target as UiElement) : null;
 }
 
-(function () {
+function safeSessionStorage(): Storage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+void (async function () {
   const REVIEW_ID = "{{REVIEW_ID}}";
   const REVIEWER = "{{REVIEWER}}";
   const STORE_KEY = "htmlreview:" + REVIEW_ID;
@@ -220,16 +272,174 @@ function eventElement(event: Event): UiElement | null {
   const HAS_REVIEW = Object.keys(REVIEW).length > 0;
   const findingCursor: Record<string, number> = {};
 
+  // ---- served mode ----
+  // Opened from `trace-review serve`, the page keeps state on disk through the
+  // loopback server. Without a token (file://, or a copied URL) it stays on
+  // localStorage exactly like a static review.
+  const serveToken = readServeToken(window.location, safeSessionStorage(), (url) =>
+    history.replaceState(null, "", url),
+  );
+  let server: ReviewServerClient | null = serveToken
+    ? new ReviewServerClient(serveToken, REVIEW_ID)
+    : null;
+  let session: ServerSession | null = null;
+  let diskState: { revision: number; state: ReviewStateRecord } | null = null;
+  if (server) {
+    try {
+      session = await server.session();
+      diskState = await server.loadState();
+    } catch (error) {
+      server = null;
+    }
+  }
+
   // ---- state ----
   // Loaded state is validated field by field: a corrupt or foreign entry is
   // dropped instead of breaking the page.
-  let storedState: unknown = null;
+  let localState: unknown = null;
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) storedState = JSON.parse(raw);
+    if (raw) localState = JSON.parse(raw);
   } catch (e) {}
-  const state = normalizeStoredState(storedState) as unknown as ReviewState;
+  // Edits an older build of this page could not save (the review was rebuilt
+  // under a new ID meanwhile) are merged into the migrated state.
+  let restoredUnsaved: ReviewStateRecord | null = null;
+  if (diskState) {
+    try {
+      const raw = safeSessionStorage()?.getItem(UNSAVED_STORAGE_KEY);
+      const unsaved = raw
+        ? (JSON.parse(raw) as {
+            from?: string;
+            at?: number;
+            base?: ReviewStateRecord;
+            local?: ReviewStateRecord;
+          })
+        : null;
+      if (unsaved && Date.now() - (unsaved.at || 0) > 10 * 60_000) {
+        safeSessionStorage()?.removeItem(UNSAVED_STORAGE_KEY);
+      } else if (unsaved && unsaved.from !== REVIEW_ID && unsaved.base && unsaved.local) {
+        safeSessionStorage()?.removeItem(UNSAVED_STORAGE_KEY);
+        restoredUnsaved = mergeReviewStates(diskState.state, unsaved.base, unsaved.local).merged;
+      }
+    } catch {}
+  }
+  const state = normalizeStoredState(
+    restoredUnsaved ?? (diskState ? diskState.state : localState),
+  ) as unknown as ReviewState;
   state.version = STATE_VERSION;
+  const STATE_MAPS = [
+    "general",
+    "lines",
+    "aiState",
+    "aiReply",
+    "files",
+    "viewed",
+    "grouping",
+    "attachments",
+    "threads",
+  ] as const;
+  const stateIsEmpty = (candidate: ReviewState): boolean =>
+    STATE_MAPS.every((key) => Object.keys(candidate[key] || {}).length === 0);
+  // First served load: bring this review's browser comments to disk.
+  let importedLocalState = false;
+  if (server && diskState && diskState.revision === 0 && stateIsEmpty(state)) {
+    const imported = normalizeStoredState(localState) as unknown as ReviewState;
+    if (!stateIsEmpty(imported)) {
+      const client = server;
+      for (const [id, items] of Object.entries(imported.attachments)) {
+        const uploaded = await Promise.all(
+          items.map((item) =>
+            item.data && !item.file
+              ? client.uploadAttachment(item.name, item.type, item.data).catch(() => null)
+              : Promise.resolve(item),
+          ),
+        );
+        imported.attachments[id] = uploaded.filter((item): item is Attachment => !!item?.file);
+      }
+      STATE_MAPS.forEach((key) => Object.assign(state, { [key]: imported[key] }));
+      importedLocalState = true;
+    }
+  }
+  if (server) {
+    const client = server;
+    await Promise.all(
+      Object.values(state.attachments)
+        .flat()
+        .filter((item) => item.file)
+        .map((item) => client.loadAttachment(item.file || "").catch(() => "")),
+    );
+  }
+  // The disk copy never carries inline image data.
+  function diskSnapshot(): ReviewStateRecord {
+    const copy = JSON.parse(JSON.stringify(state)) as ReviewState;
+    for (const id of Object.keys(copy.attachments)) {
+      copy.attachments[id] = copy.attachments[id]
+        .filter((item) => item.file)
+        .map((item) => ({ name: item.name, type: item.type, file: item.file }));
+      if (!copy.attachments[id].length) delete copy.attachments[id];
+    }
+    return copy as unknown as ReviewStateRecord;
+  }
+  const serveBadge = document.getElementById("serveBadge");
+  function showServeStatus(message: string, tone: "info" | "error" = "info"): void {
+    const status = document.getElementById("serveStatus");
+    if (!status) return;
+    status.querySelector("[data-serve-status-text]").textContent = message;
+    status.classList.toggle("error", tone === "error");
+    status.hidden = !message;
+  }
+  // Reload the page (state is on disk) and come back to the same place.
+  async function reloadPreservingScroll(): Promise<void> {
+    await syncer?.flush();
+    try {
+      safeSessionStorage()?.setItem(
+        SCROLL_STORAGE_KEY,
+        JSON.stringify({ y: window.scrollY, at: Date.now() }),
+      );
+    } catch {}
+    window.location.reload();
+  }
+  // The server says this page is an older build: reload into the new one.
+  let reloadingStale = false;
+  function reloadStale(): void {
+    if (reloadingStale) return;
+    reloadingStale = true;
+    showServeStatus("The review was rebuilt; reloading with your comments…");
+    void reloadPreservingScroll();
+  }
+  if (server) server.onStale = reloadStale;
+  const syncer =
+    server && diskState
+      ? new StateSyncer(server, diskState.revision, diskState.state, {
+          feedback: () => buildFeedback(),
+          snapshot: diskSnapshot,
+          replace(merged) {
+            const next = normalizeStoredState(merged) as unknown as ReviewState;
+            STATE_MAPS.forEach((key) => Object.assign(state, { [key]: next[key] }));
+          },
+          remoteChanged: () => void reloadPreservingScroll(),
+          stale(base, local) {
+            if (JSON.stringify(base) !== JSON.stringify(local)) {
+              try {
+                safeSessionStorage()?.setItem(
+                  UNSAVED_STORAGE_KEY,
+                  JSON.stringify({ from: REVIEW_ID, at: Date.now(), base, local }),
+                );
+              } catch {}
+            }
+            reloadStale();
+          },
+          status(kind, message) {
+            if (serveBadge) {
+              serveBadge.textContent =
+                kind === "saving" ? "Saving…" : kind === "saved" ? "Saved to disk" : "Not saved";
+              serveBadge.classList.toggle("error", kind === "error");
+            }
+            if (kind === "error") showServeStatus(message || "Not saved", "error");
+            else if (kind === "saved") showServeStatus("");
+          },
+        })
+      : null;
 
   // ---- syntax highlighting (highlight.js, loaded above; degrades offline) ----
   // Highlight a whole block and split into per-line HTML, keeping <span>s
@@ -365,6 +575,10 @@ function eventElement(event: Event): UiElement | null {
   // without blocking the reviewer, and clear the warning once a save succeeds.
   let saveFailed = false;
   const save = (): void => {
+    if (syncer) {
+      syncer.schedule();
+      return;
+    }
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
       if (saveFailed) {
@@ -381,6 +595,9 @@ function eventElement(event: Event): UiElement | null {
       document.getElementById("saveWarning").hidden = false;
     }
   };
+  document.getElementById("dismissServeStatus")?.addEventListener("click", () => {
+    document.getElementById("serveStatus").hidden = true;
+  });
   document.getElementById("dismissSaveWarning")?.addEventListener("click", () => {
     document.getElementById("saveWarning").hidden = true;
   });
@@ -399,9 +616,25 @@ function eventElement(event: Event): UiElement | null {
       return String(s).replace(/"/g, '\\"');
     }
   };
+  // Comment and thread IDs contain NUL separators, which CSS.escape rewrites to
+  // U+FFFD, so attribute selectors cannot match them; compare directly instead.
+  const rowsWithData = (
+    root: ParentNode,
+    selector: string,
+    key: string,
+    value: string,
+  ): UiElement[] =>
+    [...root.querySelectorAll(selector)].filter((row) => row.dataset[key] === value);
   const attachmentId = (kind: string, pr?: string, file?: string, key?: string): string =>
     [kind, pr || "", file || "", key || ""].join("\0");
   const attachmentItems = (id: string): Attachment[] => state.attachments[id] || [];
+  const attachmentSrc = (item: Attachment): string =>
+    item.data || (item.file && server ? server.cachedAttachmentUrl(item.file) : "");
+  // Exported Markdown points at the image: inline data, or the file on disk.
+  const attachmentLink = (item: Attachment): string =>
+    item.file && session?.attachmentsDir
+      ? "<" + (session.attachmentsDir + "/" + item.file).replace(/\\/g, "/") + ">"
+      : item.data || "";
   const hasAttachments = (id: string): boolean => attachmentItems(id).length > 0;
   const hasCommentContent = (text: unknown, id: string): boolean =>
     !!String(text || "").trim() || hasAttachments(id);
@@ -415,7 +648,7 @@ function eventElement(event: Event): UiElement | null {
     tray.innerHTML = attachmentItems(id)
       .map(
         (item, index) =>
-          `<figure class="comment-attachment"><img src="${escAttr(item.data)}" alt="Pasted image ${index + 1}"><button type="button" data-remove-attachment="${index}" title="Remove image">×</button></figure>`,
+          `<figure class="comment-attachment"><img src="${escAttr(attachmentSrc(item))}" alt="Pasted image ${index + 1}"><button type="button" data-remove-attachment="${index}" title="Remove image">×</button></figure>`,
       )
       .join("");
     tray.hidden = !hasAttachments(id);
@@ -466,13 +699,23 @@ function eventElement(event: Event): UiElement | null {
           return;
         }
         const reader = new FileReader();
-        reader.addEventListener("load", () => {
+        reader.addEventListener("load", async () => {
+          const name = file.name || "pasted-image";
+          const type = file.type || "image/png";
+          let item: Attachment = { name, type, data: String(reader.result) };
+          if (server) {
+            try {
+              item = await server.uploadAttachment(name, type, String(reader.result));
+            } catch (error) {
+              window.alert(
+                "The image could not be saved: " +
+                  (error instanceof Error ? error.message : String(error)),
+              );
+              return;
+            }
+          }
           const items = attachmentItems(id).slice();
-          items.push({
-            name: file.name || "pasted-image",
-            type: file.type || "image/png",
-            data: String(reader.result),
-          });
+          items.push(item);
           state.attachments[id] = items;
           if (onChange) onChange();
           save();
@@ -691,7 +934,7 @@ function eventElement(event: Event): UiElement | null {
     const id = uid(pr, file, key);
     const saved = state.lines[id];
     const attachId = attachmentId("line", pr, file, key);
-    const existing = mount.querySelector('.comment-row[data-cid="' + cssEsc(id) + '"]');
+    const existing = rowsWithData(mount, ".comment-row[data-cid]", "cid", id)[0];
     if (existing) {
       return existing.querySelector("textarea");
     }
@@ -1100,7 +1343,7 @@ function eventElement(event: Event): UiElement | null {
       <div class="ai-box-body">${renderFindingMarkdown(c.body)}</div>
       <div class="ai-rationale"><strong>Why:</strong> ${renderInlineMarkdown(c.rationale)}</div>
       ${c.suggestedChange ? `<div class="ai-suggested-change"><strong>Proposed change</strong><pre tabindex="0"><code>${escAttr(c.suggestedChange)}</code></pre></div>` : ""}
-      <div class="ai-box-actions">${options.map((option, index) => `<button type="button" data-option="${index}" aria-pressed="false">${escAttr(option)}</button>`).join("")}<button type="button" data-a="reply">Reply</button><span class="ai-state"></span></div>
+      <div class="ai-box-actions">${options.map((option, index) => `<button type="button" data-option="${index}" aria-pressed="false">${escAttr(option)}</button>`).join("")}<button type="button" data-a="reply">Reply</button>${server ? askButtonsHtml("data-ask-finding") : ""}<span class="ai-state"></span></div>
     </div>`;
     highlightMarkdownCode(td);
     row.appendChild(td);
@@ -1147,6 +1390,14 @@ function eventElement(event: Event): UiElement | null {
       const ta = createCommentRow(g, "");
       if (ta) ta.focus();
     });
+    td.querySelectorAll("[data-ask-finding]").forEach((button) =>
+      button.addEventListener("click", () => {
+        if (button.getAttribute("aria-disabled") === "true") return;
+        const id = threadFromFinding(g, c, pr);
+        startThreadAction(id, button.dataset.askFinding as AskAction);
+      }),
+    );
+    syncAskButtons(td);
     refresh();
   }
   function applyReview(mount: UiElement): void {
@@ -1161,6 +1412,357 @@ function eventElement(event: Event): UiElement | null {
       if (g) insertAiRow(g, c, pr);
     }
   }
+
+  // ---- ask about lines (served mode): Ask / Explain / Propose fix threads ----
+  // A thread is anchored like a line comment (fingerprint, then key) and is
+  // saved in state with its selected rows, so it survives rebuilds.
+  const ASK_LABELS: Record<AskAction, string> = {
+    ask: "Ask",
+    explain: "Explain",
+    fix: "Propose fix",
+  };
+  const ASK_DEFAULT_TEXT: Record<AskAction, string> = {
+    ask: "",
+    explain: "Explain these lines.",
+    fix: "Propose a fix for these lines.",
+  };
+  let askBusy = false;
+  const askPending = new Map<string, number>();
+  function askButtonsHtml(attribute: string): string {
+    return (["ask", "explain", "fix"] as const)
+      .map(
+        (action) =>
+          `<button type="button" class="ask-btn" ${attribute}="${action}" data-ask-action="${action}">${ASK_LABELS[action]}</button>`,
+      )
+      .join("");
+  }
+  function askDisabledReason(): string {
+    if (!server) return "Questions need the page opened by trace-review serve.";
+    if (!session?.provider) {
+      return "No claude or codex CLI is available. Restart serve with --llm claude or --llm codex.";
+    }
+    if (askBusy) return "Another request is running; wait for its answer.";
+    return "";
+  }
+  function syncAskButtons(root: ParentNode = document): void {
+    const reason = askDisabledReason();
+    root.querySelectorAll("[data-ask-action]").forEach((button) => {
+      button.setAttribute("aria-disabled", String(!!reason));
+      button.title =
+        reason || ASK_LABELS[button.dataset.askAction as AskAction] + " the language model";
+    });
+  }
+  const threadKey = (pr: string, file: string, startKey: string, key: string, aid = ""): string =>
+    ["ask", pr, file, startKey, key, aid].join("\0");
+  const rowKind = (row: ClientRow | undefined): "add" | "del" | "ctx" =>
+    row?.t === "a" ? "add" : row?.t === "d" ? "del" : "ctx";
+  function threadFromRange(selection: DiffRangeSelection): string {
+    const end = selection.end;
+    const start = selection.start;
+    const pr = end.closest("section.pr").dataset.pr || "";
+    const id = threadKey(pr, selection.file, start.dataset.key || "", end.dataset.key || "");
+    if (!state.threads[id]) {
+      const row = rowFor(end);
+      state.threads[id] = {
+        pr,
+        file: selection.file,
+        key: end.dataset.key || "",
+        startKey: start.dataset.key || "",
+        lineno: linenoOf(end),
+        startLineno: linenoOf(start),
+        side: selection.oldSide ? "old" : "new",
+        fingerprint: row?.f || "",
+        contentFingerprint: row?.cf || "",
+        rows: selection.rows.map((item) => ({ ...item })),
+        messages: [],
+      };
+    }
+    return id;
+  }
+  function threadFromFinding(g: UiElement, finding: AutomatedFinding, pr: string): string {
+    const id = threadKey(pr, finding.file, finding.key, finding.key, finding.aid);
+    if (!state.threads[id]) {
+      const row = rowFor(g);
+      state.threads[id] = {
+        pr,
+        file: finding.file,
+        key: finding.key,
+        startKey: finding.key,
+        lineno: linenoOf(g),
+        startLineno: linenoOf(g),
+        side: finding.key.startsWith("o") ? "old" : "new",
+        fingerprint: row?.f || "",
+        contentFingerprint: row?.cf || "",
+        findingAid: finding.aid,
+        rows: [{ line: linenoOf(g), kind: rowKind(row), code: row?.c || "" }],
+        messages: [],
+      };
+    }
+    return id;
+  }
+  function threadAnchor(mount: UiElement, thread: StoredThread): UiElement | null {
+    const fd = DATA.view(mount.dataset.fid);
+    if (!fd || fd.path !== thread.file) return null;
+    storedFile(fd);
+    const rows = fd.hunks.flatMap((hunk) => hunk.rows);
+    const row =
+      (thread.fingerprint && rows.find((candidate) => candidate.f === thread.fingerprint)) ||
+      rows.find((candidate) => rowKey(candidate) === thread.key);
+    if (!row) return null;
+    return mount.querySelector(
+      '.gutter[data-key="' + cssEsc(rowKey(row)) + '"][data-file="' + cssEsc(thread.file) + '"]',
+    );
+  }
+  function threadMeta(message: ThreadMessage): string {
+    return [
+      message.provider || "",
+      message.durationMs != null ? (message.durationMs / 1000).toFixed(1) + " s" : "",
+      message.costUsd != null ? "$" + message.costUsd.toFixed(4) : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  function threadHtml(id: string, thread: StoredThread): string {
+    const lines =
+      thread.startLineno && thread.startLineno !== thread.lineno
+        ? "lines " + thread.startLineno + "–" + thread.lineno
+        : "line " + thread.lineno;
+    const lang = fileLanguage(thread.pr, thread.file);
+    const messages = thread.messages
+      .map((message, index) => {
+        if (message.role === "user") {
+          return `<div class="ask-msg ask-user"><span class="ask-role">You · ${escAttr(ASK_LABELS[message.action] || "Ask")}</span><div class="ask-text">${escAttr(message.text)}</div></div>`;
+        }
+        if (message.role === "error") {
+          return `<div class="ask-msg ask-error" role="alert"><span class="ask-role">Request failed</span><div class="ask-text">${escAttr(message.text)}</div></div>`;
+        }
+        const suggestion = message.suggestion
+          ? `<pre class="md-code ask-suggestion"><code${/^[a-z0-9_+-]+$/i.test(lang) ? ` class="language-${lang}"` : ""}>${escAttr(message.suggestion)}</code></pre>` +
+            (thread.side === "new"
+              ? `<button type="button" class="ask-btn ask-primary" data-thread-suggest="${index}">Add as suggested change</button>`
+              : "")
+          : "";
+        const meta = threadMeta(message);
+        return `<div class="ask-msg ask-answer"><span class="ask-role">✦ ${escAttr(message.provider || "LM")}</span><div class="ask-body ai-box-body">${renderFindingMarkdown(message.text)}</div>${suggestion}${meta ? `<span class="ask-meta">${escAttr(meta)}</span>` : ""}</div>`;
+      })
+      .join("");
+    const started = askPending.get(id);
+    const pending = started
+      ? `<div class="ask-msg ask-pending" aria-live="polite">Waiting for the answer… <span data-ask-elapsed="${started}">0 s</span></div>`
+      : "";
+    return (
+      `<div class="ask-box"><div class="ask-head"><span class="who">✦ Ask LM</span><span class="ask-loc">${escAttr(thread.file)} · ${lines}</span><button type="button" class="ask-btn" data-thread-delete title="Delete this thread">Delete</button></div>` +
+      messages +
+      pending +
+      `<div class="ask-input"><textarea data-thread-question placeholder="Ask about these lines…" aria-label="Question about ${escAttr(thread.file)} ${lines}"></textarea>` +
+      `<div class="ask-actions"><button type="button" class="ask-btn ask-primary" data-thread-action="ask" data-ask-action="ask">Ask</button>` +
+      `<button type="button" class="ask-btn" data-thread-action="explain" data-ask-action="explain">Explain</button>` +
+      `<button type="button" class="ask-btn" data-thread-action="fix" data-ask-action="fix">Propose fix</button></div></div></div>`
+    );
+  }
+  function renderThreadInto(mount: UiElement, id: string): void {
+    const thread = state.threads[id];
+    let row: UiElement | undefined = rowsWithData(mount, ".ask-thread", "thread", id)[0];
+    const anchor = thread ? threadAnchor(mount, thread) : null;
+    if (!thread || !anchor) {
+      row?.remove();
+      return;
+    }
+    const question = row?.querySelector("[data-thread-question]")?.value || "";
+    if (!row) {
+      row = document.createElement("tr");
+      row.className = "comment-row ask-thread";
+      row.dataset.thread = id;
+      const td = document.createElement("td");
+      td.colSpan = anchor.closest("tr").children.length;
+      row.appendChild(td);
+      let after: Element = anchor.closest("tr");
+      while (after.nextElementSibling?.classList.contains("comment-row")) {
+        after = after.nextElementSibling;
+      }
+      after.after(row);
+    }
+    (row.firstElementChild as UiElement).innerHTML = threadHtml(id, thread);
+    row.querySelector("[data-thread-question]").value = question;
+    highlightMarkdownCode(row);
+    syncAskButtons(row);
+  }
+  function threadMounts(thread: StoredThread): UiElement[] {
+    return [
+      ...document.querySelectorAll(
+        'section.pr[data-pr="' + cssEsc(thread.pr) + '"] .diff-mount[data-rendered]',
+      ),
+    ].filter((mount) => DATA.view(mount.dataset.fid)?.path === thread.file);
+  }
+  function renderThread(id: string): void {
+    const thread = state.threads[id];
+    if (!thread) {
+      rowsWithData(document, ".ask-thread", "thread", id).forEach((row) => row.remove());
+      return;
+    }
+    threadMounts(thread).forEach((mount) => renderThreadInto(mount, id));
+  }
+  function applyThreads(mount: UiElement): void {
+    if (!server) return;
+    const pr = mount.closest("section.pr").dataset.pr;
+    const path = DATA.view(mount.dataset.fid)?.path;
+    for (const id in state.threads) {
+      const thread = state.threads[id];
+      if (thread && thread.pr === pr && thread.file === path) renderThreadInto(mount, id);
+    }
+  }
+  function focusThread(id: string): void {
+    const thread = state.threads[id];
+    const mount = thread && threadMounts(thread)[0];
+    const row = mount ? rowsWithData(mount, ".ask-thread", "thread", id)[0] : undefined;
+    row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    row?.querySelector("[data-thread-question]")?.focus();
+  }
+  function startThreadAction(id: string, action: AskAction, question = ""): void {
+    renderThread(id);
+    if (action === "ask" && !question.trim()) {
+      focusThread(id);
+      return;
+    }
+    void runAsk(id, action, question.trim());
+  }
+  function findingFor(pr: string, aid: string | undefined): AutomatedFinding | undefined {
+    return aid ? REVIEW[pr]?.comments.find((comment) => comment.aid === aid) : undefined;
+  }
+  async function runAsk(id: string, action: AskAction, question: string): Promise<void> {
+    const thread = state.threads[id];
+    const client = server;
+    if (!thread || !client) return;
+    const reason = askDisabledReason();
+    if (reason) {
+      showServeStatus(reason, "error");
+      return;
+    }
+    askBusy = true;
+    askPending.set(id, Date.now());
+    syncAskButtons();
+    thread.messages.push({
+      role: "user",
+      action,
+      text: question || ASK_DEFAULT_TEXT[action],
+      at: new Date().toISOString(),
+    });
+    save();
+    renderThread(id);
+    const finding = findingFor(thread.pr, thread.findingAid);
+    try {
+      let job = await client.ask({
+        action,
+        question,
+        file: thread.file,
+        side: thread.side,
+        rows: thread.rows,
+        ...(finding
+          ? {
+              finding: {
+                severity: finding.severity,
+                body: finding.body,
+                rationale: finding.rationale,
+              },
+            }
+          : {}),
+      });
+      while (job.status === "pending") {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        job = await client.askStatus(job.id);
+      }
+      thread.messages.push(
+        job.status === "done"
+          ? {
+              role: "assistant",
+              action,
+              text: job.answer || "",
+              suggestion: job.suggestion ?? null,
+              provider: job.provider,
+              ...(job.durationMs != null ? { durationMs: job.durationMs } : {}),
+              ...(job.costUsd != null ? { costUsd: job.costUsd } : {}),
+              at: new Date().toISOString(),
+            }
+          : {
+              role: "error",
+              action,
+              text: job.error || "The request failed.",
+              at: new Date().toISOString(),
+            },
+      );
+    } catch (error) {
+      thread.messages.push({
+        role: "error",
+        action,
+        text: error instanceof Error ? error.message : String(error),
+        at: new Date().toISOString(),
+      });
+    } finally {
+      askBusy = false;
+      askPending.delete(id);
+      save();
+      renderThread(id);
+      syncAskButtons();
+    }
+  }
+  setInterval(() => {
+    document.querySelectorAll("[data-ask-elapsed]").forEach((label) => {
+      label.textContent = Math.round((Date.now() - Number(label.dataset.askElapsed)) / 1000) + " s";
+    });
+  }, 1000);
+  document.addEventListener("click", (event) => {
+    const target = eventElement(event);
+    const row = target?.closest(".ask-thread");
+    if (!row || !target) return;
+    const id = row.dataset.thread || "";
+    const thread = state.threads[id];
+    if (!thread) return;
+    const actionButton = target.closest("[data-thread-action]");
+    if (actionButton) {
+      if (actionButton.getAttribute("aria-disabled") === "true") return;
+      const input = row.querySelector("[data-thread-question]");
+      const question = input?.value || "";
+      if (input) input.value = "";
+      startThreadAction(id, actionButton.dataset.threadAction as AskAction, question);
+      return;
+    }
+    if (target.closest("[data-thread-delete]")) {
+      delete state.threads[id];
+      save();
+      renderThread(id);
+      return;
+    }
+    const suggest = target.closest("[data-thread-suggest]");
+    if (suggest) {
+      const message = thread.messages[Number(suggest.dataset.threadSuggest)];
+      const mount = row.closest(".diff-mount");
+      const end = threadAnchor(mount, thread);
+      if (!message?.suggestion || !end) return;
+      const block = "```suggestion\n" + message.suggestion + "\n```";
+      const ta = createCommentRow(end, block, thread.startKey);
+      // An existing comment on the end line takes the selected range as well.
+      const start = ta?.closest(".comment-box")?.querySelector("select");
+      if (start && start.value !== thread.startKey) {
+        if ([...start.querySelectorAll("option")].some((o) => o.value === thread.startKey)) {
+          start.value = thread.startKey;
+          start.dispatchEvent(new Event("change"));
+        }
+      }
+      if (ta && !ta.value.includes(block)) {
+        ta.value = (ta.value.trim() ? ta.value + "\n\n" : "") + block;
+        ta.dispatchEvent(new Event("input"));
+      }
+      ta?.focus();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    const input = eventElement(event)?.closest("[data-thread-question]");
+    if (!input || event.key !== "Enter" || (!event.ctrlKey && !event.metaKey)) return;
+    event.preventDefault();
+    (
+      input.closest(".ask-thread")?.querySelector('[data-thread-action="ask"]') as UiElement | null
+    )?.click();
+  });
   function renderFindingList(): void {
     if (!HAS_REVIEW) return;
     document.querySelectorAll("[data-finding-list]").forEach((list) => {
@@ -1201,6 +1803,7 @@ function eventElement(event: Event): UiElement | null {
     mnt.dataset.rendered = mode;
     applyComments(mnt);
     applyReview(mnt);
+    applyThreads(mnt);
   }
   // Render a mount now if the idle renderer has not reached it yet.
   function ensureRendered(fileEl: UiElement): void {
@@ -1763,6 +2366,21 @@ function eventElement(event: Event): UiElement | null {
     openCarbonExport(activeRange);
     hideRangeToolbar();
   });
+
+  const rangeAskGroup = rangeToolbar.querySelector("[data-range-ask-group]");
+  if (rangeAskGroup) {
+    rangeAskGroup.hidden = !server;
+    rangeAskGroup.innerHTML = server ? askButtonsHtml("data-range-ask") : "";
+    syncAskButtons(rangeAskGroup);
+    rangeAskGroup.querySelectorAll("[data-range-ask]").forEach((button) =>
+      button.addEventListener("click", () => {
+        if (!activeRange || button.getAttribute("aria-disabled") === "true") return;
+        const id = threadFromRange(activeRange);
+        hideRangeToolbar();
+        startThreadAction(id, button.dataset.rangeAsk as AskAction);
+      }),
+    );
+  }
 
   const carbonModal = document.getElementById("carbonModal");
   const carbonSelectable = document.getElementById("carbonSelectable");
@@ -3293,7 +3911,10 @@ function eventElement(event: Event): UiElement | null {
   // ---- export ----
   function attachmentMarkdown(id: string, indent = ""): string {
     return attachmentItems(id)
-      .map((item, index) => indent + "![Pasted image " + (index + 1) + "](" + item.data + ")")
+      .map(
+        (item, index) =>
+          indent + "![Pasted image " + (index + 1) + "](" + attachmentLink(item) + ")",
+      )
       .join("\n");
   }
   function fileLanguage(pr: string, file: string): string {
@@ -3432,6 +4053,78 @@ function eventElement(event: Event): UiElement | null {
     if (!any) out += "\n_No comments yet._\n";
     return out;
   }
+  // The agent hand-off written by the server: the Markdown export plus the
+  // same comments as structured items.
+  function buildFeedback(): { markdown: string; items: Array<Record<string, unknown>> } {
+    const items: Array<Record<string, unknown>> = [];
+    const imagePaths = (id: string): string[] =>
+      attachmentItems(id)
+        .filter((item) => item.file && session?.attachmentsDir)
+        .map((item) => (session?.attachmentsDir + "/" + item.file).replace(/\\/g, "/"));
+    const withImages = (item: Record<string, unknown>, id: string): Record<string, unknown> => {
+      const attachments = imagePaths(id);
+      return attachments.length ? { ...item, attachments } : item;
+    };
+    const lineNumber = (value: string | undefined): number | undefined => {
+      const parsed = parseInt(String(value || "").replace(/^o/, ""), 10);
+      return Number.isInteger(parsed) ? parsed : undefined;
+    };
+    for (const pr of Object.keys(REVIEW)) {
+      for (const finding of REVIEW[pr].comments) {
+        items.push({
+          kind: "finding",
+          pr,
+          file: finding.file,
+          side: finding.key.startsWith("o") ? "old" : "new",
+          line: lineNumber(finding.line),
+          severity: finding.severity,
+          status: findingStatus(pr, finding) || "open",
+          text: finding.body,
+        });
+      }
+    }
+    for (const pr of new Set([
+      ...Object.keys(state.general),
+      ...Object.keys(state.attachments)
+        .filter((key) => key.startsWith("general\0"))
+        .map((key) => key.split("\0")[1]),
+    ])) {
+      const id = attachmentId("general", pr, "", "");
+      if (hasCommentContent(state.general[pr], id)) {
+        items.push(withImages({ kind: "general", pr, text: (state.general[pr] || "").trim() }, id));
+      }
+    }
+    for (const comment of Object.values(state.files)) {
+      const id = attachmentId("file", comment.pr, comment.file, "");
+      if (!comment || !hasCommentContent(comment.text, id)) continue;
+      items.push(
+        withImages({ kind: "file", pr: comment.pr, file: comment.file, text: comment.text }, id),
+      );
+    }
+    const orphans = new Set(orphanedComments().map(([id]) => id));
+    for (const [key, comment] of Object.entries(state.lines)) {
+      const id = attachmentId("line", comment.pr, comment.file, comment.key);
+      if (!comment || !hasCommentContent(comment.text, id)) continue;
+      const isRange = !!comment.startLineno && comment.startLineno !== comment.lineno;
+      const code = isRange ? commentRangeCode(comment).code : (comment.code || "").trim();
+      items.push(
+        withImages(
+          {
+            kind: orphans.has(key) ? "orphan" : "line",
+            pr: comment.pr,
+            file: comment.file,
+            side: comment.key.startsWith("o") ? "old" : "new",
+            line: lineNumber(comment.lineno || comment.key),
+            ...(isRange ? { startLine: lineNumber(comment.startLineno) } : {}),
+            text: comment.text,
+            ...(code ? { code } : {}),
+          },
+          id,
+        ),
+      );
+    }
+    return { markdown: buildMarkdown(), items };
+  }
   function buildGithubSummary(pr: string): string {
     const section = document.querySelector('section.pr[data-pr="' + cssEsc(pr) + '"]');
     const title =
@@ -3492,6 +4185,25 @@ function eventElement(event: Event): UiElement | null {
         "and grouping choices stored for this review in this browser. This cannot be undone.",
     );
     if (!confirmed) return;
+    if (server && syncer) {
+      const client = server;
+      void (async () => {
+        await syncer.flush();
+        const result = await client.clearState(syncer.revision).catch(() => null);
+        // An older build of the page reloads itself (onStale) instead.
+        if (result && isStaleReview(result.status, result.data)) return;
+        if (!result || result.status !== 200) {
+          window.alert("The review could not be cleared on the review server. Try again.");
+          return;
+        }
+        syncer.reset(Number(result.data.revision), {});
+        try {
+          localStorage.removeItem(STORE_KEY);
+        } catch {}
+        window.location.reload();
+      })();
+      return;
+    }
     try {
       localStorage.removeItem(STORE_KEY);
     } catch (error) {
@@ -3616,6 +4328,69 @@ function eventElement(event: Event): UiElement | null {
     link.click();
     URL.revokeObjectURL(link.href);
   });
+
+  // Served mode publishes through the server, which runs the same publisher
+  // (gh authentication and PR head check). The page never sees a token.
+  const publishModal = document.getElementById("publishModal");
+  const publishEvent = document.getElementById("publishEvent");
+  const publishButton = document.getElementById("publishGithubBtn");
+  const confirmPublishButton = document.getElementById("confirmPublishBtn");
+  const publishResult = document.getElementById("publishResult");
+  let pendingPublication: { plan: GithubReviewPlan; event: GithubReviewEvent } | null = null;
+  if (server && session?.github) {
+    document.getElementById("servePublishControls").hidden = false;
+    publishButton.hidden = false;
+    document.getElementById("downloadGithubPlanBtn").classList.remove("btn-primary");
+    document.querySelector("#githubReviewPanel .publish-command").hidden = true;
+    document.querySelector("#githubReviewPanel .hint").textContent =
+      "Preview which comments become native threads and which stay in the review summary. Publishing asks for confirmation; the server then rechecks gh authentication and the PR head before writing to GitHub.";
+  }
+  publishButton?.addEventListener("click", () => {
+    const plan = githubDraft(activeReviewTarget());
+    if (!plan) return;
+    const event = (publishEvent.value || "COMMENT") as GithubReviewEvent;
+    pendingPublication = { plan, event };
+    document.getElementById("publishPreview").textContent = githubReviewPreview(plan, event);
+    publishResult.hidden = true;
+    publishResult.classList.remove("error");
+    confirmPublishButton.hidden = false;
+    confirmPublishButton.removeAttribute("disabled");
+    confirmPublishButton.textContent =
+      event === "APPROVE"
+        ? "Approve on GitHub"
+        : event === "REQUEST_CHANGES"
+          ? "Request changes on GitHub"
+          : "Publish to GitHub";
+    openDialog(publishModal, document.getElementById("cancelPublishBtn"));
+  });
+  confirmPublishButton?.addEventListener("click", async () => {
+    if (!server || !pendingPublication) return;
+    confirmPublishButton.setAttribute("disabled", "");
+    confirmPublishButton.textContent = "Publishing…";
+    try {
+      const result = await server.publish(pendingPublication.plan, pendingPublication.event);
+      publishResult.innerHTML =
+        `Published ${result.nativeComments} native thread${result.nativeComments === 1 ? "" : "s"} with ${result.fallbackComments} summary fallback${result.fallbackComments === 1 ? "" : "s"}.` +
+        (result.url && /^https:\/\/github\.com\//.test(result.url)
+          ? ` <a href="${escAttr(result.url)}" target="_blank" rel="noopener noreferrer">Open the review</a>`
+          : "");
+      confirmPublishButton.hidden = true;
+      pendingPublication = null;
+    } catch (error) {
+      publishResult.textContent = error instanceof Error ? error.message : String(error);
+      publishResult.classList.add("error");
+      confirmPublishButton.removeAttribute("disabled");
+      confirmPublishButton.textContent = "Try again";
+    }
+    publishResult.hidden = false;
+  });
+  const closePublish = (): void => {
+    pendingPublication = null;
+    closeDialog(publishModal);
+  };
+  dialogClosers.set(publishModal, closePublish);
+  document.getElementById("cancelPublishBtn")?.addEventListener("click", closePublish);
+  document.getElementById("closePublishModal")?.addEventListener("click", closePublish);
 
   // ---- staged journey + adaptive evidence workspace ----
   function setOrderView(sec: UiElement, raw: boolean): void {
@@ -3983,9 +4758,62 @@ function eventElement(event: Event): UiElement | null {
     });
   });
 
+  // ---- served mode: live badge, rebuild events, scroll restore ----
+  function startServedMode(client: ReviewServerClient): void {
+    document.body.classList.add("served");
+    if (serveBadge) {
+      serveBadge.hidden = false;
+      serveBadge.textContent = "Saved to disk";
+      serveBadge.title =
+        "Comments are saved by trace-review serve" +
+        (session?.feedbackFile ? " · agent feedback: " + session.feedbackFile : "");
+    }
+    client.listen((message) => {
+      if (message.event === "reload") {
+        showServeStatus("The review was rebuilt; reloading with your comments…");
+        void reloadPreservingScroll();
+      } else if (message.event === "rebuilding") {
+        showServeStatus("The review result changed; rebuilding…");
+      } else if (message.event === "rebuild-error") {
+        showServeStatus("Rebuild failed: " + String(message.data.message || ""), "error");
+      } else if (
+        message.event === "state" &&
+        message.data.client !== client.clientId &&
+        Number(message.data.revision) > (syncer?.revision ?? 0) &&
+        !syncer?.pending
+      ) {
+        void reloadPreservingScroll();
+      }
+    });
+    window.addEventListener("pagehide", () => syncer?.flushOnUnload());
+    let saved: { y?: number; at?: number } = {};
+    try {
+      saved = JSON.parse(safeSessionStorage()?.getItem(SCROLL_STORAGE_KEY) || "{}") as typeof saved;
+      safeSessionStorage()?.removeItem(SCROLL_STORAGE_KEY);
+    } catch {}
+    if (typeof saved.y === "number" && Date.now() - (saved.at || 0) < 60_000) {
+      const y = saved.y;
+      requestAnimationFrame(() => window.scrollTo(0, y));
+      setTimeout(() => window.scrollTo(0, y), 400);
+    }
+    if (importedLocalState || restoredUnsaved) save();
+  }
+
   // ---- init ----
   setMode(mode);
   renderFindingList();
   updateCounts();
   renderOrphans();
+  if (server) startServedMode(server);
+  else if (serveToken && window.location.protocol.startsWith("http")) {
+    showServeStatus(
+      "The review server did not answer, so comments are kept in this browser only.",
+      "error",
+    );
+  } else if (document.querySelector('meta[name="trace-review-serve"]')) {
+    showServeStatus(
+      "Open the URL printed by trace-review serve (it carries the access token) to save comments on disk. Until then they stay in this browser.",
+      "error",
+    );
+  }
 })();

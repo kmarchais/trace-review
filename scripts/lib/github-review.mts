@@ -50,9 +50,16 @@ export interface GithubReviewPlan {
   fallbackComments: GithubFallbackComment[];
 }
 
+export type GithubReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
+export const GITHUB_REVIEW_EVENTS: readonly GithubReviewEvent[] = Object.freeze([
+  "COMMENT",
+  "APPROVE",
+  "REQUEST_CHANGES",
+]);
+
 export interface GithubReviewRequest {
   commit_id: string;
-  event: "COMMENT";
+  event: GithubReviewEvent;
   body: string;
   comments: GithubNativeComment[];
 }
@@ -69,6 +76,8 @@ export interface GithubPublisher {
 export interface GithubPublicationOptions {
   publisher: GithubPublisher;
   confirm(plan: GithubReviewPlan, preview: string): Promise<boolean>;
+  /** The review verdict; COMMENT unless the reviewer chose otherwise. */
+  event?: GithubReviewEvent;
 }
 
 export interface GithubPublicationResult {
@@ -250,8 +259,13 @@ export function prepareGithubReview(
   };
 }
 
-export function githubReviewPreview(plan: GithubReviewPlan): string {
+/** The text a reviewer confirms; the event line appears only for a non-default verdict. */
+export function githubReviewPreview(
+  plan: GithubReviewPlan,
+  event: GithubReviewEvent = "COMMENT",
+): string {
   const lines = [
+    ...(event === "COMMENT" ? [] : [`Event: ${event}`]),
     `Target: ${plan.target.repository}#${plan.target.pullRequest}`,
     `Head: ${plan.target.headSha}`,
     `Native threads: ${plan.nativeComments.length}`,
@@ -303,7 +317,11 @@ export async function publishGithubReview(
     );
   }
 
-  const preview = githubReviewPreview(plan);
+  const event = options.event ?? "COMMENT";
+  if (!GITHUB_REVIEW_EVENTS.includes(event)) {
+    throw new Error(`Unsupported review event '${String(event)}'.`);
+  }
+  const preview = githubReviewPreview(plan, event);
   if (!(await options.confirm(plan, preview))) {
     return {
       status: "cancelled",
@@ -315,7 +333,7 @@ export async function publishGithubReview(
   try {
     const published = await options.publisher.createReview(plan.target, {
       commit_id: plan.target.headSha,
-      event: "COMMENT",
+      event,
       body: githubReviewBody(plan),
       comments: plan.nativeComments,
     });

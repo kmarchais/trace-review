@@ -24,13 +24,20 @@
 - Very large diffs render progressively and may skip word-level highlighting
   for pathological lines or token counts. The complete line diff remains
   available.
-- A self-contained review stores comments and viewed state in browser
+- A review opened from `file://` stores comments and viewed state in browser
   `localStorage`. Those decisions are not embedded into the HTML and do not
-  travel with a copied file; export them as Markdown.
-- The self-contained HTML never receives GitHub credentials. Native publishing
-  uses a downloaded plan plus the packaged publisher command, which requires an
-  authenticated `gh`, a matching live PR head, and explicit confirmation.
-  Markdown copy/download remains available without GitHub.
+  travel with a copied file; export them as Markdown. `trace-review serve`
+  saves them under `.review/state/` instead, and imports the browser copy the
+  first time a served review starts empty.
+- The HTML never receives GitHub credentials. From `file://`, native
+  publishing uses a downloaded plan plus the packaged publisher command; in
+  serve mode the server runs the same publisher. Both require an authenticated
+  `gh`, a matching live PR head, and explicit confirmation. Markdown
+  copy/download remains available without GitHub.
+- Serve mode listens on loopback only and checks a per-run token, but any
+  local process that can read the printed URL can act as the reviewer. Ask,
+  Explain, and Propose fix run the configured CLI under your account, one
+  request at a time, and may cost money.
 
 ## Offline behavior
 

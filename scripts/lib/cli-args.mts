@@ -1,9 +1,11 @@
 // Argument parsing for trace-review. The default command reviews one target:
 // the working tree, staged changes, revisions or ranges, or a pull request.
+// `serve` (or --serve) runs the same review behind a local server, and
+// `feedback` prints the reviewer's saved comments for the agent.
 
 import type { ReviewMode } from "./review-result.mjs";
 
-export type Command = "review" | "prepare" | "refine" | "finish";
+export type Command = "review" | "prepare" | "refine" | "finish" | "feedback";
 export type LlmChoice = "auto" | "claude" | "codex" | "none";
 
 export interface CliArgs {
@@ -29,6 +31,15 @@ export interface CliArgs {
   out?: string;
   open: boolean;
   help: boolean;
+  /** Serve the review over a loopback HTTP server instead of only writing HTML. */
+  serve: boolean;
+  host: string;
+  port?: number;
+  /** finish: replace --out instead of reserving a new file name (used by serve rebuilds). */
+  overwrite: boolean;
+  /** feedback: the review ID to print; the most recent review when omitted. */
+  reviewId?: string;
+  json: boolean;
 }
 
 export class UsageError extends Error {
@@ -38,7 +49,7 @@ export class UsageError extends Error {
   }
 }
 
-const COMMANDS = new Set(["quick", "review", "prepare", "refine", "finish"]);
+const COMMANDS = new Set(["quick", "review", "serve", "prepare", "refine", "finish", "feedback"]);
 const PR_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:[/?#].*)?$/;
 
 function normalizeMode(value: string): ReviewMode {
@@ -56,7 +67,8 @@ function prSelector(value: string): string {
 export function parseCliArgs(argv: readonly string[], cwd = process.cwd()): CliArgs {
   const first = argv[0];
   const named = first !== undefined && COMMANDS.has(first);
-  const command: Command = !named || first === "quick" ? "review" : (first as Command);
+  const command: Command =
+    !named || first === "quick" || first === "serve" ? "review" : (first as Command);
   const args: CliArgs = {
     command,
     repo: cwd,
@@ -70,6 +82,10 @@ export function parseCliArgs(argv: readonly string[], cwd = process.cwd()): CliA
     timeoutMs: 15 * 60 * 1000,
     open: command === "review",
     help: false,
+    serve: first === "serve",
+    host: "127.0.0.1",
+    overwrite: false,
+    json: false,
   };
   const positionals: string[] = [];
   const value = (index: number, option: string): string => {
@@ -121,8 +137,32 @@ export function parseCliArgs(argv: readonly string[], cwd = process.cwd()): CliA
     else if (arg === "--open") args.open = true;
     else if (arg === "--no-open") args.open = false;
     else if (arg === "--help" || arg === "-h") args.help = true;
-    else if (command === "review" && !arg.startsWith("-")) positionals.push(arg);
+    else if (arg === "--serve") args.serve = true;
+    else if (arg === "--host") args.host = value(index++, arg);
+    else if (arg === "--port") {
+      const port = Number(value(index++, arg));
+      if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+        throw new UsageError("--port must be an integer from 0 to 65535");
+      }
+      args.port = port;
+    } else if (arg === "--overwrite") args.overwrite = true;
+    else if (arg === "--latest") args.reviewId = undefined;
+    else if (arg === "--json") args.json = true;
+    else if ((command === "review" || command === "feedback") && !arg.startsWith("-"))
+      positionals.push(arg);
     else throw new UsageError(`Unknown option: ${arg}`);
+  }
+
+  if (command === "feedback") {
+    if (positionals.length > 1) throw new UsageError("feedback accepts at most one review ID");
+    if (positionals.length && argv.includes("--latest")) {
+      throw new UsageError("Use either a review ID or --latest");
+    }
+    args.reviewId = positionals[0];
+    return args;
+  }
+  if (args.serve && command !== "review") {
+    throw new UsageError("--serve applies to the review command only");
   }
 
   if (command !== "review") {

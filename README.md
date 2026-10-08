@@ -110,6 +110,30 @@ reviews, builds a target-based name such as
 overwritten; a numeric suffix is selected atomically when needed. Add
 `--no-open` to generate the document without launching a browser.
 
+### Serve mode
+
+`serve` (or `--serve` on any target) runs the same pipeline, then keeps a
+small server running on `127.0.0.1` so the page and your coding agent share
+the review on disk:
+
+```bash
+bun trace-review serve pr 42 --lm   # random port; --port to pick one
+bun trace-review feedback --latest  # print the reviewer's comments for the agent
+```
+
+Comments, replies, finding decisions, viewed files, and pasted images go to
+`.review/state/` instead of browser storage, and
+`.review/state/<reviewId>.feedback.md` always holds the current Markdown
+report. When `.review/lm/result.json` or `.review/spec.json` changes, the
+server rebuilds the page and the browser reloads it with the comments
+re-anchored. Select lines or open a finding to **Ask**, **Explain**, or
+**Propose fix** with the `--llm` CLI (read-only); a proposed fix can become a
+suggested change. For a pull request, **Share review → GitHub review** can
+publish as Comment, Approve, or Request changes after you confirm the exact
+text, and `gh` keeps the credentials. Every API call needs the token from the
+opened URL, and the server rejects other hosts and origins. Ctrl+C stops it.
+The generated HTML file still works on its own from `file://`.
+
 The **Files** drawer searches file paths, diff content, and findings. Its
 combinable filters narrow the navigation list to unread files, open findings,
 tests, generated files, severities, risks, or decision groups without changing

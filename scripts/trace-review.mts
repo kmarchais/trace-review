@@ -2,7 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 import { createHash } from "node:crypto";
@@ -15,7 +15,14 @@ import { analysisResultToReview, type AnalysisInput } from "./lib/lm-analysis.mj
 import { composeProviderPrompt, writeLmBundle, type LmBundle } from "./lib/lm-bundle.mjs";
 import { finalizeLmGrouping } from "./lib/lm-groups.mjs";
 import { runReviewLoop, type AttemptRecord } from "./lib/lm-loop.mjs";
-import { createProvider, detectProvider, ProviderError, type ProviderName } from "./lib/llm.mjs";
+import {
+  createProvider,
+  detectProvider,
+  ProviderError,
+  resolveExecutable,
+  type Provider,
+  type ProviderName,
+} from "./lib/llm.mjs";
 import type { PatchAnalysis } from "./lib/preflight.mjs";
 import { parseDetectorRuleSet } from "./lib/repeated-changes.mjs";
 import {
@@ -23,6 +30,9 @@ import {
   validateReviewResult,
   type ReviewMode,
 } from "./lib/review-result.mjs";
+import { feedbackReport, locateStateDocument, ReviewStateStore } from "./lib/review-state.mjs";
+import { openUrlInBrowser, startReviewServer } from "./lib/serve.mjs";
+import { AskRunner, createFakeAskProvider } from "./lib/serve-ask.mjs";
 
 interface WorkflowInput {
   schemaVersion: 1;
@@ -85,7 +95,8 @@ const USAGE = `Usage:
   trace-review [<target>] [--lm | --deep-audit] [--llm claude|codex|none]
     [--model <id>] [--max-retries <n>] [--timeout <seconds>] [--language <name>]
     [--repo <path>] [--dir <path>] [--out <review.html>] [--no-open]
-    [-- <pathspec>...]
+    [--serve [--port <n>] [--host 127.0.0.1|localhost|::1]] [-- <pathspec>...]
+  trace-review serve [<target>] [same options]
 
   Targets:  (none)           working tree versus the index
             --cached         staged changes (alias --staged), optionally versus <rev>
@@ -97,10 +108,18 @@ const USAGE = `Usage:
   --deep-audit, the selected CLI writes the review result (default: claude,
   then codex, from PATH); --llm none prepares .review/lm/ for an agent.
 
+  serve keeps reviewer state in .review/state/, rebuilds the page when
+  .review/lm/result.json or .review/spec.json changes, and answers questions
+  about selected lines with the --llm provider. Stop it with Ctrl+C.
+
+  trace-review feedback [<reviewId> | --latest] [--json] [--dir <path>]
+    prints the reviewer's saved comments for the agent to act on.
+
   trace-review prepare [--repo <path>] [--pr auto|none|<number|url>]
     [--mode workspace|lm-analysis|deep-audit] [--base <ref>] [--dir <path>] [--explicit]
   trace-review refine --input <analysis-input.json> --rules <detector-rules.json>
-  trace-review finish --input <analysis-input.json> --result <result.json> [--out <file>] [--open]`;
+  trace-review finish --input <analysis-input.json> --result <result.json> [--out <file>]
+    [--overwrite] [--open]`;
 
 function usage(message?: string): never {
   if (message) console.error(`Error: ${message}`);
@@ -476,27 +495,31 @@ function quickResult(input: WorkflowInput, candidates: QuickCandidates): Combine
   };
 }
 
-function quick(args: CliArgs): void {
+interface ReviewOutcome {
+  inputPath: string;
+  /** The built page; null while an agent still has to write the result. */
+  htmlPath: string | null;
+}
+
+function quick(args: CliArgs): ReviewOutcome {
   const inputPath = prepare(args, false);
   const input = readJson<WorkflowInput>(inputPath);
   const resultPath = path.join(path.dirname(inputPath), "review-result.json");
   const candidates = readJson<QuickCandidates>(artifactResolver(inputPath, input)("candidates"));
   writeJson(resultPath, quickResult(input, candidates));
-  finish({ ...args, command: "finish", input: inputPath, result: resultPath });
+  const htmlPath = finish({ ...args, command: "finish", input: inputPath, result: resultPath });
+  return { inputPath, htmlPath };
 }
 
-async function review(args: CliArgs): Promise<void> {
-  if (args.mode === "workspace") {
-    quick(args);
-    return;
-  }
+async function review(args: CliArgs): Promise<ReviewOutcome> {
+  if (args.mode === "workspace") return quick(args);
   const provider: ProviderName | null =
     args.llm === "none" ? null : args.llm === "auto" ? detectProvider() : args.llm;
   if (args.llm === "auto" && !provider) {
     console.warn("No claude or codex CLI was found on PATH; preparing the bundle for an agent.");
   }
   const inputPath = prepare(args, !provider);
-  if (!provider) return;
+  if (!provider) return { inputPath, htmlPath: null };
 
   const input = readJson<WorkflowInput>(inputPath);
   const resolve = artifactResolver(inputPath, input);
@@ -562,7 +585,11 @@ async function review(args: CliArgs): Promise<void> {
   }
   writeJson(bundle.result, stripNulls(loop.value));
   console.log(`Wrote ${bundle.result}`);
-  finish({ ...args, command: "finish", input: inputPath, result: bundle.result }, llmMetrics);
+  const htmlPath = finish(
+    { ...args, command: "finish", input: inputPath, result: bundle.result },
+    llmMetrics,
+  );
+  return { inputPath, htmlPath };
 }
 
 function summarizeAttempts(
@@ -675,7 +702,7 @@ function reviewContentKey(contextPath: string, fallbackHeadSha: string): string 
     .slice(0, 12);
 }
 
-function finish(args: CliArgs, llmMetrics?: Record<string, unknown>): void {
+function finish(args: CliArgs, llmMetrics?: Record<string, unknown>): string {
   if (!args.input) usage("finish requires --input");
   if (!args.result) usage("finish requires --result");
   const started = performance.now();
@@ -751,14 +778,20 @@ function finish(args: CliArgs, llmMetrics?: Record<string, unknown>): void {
   };
   writeJson(resolveArtifact("spec"), spec);
   const preferredHtmlPath = path.resolve(args.out || path.join(baseDir, reviewFileName(input)));
-  const reservation = reserveUniqueReviewPath(preferredHtmlPath);
-  const htmlPath = reservation.path;
-  console.log(
-    reservation.existing.length
-      ? `Existing review files: ${reservation.existing.join(", ")}`
-      : "Existing review files: none",
-  );
-  console.log(`Reserved review output: ${htmlPath}`);
+  let htmlPath = preferredHtmlPath;
+  if (args.overwrite) {
+    if (!args.out) usage("--overwrite requires --out");
+    fs.mkdirSync(path.dirname(htmlPath), { recursive: true });
+  } else {
+    const reservation = reserveUniqueReviewPath(preferredHtmlPath);
+    htmlPath = reservation.path;
+    console.log(
+      reservation.existing.length
+        ? `Existing review files: ${reservation.existing.join(", ")}`
+        : "Existing review files: none",
+    );
+    console.log(`Reserved review output: ${htmlPath}`);
+  }
   const preparedMetrics = readMetrics(resolveArtifact("metrics"));
   try {
     runScript(
@@ -776,7 +809,7 @@ function finish(args: CliArgs, llmMetrics?: Record<string, unknown>): void {
     );
   } catch (error: unknown) {
     try {
-      if (fs.statSync(htmlPath).size === 0) fs.unlinkSync(htmlPath);
+      if (!args.overwrite && fs.statSync(htmlPath).size === 0) fs.unlinkSync(htmlPath);
     } catch {}
     throw error;
   }
@@ -795,6 +828,150 @@ function finish(args: CliArgs, llmMetrics?: Record<string, unknown>): void {
   });
   console.log(`Built ${htmlPath}`);
   console.log(`Metrics ${resolveArtifact("metrics")}`);
+  return htmlPath;
+}
+
+/** Run one of the packaged scripts without blocking the server's event loop. */
+function runScriptAsync(script: string, args: readonly string[], cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script, ...args], {
+      cwd,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("close", (status) => {
+      if (status === 0) resolve(stdout);
+      else reject(new Error((stderr || stdout || `exit ${status}`).trim()));
+    });
+  });
+}
+
+function askProvider(args: CliArgs): Provider | null {
+  if (process.env.TRACE_REVIEW_FAKE_LLM === "1") return createFakeAskProvider();
+  if (args.llm === "none") return null;
+  const name = args.llm === "auto" ? detectProvider() : args.llm;
+  if (!name) return null;
+  try {
+    if (!resolveExecutable(name)) return null;
+  } catch {
+    return null;
+  }
+  return createProvider(name);
+}
+
+async function serve(args: CliArgs): Promise<void> {
+  const outcome = await review({ ...args, open: false });
+  const inputPath = outcome.inputPath;
+  const input = readJson<WorkflowInput>(inputPath);
+  const resolve = artifactResolver(inputPath, input);
+  const reviewDir = path.dirname(inputPath);
+  const specPath = resolve("spec");
+  const lmResult = path.join(
+    input.workflow.lm ? resolve("lm") : path.join(reviewDir, "lm"),
+    "result.json",
+  );
+  const repository =
+    readJson<{ repository?: { root?: string } }>(resolve("context")).repository?.root ||
+    path.resolve(args.repo);
+  let htmlPath = outcome.htmlPath;
+
+  const rebuild = async (changed: string[]): Promise<{ htmlPath?: string }> => {
+    if (changed.includes(lmResult)) {
+      const finishArgs = ["finish", "--input", inputPath, "--result", lmResult];
+      const stdout = await runScriptAsync(
+        SELF,
+        htmlPath ? [...finishArgs, "--out", htmlPath, "--overwrite"] : finishArgs,
+        reviewDir,
+      );
+      htmlPath = /^Built (.+)$/m.exec(stdout)?.[1]?.trim() || htmlPath;
+      return htmlPath ? { htmlPath } : {};
+    }
+    if (!htmlPath) {
+      htmlPath = reserveUniqueReviewPath(path.join(reviewDir, reviewFileName(input))).path;
+    }
+    await runScriptAsync(
+      SCRIPT("build-review"),
+      ["--spec", specPath, "--out", htmlPath],
+      reviewDir,
+    );
+    return { htmlPath };
+  };
+
+  const provider = askProvider(args);
+  const server = await startReviewServer({
+    reviewDir,
+    specPath,
+    htmlPath,
+    host: args.host,
+    ...(args.port !== undefined ? { port: args.port } : {}),
+    ask: new AskRunner({
+      provider,
+      repo: repository,
+      workDir: path.join(reviewDir, "state", "ask"),
+      timeoutMs: Math.min(args.timeoutMs, 5 * 60 * 1000),
+      ...(args.model ? { model: args.model } : {}),
+    }),
+    // `finish` rewrites spec.json from the result; that is not a new change.
+    watch: { files: [lmResult, specPath], outputs: [specPath], rebuild },
+    log: (message) => console.log(message),
+  });
+  console.log(`Serving ${input.target.title} at ${server.url}`);
+  console.log(`Open ${server.openUrl}`);
+  console.log(
+    provider
+      ? `Questions about selected lines use ${provider.name}.`
+      : "Questions about selected lines are off (no claude or codex CLI; pass --llm).",
+  );
+  console.log(`Reviewer feedback: node "${SELF}" feedback --latest`);
+  console.log("Press Ctrl+C to stop.");
+  if (args.open) openUrlInBrowser(server.openUrl);
+  await new Promise<void>((done) => {
+    process.once("SIGINT", () => done());
+    process.once("SIGTERM", () => done());
+  });
+  await server.close();
+  console.log("Stopped the review server.");
+  process.exit(0);
+}
+
+function reviewDirectory(args: CliArgs): string {
+  if (args.dir) return path.resolve(args.dir);
+  const local = path.join(path.resolve(args.repo), ".review");
+  if (fs.existsSync(local)) return local;
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: path.resolve(args.repo),
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  const root = top.status === 0 ? String(top.stdout).trim() : "";
+  return root ? path.join(root, ".review") : local;
+}
+
+function feedback(args: CliArgs): void {
+  const store = new ReviewStateStore(path.join(reviewDirectory(args), "state"));
+  const document = locateStateDocument(store, args.reviewId);
+  if (!document) {
+    throw new Error(
+      args.reviewId
+        ? `No saved state for review '${args.reviewId}' in ${store.root}.`
+        : `No served review state in ${store.root}. Start one with: trace-review serve`,
+    );
+  }
+  const report = feedbackReport(store, document);
+  if (args.json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  console.log(
+    `Review ${report.reviewId} · revision ${report.revision}${report.updatedAt ? ` · updated ${report.updatedAt}` : ""}`,
+  );
+  console.log(`Images: ${report.attachmentsDir}\n`);
+  process.stdout.write(report.markdown);
 }
 
 let args: CliArgs;
@@ -806,7 +983,9 @@ try {
 }
 if (args.help) usage();
 try {
-  if (args.command === "review") await review(args);
+  if (args.command === "review" && args.serve) await serve(args);
+  else if (args.command === "review") await review(args);
+  else if (args.command === "feedback") feedback(args);
   else if (args.command === "prepare") prepare(args);
   else if (args.command === "refine") refine(args);
   else finish(args);

@@ -166,7 +166,16 @@ export interface StoredState {
   files: Record<string, Record<string, unknown> & { text: string }>;
   viewed: Record<string, boolean>;
   grouping: Record<string, "grouped" | "raw">;
-  attachments: Record<string, Array<{ name: string; type: string; data: string }>>;
+  attachments: Record<string, StoredAttachment[]>;
+  threads: Record<string, Record<string, unknown> & { messages: unknown[] }>;
+}
+
+/** A pasted image: inline `data` in the browser, or a server-side `file`. */
+export interface StoredAttachment {
+  name: string;
+  type: string;
+  data?: string;
+  file?: string;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -188,17 +197,21 @@ const isComment = (value: unknown): value is Record<string, unknown> & { text: s
   typeof value.file === "string";
 const isGrouping = (value: unknown): value is "grouped" | "raw" =>
   value === "grouped" || value === "raw";
-const isAttachmentList = (
-  value: unknown,
-): value is Array<{ name: string; type: string; data: string }> =>
+const isAttachmentList = (value: unknown): value is StoredAttachment[] =>
   Array.isArray(value) &&
   value.every(
     (item) =>
       isRecord(item) &&
-      typeof item.data === "string" &&
+      (typeof item.data === "string" || typeof item.file === "string") &&
       typeof item.name === "string" &&
       typeof item.type === "string",
   );
+const isThread = (value: unknown): value is Record<string, unknown> & { messages: unknown[] } =>
+  isRecord(value) &&
+  typeof value.pr === "string" &&
+  typeof value.file === "string" &&
+  typeof value.key === "string" &&
+  Array.isArray(value.messages);
 
 /**
  * Validate state read from localStorage. Anything malformed is dropped rather
@@ -220,6 +233,7 @@ export function normalizeStoredState(raw: unknown): StoredState {
     viewed: pick(source.viewed, isTrue),
     grouping: pick(source.grouping, isGrouping),
     attachments: pick(source.attachments, isAttachmentList),
+    threads: pick(source.threads, isThread),
   };
 }
 
