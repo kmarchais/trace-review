@@ -271,6 +271,9 @@ void (async function () {
   const GITHUB = parseEmbeddedJson<GithubData>("github-review-data");
   const HAS_REVIEW = Object.keys(REVIEW).length > 0;
   const findingCursor: Record<string, number> = {};
+  // The finding shown in full in each review; the others fold to a tab.
+  const openFinding: Record<string, string | null> = {};
+  for (const pr in REVIEW) openFinding[pr] = REVIEW[pr].comments[0]?.aid ?? null;
 
   // ---- served mode ----
   // Opened from `trace-review serve`, the page keeps state on disk through the
@@ -1309,6 +1312,162 @@ void (async function () {
   function findingAnchored(pr: string, finding: AutomatedFinding): boolean {
     return lineAnchors(pr, finding.file).has(finding.key);
   }
+  // Severity is read from an icon and a word, never from red or green, which
+  // mean removed and added in the diff.
+  const svgIcon = (paths: string): string =>
+    `<svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${paths}</svg>`;
+  const SEV_ICON: Record<string, string> = {
+    concern: svgIcon('<path d="M8 2.2 14.3 13H1.7z"/><path d="M8 6.5v3M8 11.4v.1"/>'),
+    suggestion: svgIcon(
+      '<path d="M6 13h4M6.5 11h3c0-1.6 2.5-2.5 2.5-5a4 4 0 0 0-8 0c0 2.5 2.5 3.4 2.5 5z"/>',
+    ),
+    question: svgIcon(
+      '<circle cx="8" cy="8" r="6"/><path d="M6.3 6.2a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.3M8 11.4v.1"/>',
+    ),
+    nit: svgIcon('<circle cx="8" cy="8" r="2.2"/>'),
+    praise: svgIcon(
+      '<path d="m8 2.5 1.7 3.5 3.8.5-2.8 2.6.7 3.8L8 11.1l-3.4 1.8.7-3.8-2.8-2.6 3.8-.5z"/>',
+    ),
+    comment: svgIcon('<path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5z"/>'),
+  };
+  const ICON_REPLY = svgIcon(
+    '<path d="M6 4 2.5 7.5 6 11"/><path d="M3 7.5h6.5a4 4 0 0 1 4 4V13"/>',
+  );
+  const ICON_CHECK = svgIcon('<path d="m3 8.5 3.2 3L13 4.5"/>');
+  function sevChip(severity: string): string {
+    const known = SEV_ICON[severity] ? severity : "comment";
+    return `<span class="sev sev-${escAttr(known)}">${SEV_ICON[known]}${escAttr(severity)}</span>`;
+  }
+  /** The first sentence of a finding, for its folded tab and the list. */
+  function findingSummary(body: string): string {
+    const first = body.trim().split(/(?<=[.!?])\s+/)[0] || body;
+    return first.length > 160 ? first.slice(0, 157).trimEnd() + "…" : first;
+  }
+  function setOpenFinding(pr: string, aid: string | null): void {
+    openFinding[pr] = aid;
+    const sec = document.querySelector('section.pr[data-pr="' + cssEsc(pr) + '"]');
+    sec?.querySelectorAll(".ai-comment").forEach((row) => {
+      const open = aid !== null && row.dataset.aid === pr + " " + aid;
+      row.classList.toggle("open", open);
+      row.querySelector(".ai-tab")?.setAttribute("aria-expanded", String(open));
+    });
+    document
+      .querySelectorAll('.finding-item[data-pr="' + cssEsc(pr) + '"]')
+      .forEach((item) => item.classList.toggle("active", item.dataset.aid === aid));
+    scheduleFindingRuler();
+  }
+  // Open findings per file, by severity, as chips in each file header.
+  const SEVERITY_ORDER = ["concern", "question", "suggestion", "nit", "comment", "praise"];
+  function renderFileFindingCounts(pr: string, sec: Element): void {
+    const open = new Map<string, Map<string, AutomatedFinding[]>>();
+    for (const c of REVIEW[pr]?.comments || []) {
+      if (findingReviewed(pr, c)) continue;
+      const bySeverity = open.get(c.file) ?? new Map<string, AutomatedFinding[]>();
+      const severity = SEV_ICON[c.severity] ? c.severity : "comment";
+      bySeverity.set(severity, [...(bySeverity.get(severity) || []), c]);
+      open.set(c.file, bySeverity);
+    }
+    sec.querySelectorAll(".file[data-file]").forEach((fileEl) => {
+      const header = fileEl.querySelector(":scope > .file-header");
+      if (!header) return;
+      let slot = header.querySelector(":scope > .file-findings");
+      if (!slot) {
+        slot = document.createElement("span");
+        slot.className = "file-findings";
+        header.querySelector(":scope > .stats")?.after(slot);
+      }
+      const bySeverity = open.get(fileEl.dataset.file || "");
+      slot.innerHTML = bySeverity
+        ? SEVERITY_ORDER.filter((severity) => bySeverity.has(severity))
+            .map((severity) => {
+              const list = bySeverity.get(severity) || [];
+              const label = `${list.length} open ${severity} finding${list.length === 1 ? "" : "s"}`;
+              return `<button type="button" class="ff-chip sev-${severity}" data-ff-aid="${escAttr(list[0].aid)}" title="${label}" aria-label="${label}">${SEV_ICON[severity]}${list.length}</button>`;
+            })
+            .join("")
+        : "";
+    });
+  }
+  document.addEventListener(
+    "click",
+    (e) => {
+      const chip = eventElement(e)?.closest("[data-ff-aid]");
+      if (!chip) return;
+      e.stopPropagation(); // the header toggles its file on click
+      (chip.closest("section.pr") || activeSection())
+        ?.querySelector('.finding-item[data-aid="' + cssEsc(chip.dataset.ffAid) + '"]')
+        ?.click();
+    },
+    true,
+  );
+
+  // Overview ruler: where every finding of the active review sits on the whole
+  // page, so requested changes are visible before scrolling to them.
+  const findingRuler = document.createElement("div");
+  findingRuler.className = "finding-ruler";
+  findingRuler.hidden = true;
+  // a pointer shortcut only: the findings list carries the same jumps for keyboards and readers
+  findingRuler.setAttribute("aria-hidden", "true");
+  document.body.appendChild(findingRuler);
+  let rulerFrame = 0;
+  function scheduleFindingRuler(): void {
+    if (!HAS_REVIEW || rulerFrame) return;
+    rulerFrame = requestAnimationFrame(() => {
+      rulerFrame = 0;
+      renderFindingRuler();
+    });
+  }
+  function renderFindingRuler(): void {
+    const sec = activeSection();
+    const pr = sec?.dataset.pr;
+    const comments = pr ? REVIEW[pr]?.comments || [] : [];
+    const height = document.documentElement.scrollHeight;
+    findingRuler.hidden = !comments.length || !sec || sec.closest("[hidden]") !== null;
+    if (findingRuler.hidden || !pr || !sec) return;
+    findingRuler.innerHTML = comments
+      .map((c) => {
+        // a finding in a file that has not rendered yet points at its file
+        const target =
+          sec.querySelector(
+            '.gutter.has-finding[data-key="' +
+              cssEsc(c.key) +
+              '"][data-file="' +
+              cssEsc(c.file) +
+              '"]',
+          ) || sec.querySelector('.file[data-file="' + cssEsc(c.file) + '"]');
+        if (!target) return "";
+        const top = (target.getBoundingClientRect().top + window.scrollY) / height;
+        const severity = SEV_ICON[c.severity] ? c.severity : "comment";
+        const state = findingReviewed(pr, c)
+          ? " answered"
+          : openFinding[pr] === c.aid
+            ? " open"
+            : "";
+        return `<button type="button" tabindex="-1" class="fr-mark sev-${severity}${state}" style="top:${(top * 100).toFixed(2)}%" data-ff-aid="${escAttr(c.aid)}" title="${escAttr(c.severity)}: ${escAttr(findingSummary(c.body))}"></button>`;
+      })
+      .join("");
+  }
+  if (HAS_REVIEW) {
+    new ResizeObserver(scheduleFindingRuler).observe(document.body);
+    window.addEventListener("resize", scheduleFindingRuler);
+  }
+  /** Open a finding and move the review cursor (dock, n/p) to it. */
+  function focusFinding(pr: string, aid: string): void {
+    const index = (REVIEW[pr]?.comments || []).findIndex((comment) => comment.aid === aid);
+    if (index >= 0) findingCursor[pr] = index;
+    setOpenFinding(pr, aid);
+    updateProgress();
+  }
+  /** The open finding of the active review, with its options and reply button. */
+  function openFindingRow(): { pr: string; row: UiElement } | null {
+    const pr = activeSection()?.dataset.pr;
+    const aid = pr ? openFinding[pr] : null;
+    if (!pr || !aid) return null;
+    const row = [...document.querySelectorAll(".ai-comment.open")].find(
+      (candidate) => candidate.dataset.aid === pr + " " + aid,
+    );
+    return row ? { pr, row } : null;
+  }
   const findingRowRefreshers = new Map<string, Set<() => void>>();
   let findingRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   function lineCommentChanged(id: string): void {
@@ -1338,19 +1497,28 @@ void (async function () {
     const td = document.createElement("td");
     td.colSpan = tr.children.length;
     const options = findingOptions(c);
-    td.innerHTML = `<div class="ai-box">
-      <div class="ai-box-head"><span class="who">✦ ${escAttr(REVIEWER)}</span><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span></div>
+    const boxId = "ai-box-" + c.aid;
+    // Closed, a finding is a one-line tab; open, the full card. One per review
+    // is open at a time (see setOpenFinding), so the code stays readable.
+    td.innerHTML = `<button type="button" class="ai-tab" aria-expanded="false" aria-controls="${escAttr(boxId)}">${sevChip(severity)}<span class="ai-tab-text">${renderInlineMarkdown(findingSummary(c.body))}</span><span class="ai-tab-state"></span><span class="ai-tab-open" aria-hidden="true">Open ›</span></button>
+    <div class="ai-box" id="${escAttr(boxId)}">
+      <div class="ai-box-head" title="Close this finding">${sevChip(severity)}<span class="who">${escAttr(REVIEWER)}</span><span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span></div>
       <div class="ai-box-body">${renderFindingMarkdown(c.body)}</div>
       <div class="ai-rationale"><strong>Why:</strong> ${renderInlineMarkdown(c.rationale)}</div>
       ${c.suggestedChange ? `<div class="ai-suggested-change"><strong>Proposed change</strong><pre tabindex="0"><code>${escAttr(c.suggestedChange)}</code></pre></div>` : ""}
-      <div class="ai-box-actions">${options.map((option, index) => `<button type="button" data-option="${index}" aria-pressed="false">${escAttr(option)}</button>`).join("")}<button type="button" data-a="reply">Reply</button>${server ? askButtonsHtml("data-ask-finding") : ""}<span class="ai-state"></span></div>
+      <div class="ai-box-actions">${options.map((option, index) => `<button type="button" data-option="${index}" aria-pressed="false">${index < 9 ? `<span class="key-hint" aria-hidden="true">${index + 1}</span>` : ""}${escAttr(option)}</button>`).join("")}<span class="ai-actions-gap"></span><button type="button" data-a="reply">${ICON_REPLY}Reply<span class="key-hint" aria-hidden="true">R</span></button>${server ? askButtonsHtml("data-ask-finding") : ""}<span class="ai-state"></span></div>
     </div>`;
     highlightMarkdownCode(td);
     row.appendChild(td);
     tr.after(row);
+    row.classList.toggle("open", openFinding[pr] === c.aid);
+    td.querySelector(".ai-tab").setAttribute("aria-expanded", String(openFinding[pr] === c.aid));
     const optionButtons = [...td.querySelectorAll("[data-option]")],
       rep = td.querySelector('[data-a="reply"]'),
-      st = td.querySelector(".ai-state");
+      st = td.querySelector(".ai-state"),
+      tabState = td.querySelector(".ai-tab-state");
+    td.querySelector(".ai-tab").addEventListener("click", () => focusFinding(pr, c.aid));
+    td.querySelector(".ai-box-head").addEventListener("click", () => setOpenFinding(pr, null));
     const replyId = uid(pr, c.file, c.key);
     const refreshers = findingRowRefreshers.get(replyId) ?? new Set<() => void>();
     findingRowRefreshers.set(replyId, refreshers);
@@ -1367,6 +1535,12 @@ void (async function () {
       });
       rep.classList.toggle("on-reply", findingReplied(pr, c));
       st.textContent = findingStatus(pr, c);
+      // an answered finding steps back so the open ones keep the attention
+      const reviewed = findingReviewed(pr, c);
+      row.classList.toggle("answered", reviewed);
+      tabState.innerHTML = reviewed
+        ? `${ICON_CHECK}${escAttr(findingStatus(pr, c))}`
+        : `${Math.round(c.confidence * 100)}%`;
     };
     refreshers.add(refresh);
     const changed = (): void => {
@@ -1776,10 +1950,14 @@ void (async function () {
           const outside = findingAnchored(pr, c)
             ? ""
             : `<span class="outside-diff" title="This line is not part of the diff; opens the file instead">outside diff</span>`;
-          return `<button type="button" class="finding-item sv-${escAttr(c.severity)}${status ? " done" : ""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}" data-aid="${escAttr(c.aid)}"><span class="finding-top"><span class="sev sev-${escAttr(c.severity)}">${escAttr(c.severity)}</span><span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span>${outside}<span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span>${statusHtml}</span><span class="finding-text">${renderInlineMarkdown(c.body)}</span></button>`;
+          return `<button type="button" class="finding-item sv-${escAttr(c.severity)}${status ? " done" : ""}${openFinding[pr] === c.aid ? " active" : ""}" data-pr="${escAttr(pr)}" data-file="${escAttr(c.file)}" data-key="${escAttr(c.key)}" data-aid="${escAttr(c.aid)}"><span class="finding-top">${sevChip(c.severity || "comment")}<span class="finding-loc">${escAttr(c.file)}:${escAttr(c.line)}</span>${outside}<span class="ai-confidence">${Math.round(c.confidence * 100)}% confidence</span>${statusHtml}</span><span class="finding-text">${renderInlineMarkdown(c.body)}</span></button>`;
         })
         .join("");
     });
+    document.querySelectorAll("section.pr[data-pr]").forEach((sec) => {
+      if (REVIEW[sec.dataset.pr]) renderFileFindingCounts(sec.dataset.pr, sec);
+    });
+    scheduleFindingRuler();
   }
 
   // ---- render all mounts in a mode ----
@@ -2091,6 +2269,7 @@ void (async function () {
       const index = comments.findIndex((comment) => comment.aid === it.dataset.aid);
       if (index >= 0) {
         findingCursor[it.dataset.pr] = index;
+        setOpenFinding(it.dataset.pr, it.dataset.aid);
         updateProgress();
       }
     }
@@ -2543,13 +2722,13 @@ void (async function () {
   }
 
   function syntaxColor(classes: string): string {
-    if (/(?:^|\s)hljs-(comment|quote|meta)(?:\s|$)/.test(classes)) return "#8b949e";
-    if (/(?:^|\s)hljs-(keyword|selector-tag|subst)(?:\s|$)/.test(classes)) return "#ff7b72";
-    if (/(?:^|\s)hljs-(string|regexp|doctag)(?:\s|$)/.test(classes)) return "#a5d6ff";
+    if (/(?:^|\s)hljs-(comment|quote|meta)(?:\s|$)/.test(classes)) return "#7d8796";
+    if (/(?:^|\s)hljs-(keyword|selector-tag|subst)(?:\s|$)/.test(classes)) return "#b392f0";
+    if (/(?:^|\s)hljs-(string|regexp|doctag)(?:\s|$)/.test(classes)) return "#e5c07b";
     if (/(?:^|\s)hljs-(number|literal|symbol|bullet)(?:\s|$)/.test(classes)) return "#79c0ff";
-    if (/(?:^|\s)hljs-(title|section|function)(?:\s|$)/.test(classes)) return "#d2a8ff";
-    if (/(?:^|\s)hljs-(type|built_in|class)(?:\s|$)/.test(classes)) return "#ffa657";
-    if (/(?:^|\s)hljs-(attr|attribute|property|variable)(?:\s|$)/.test(classes)) return "#79c0ff";
+    if (/(?:^|\s)hljs-(title|section|function)(?:\s|$)/.test(classes)) return "#82aaff";
+    if (/(?:^|\s)hljs-(type|built_in|class)(?:\s|$)/.test(classes)) return "#56d4dd";
+    if (/(?:^|\s)hljs-(attr|attribute|property|variable)(?:\s|$)/.test(classes)) return "#9cdcfe";
     return "#e6edf3";
   }
 
@@ -4657,6 +4836,30 @@ void (async function () {
       checkbox.checked = !checkbox.checked;
       checkbox.dispatchEvent(new Event("change", { bubbles: true }));
     } else if (action === "comment") commentOnFocusedLine();
+    else if (action === "finding-option" || action === "finding-reply") {
+      const open = openFindingRow();
+      if (!open) return;
+      const button =
+        action === "finding-reply"
+          ? open.row.querySelector('[data-a="reply"]')
+          : open.row.querySelector(`[data-option="${Number(event.key) - 1}"]`);
+      if (!button) return;
+      button.click();
+      if (action === "finding-reply") return;
+      // answering from the keyboard moves on to the next open finding
+      const comments = REVIEW[open.pr]?.comments || [];
+      const current = comments.findIndex((c) => open.row.dataset.aid === open.pr + " " + c.aid);
+      if (current < 0 || !findingReviewed(open.pr, comments[current])) return;
+      const next = comments.findIndex(
+        (c, index) => index > current && !findingReviewed(open.pr, c),
+      );
+      const target = next >= 0 ? next : comments.findIndex((c) => !findingReviewed(open.pr, c));
+      if (target < 0) setOpenFinding(open.pr, null);
+      else
+        activeSection()
+          ?.querySelector('.finding-item[data-aid="' + cssEsc(comments[target].aid) + '"]')
+          ?.click();
+    }
   });
 
   // File and group headers: keyboard-operable toggles. The role sits on the

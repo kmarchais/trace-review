@@ -585,18 +585,20 @@ test("Phase 4 renders a staged, adaptive review experience", (t) => {
     html,
     /visibleEvidenceFiles\(sec\)[\s\S]*?\(file\d*\)\s*=>\s*file\d*\.querySelector/,
   );
-  assert.match(html, /--surface-canvas:#0d1117/);
+  assert.match(html, /--surface-canvas:#0f1115/);
 });
 
-test("success emphasis fills retain WCAG AA contrast with their text", (t) => {
+test("success and accent emphasis fills retain WCAG AA contrast with their text", (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "trace-review-contrast-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
   const out = path.join(tempDir, "review.html");
   const result = build(path.join(fixtures, "workspace-spec.json"), out);
   assert.equal(result.status, 0, result.stderr);
   const html = fs.readFileSync(out, "utf8");
-  const fills = [...html.matchAll(/--success-emphasis:(#[0-9a-f]{6})/gi)].map((match) => match[1]);
-  assert.ok(fills.length >= 3, "light, preferred-dark, and explicit-dark tokens should be present");
+  const fillsOf = (token) =>
+    [...html.matchAll(new RegExp(`--${token}:(#[0-9a-f]{6})`, "gi"))].map((match) => match[1]);
+  const fills = [...fillsOf("success-emphasis"), ...fillsOf("accent-emphasis")];
+  assert.ok(fills.length >= 6, "light, preferred-dark, and explicit-dark tokens should be present");
 
   const luminance = (hex) => {
     const channels = hex.match(/[0-9a-f]{2}/gi).map((value) => Number.parseInt(value, 16) / 255);
@@ -610,7 +612,7 @@ test("success emphasis fills retain WCAG AA contrast with their text", (t) => {
     const contrast = (white + 0.05) / (luminance(fill) + 0.05);
     assert.ok(contrast >= 4.5, `${fill} has only ${contrast.toFixed(2)}:1 contrast against white`);
   }
-  assert.match(html, /\.btn-primary \{ background:var\(--success-emphasis\)/);
+  assert.match(html, /\.btn-primary \{ background:var\(--accent-emphasis\)/);
   assert.match(html, /\.badge\.done \{ background:var\(--success-emphasis\)/);
   assert.match(html, /\.verdict-approve \{ background:var\(--success-emphasis\)/);
 });
@@ -975,4 +977,20 @@ test("each file's contents and rows are embedded once and the Git-order view sta
   assert.match(html, /function materializeViews\(sec\)/);
   assert.match(html, /mountShown/);
   assert.doesNotMatch(html, /data-code=|data-fingerprint=|data-lineno=/);
+});
+
+test("both copies of the dark theme define the same tokens", () => {
+  // Dark applies through the OS media query and through the theme button, so
+  // the tokens are written twice; a change to one copy alone is a bug.
+  const template = fs.readFileSync(path.join(root, "templates", "review.template.html"), "utf8");
+  const tokens = (block) =>
+    Object.fromEntries(
+      [...block.matchAll(/(--[\w-]+):([^;]+);/g)].map(([, name, value]) => [name, value.trim()]),
+    );
+  const media = /:root:not\(\[data-theme\]\) \{([\s\S]*?)\}/.exec(template);
+  const manual = /:root\[data-theme="dark"\] \{([\s\S]*?)\}/.exec(template);
+  assert.ok(media && manual, "both dark blocks exist");
+  const fromMedia = tokens(media[1]);
+  assert.ok(Object.keys(fromMedia).length > 40, "the media block holds the dark tokens");
+  assert.deepEqual(tokens(manual[1]), fromMedia);
 });

@@ -100,6 +100,8 @@ export type ShortcutAction =
   | "previous-finding"
   | "toggle-viewed"
   | "comment"
+  | "finding-option"
+  | "finding-reply"
   | "help";
 
 export interface ShortcutEvent {
@@ -142,8 +144,10 @@ export function isTypingTarget(
 export const SHORTCUTS: ReadonlyArray<{ keys: string; action: ShortcutAction; label: string }> = [
   { keys: "j", action: "next-file", label: "Next file" },
   { keys: "k", action: "previous-file", label: "Previous file" },
-  { keys: "n", action: "next-finding", label: "Next finding" },
-  { keys: "p", action: "previous-finding", label: "Previous finding" },
+  { keys: "n", action: "next-finding", label: "Open the next finding" },
+  { keys: "p", action: "previous-finding", label: "Open the previous finding" },
+  { keys: "1–9", action: "finding-option", label: "Choose a response on the open finding" },
+  { keys: "r", action: "finding-reply", label: "Reply to the open finding" },
   { keys: "v", action: "toggle-viewed", label: "Toggle viewed on the current file" },
   { keys: "c", action: "comment", label: "Comment on the hovered or selected line" },
   { keys: "?", action: "help", label: "Show keyboard shortcuts" },
@@ -152,6 +156,7 @@ export const SHORTCUTS: ReadonlyArray<{ keys: string; action: ShortcutAction; la
 export function shortcutAction(event: ShortcutEvent): ShortcutAction | null {
   if (event.ctrlKey || event.metaKey || event.altKey) return null;
   if (isTypingTarget(event.targetTag, event.targetEditable, event.targetType)) return null;
+  if (/^[1-9]$/.test(event.key)) return "finding-option";
   return SHORTCUTS.find((shortcut) => shortcut.keys === event.key)?.action ?? null;
 }
 
