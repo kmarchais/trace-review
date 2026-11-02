@@ -71,6 +71,11 @@ test("shortcuts map keys and ignore typing targets and modifiers", () => {
   assert.equal(shortcutAction({ key: "c" }), "comment");
   assert.equal(shortcutAction({ key: "?" }), "help");
   assert.equal(shortcutAction({ key: "x" }), null);
+  assert.equal(shortcutAction({ key: "1" }), "finding-option");
+  assert.equal(shortcutAction({ key: "9" }), "finding-option");
+  assert.equal(shortcutAction({ key: "0" }), null);
+  assert.equal(shortcutAction({ key: "r" }), "finding-reply");
+  assert.equal(shortcutAction({ key: "2", targetTag: "TEXTAREA" }), null);
   assert.equal(shortcutAction({ key: "j", ctrlKey: true }), null);
   assert.equal(shortcutAction({ key: "j", targetTag: "TEXTAREA" }), null);
   assert.equal(shortcutAction({ key: "j", targetTag: "INPUT", targetType: "search" }), null);
